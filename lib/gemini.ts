@@ -2,7 +2,9 @@
 import { ApiError, GoogleGenAI, Type, type Content } from "@google/genai";
 import type { CharacterProfile, World } from "./types";
 
-export const GEMINI_MODEL = "gemini-2.5-flash";
+// "-latest" 별칭을 쓰면 Google이 모델을 교체해도(2주 전 안내) 여기를 계속
+// 고칠 필요가 없다. 특정 모델명을 고정하면 그 모델이 만료됐을 때 404가 난다.
+export const GEMINI_MODEL = "gemini-flash-latest";
 
 export type GeminiErrorKind = "quota" | "network" | "unknown";
 

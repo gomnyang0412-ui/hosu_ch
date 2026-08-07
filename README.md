@@ -9,7 +9,7 @@
 
 - Next.js (App Router) + TypeScript
 - Tailwind CSS
-- Google Gemini API (`gemini-2.5-flash`)
+- Google Gemini API (`gemini-flash-latest` — Google이 관리하는 최신 Flash 모델 별칭. 특정 모델을 고정하지 않아 모델 만료로 인한 오류를 피한다)
 - 데이터 저장: 브라우저 `localStorage` (로그인/DB 없음, `lib/storage.ts`에 모아둠)
 
 ## 로컬에서 실행하기
