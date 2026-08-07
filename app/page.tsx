@@ -35,7 +35,7 @@ export default function CharacterListPage() {
             <p>아래 버튼으로 첫 캐릭터를 만들어 보세요.</p>
           </div>
         ) : (
-          <ul className="flex flex-col gap-2">
+          <ul className="grid grid-cols-1 gap-2 lg:grid-cols-2 lg:gap-3">
             {characters.map((c) => (
               <li key={c.id}>
                 <div

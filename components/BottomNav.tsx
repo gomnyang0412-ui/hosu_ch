@@ -12,7 +12,7 @@ export default function BottomNav() {
   const pathname = usePathname();
 
   return (
-    <nav className="sticky bottom-0 z-10 flex border-t border-border bg-card">
+    <nav className="sticky bottom-0 z-10 flex border-t border-border bg-card lg:hidden">
       {TABS.map((tab) => {
         const active = pathname === tab.href;
         return (

@@ -184,14 +184,14 @@ export default function ChatPage() {
           m.role === "model" ? (
             <div key={`${m.ts}-${i}`} className="flex items-end gap-2">
               <CharacterAvatar character={character} size="sm" />
-              <div className="max-w-[75%] whitespace-pre-wrap rounded-2xl rounded-bl-sm bg-card border border-border px-3 py-2 text-sm leading-relaxed">
+              <div className="max-w-[75%] whitespace-pre-wrap rounded-2xl rounded-bl-sm bg-card border border-border px-3 py-2 text-sm leading-relaxed md:max-w-[420px]">
                 {m.text}
               </div>
             </div>
           ) : (
             <div key={`${m.ts}-${i}`} className="flex justify-end">
               <div
-                className="max-w-[75%] whitespace-pre-wrap rounded-2xl rounded-br-sm px-3 py-2 text-sm leading-relaxed text-white"
+                className="max-w-[75%] whitespace-pre-wrap rounded-2xl rounded-br-sm px-3 py-2 text-sm leading-relaxed text-white md:max-w-[420px]"
                 style={{ backgroundColor: character.accentColor }}
               >
                 {m.text}

@@ -157,7 +157,7 @@ export default function ObservePage() {
         )}
       </header>
 
-      <main className="flex-1 px-4 pb-4">
+      <main className="mx-auto w-full max-w-[680px] flex-1 px-4 pb-4">
         {!session ? (
           <div className="flex flex-col gap-5">
             {allCharacters.length < 2 ? (
