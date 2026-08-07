@@ -1,12 +1,13 @@
 // Redis(Upstash) 기반 저장 로직. 이 파일은 서버(Route Handler)에서만 import한다.
 import { Redis } from "@upstash/redis";
 import {
+  ORG_UNIVERSE_ID,
   RELATION_SLOT_COUNT,
-  emptyWorld,
+  createOrgUniverse,
   type Character,
   type ChatMessage,
   type ObservationSession,
-  type World,
+  type Universe,
 } from "./types";
 
 /** 데이터베이스 환경 변수가 아직 설정되지 않았을 때 던지는 에러 */
@@ -41,10 +42,24 @@ function getRedis(): Redis {
 
 const KEYS = {
   characters: "cc:characters",
-  world: "cc:world",
+  universes: "cc:universes",
+  /** 예전 버전(단일 세계관)이 쓰던 키. ORG 마이그레이션에만 읽는다. */
+  legacyWorld: "cc:world",
   chatPrefix: "cc:chat:",
-  observation: "cc:observation",
+  observationPrefix: "cc:observation:",
 } as const;
+
+function chatKey(universeId: string, characterId: string) {
+  return `${KEYS.chatPrefix}${universeId}:${characterId}`;
+}
+
+function legacyChatKey(characterId: string) {
+  return `${KEYS.chatPrefix}${characterId}`;
+}
+
+function observationKey(universeId: string) {
+  return `${KEYS.observationPrefix}${universeId}`;
+}
 
 // ---------- 캐릭터 ----------
 
@@ -56,14 +71,9 @@ export async function saveCharacters(characters: Character[]): Promise<void> {
   await getRedis().set(KEYS.characters, characters);
 }
 
-// ---------- 세계관 ----------
+// ---------- 세계관(유니버스) ----------
 
-export async function getWorld(): Promise<World> {
-  const raw = await getRedis().get<Record<string, unknown>>(KEYS.world);
-  if (!raw) return emptyWorld();
-
-  // 예전 버전(worldSetting + relatedPeople만 있던 시절)의 데이터를
-  // 새 구조로 옮긴다. relatedPeople에 있던 내용은 "관계 1"로 이어진다.
+function normalizeUniverse(raw: Record<string, unknown>): Universe {
   const rawRelations = Array.isArray(raw.relations)
     ? (raw.relations as unknown[]).map((r) => (typeof r === "string" ? r : ""))
     : [];
@@ -71,61 +81,180 @@ export async function getWorld(): Promise<World> {
     { length: RELATION_SLOT_COUNT },
     (_, i) => rawRelations[i] ?? ""
   );
-  if (
-    rawRelations.length === 0 &&
-    typeof raw.relatedPeople === "string" &&
-    raw.relatedPeople.trim()
-  ) {
-    relations[0] = raw.relatedPeople;
-  }
-
   return {
+    id: typeof raw.id === "string" ? raw.id : crypto.randomUUID(),
+    type: raw.type === "org" ? "org" : "au",
+    title: typeof raw.title === "string" ? raw.title : "",
+    tagline: typeof raw.tagline === "string" ? raw.tagline : undefined,
+    tags: Array.isArray(raw.tags)
+      ? (raw.tags as unknown[]).filter((t): t is string => typeof t === "string")
+      : [],
     worldSetting: typeof raw.worldSetting === "string" ? raw.worldSetting : "",
     faction: typeof raw.faction === "string" ? raw.faction : "",
     relations,
     glossary: typeof raw.glossary === "string" ? raw.glossary : "",
     summary: typeof raw.summary === "string" ? raw.summary : "",
     image: typeof raw.image === "string" ? raw.image : undefined,
+    createdAt: typeof raw.createdAt === "number" ? raw.createdAt : Date.now(),
+    updatedAt: typeof raw.updatedAt === "number" ? raw.updatedAt : Date.now(),
   };
 }
 
-export async function saveWorld(world: World): Promise<void> {
-  await getRedis().set(KEYS.world, world);
+/** ORG를 포함한 전체 세계관 목록을 반환한다. ORG는 항상 존재한다. */
+export async function getUniverses(): Promise<Universe[]> {
+  const raw = await getRedis().get<Record<string, unknown>[]>(KEYS.universes);
+  if (raw && raw.length > 0) {
+    return raw.map(normalizeUniverse);
+  }
+
+  // 예전 버전(단일 세계관)의 데이터가 있으면 ORG로 옮긴다.
+  const legacy = await getRedis().get<Record<string, unknown>>(
+    KEYS.legacyWorld
+  );
+  let org: Universe;
+  if (legacy) {
+    const rawRelations = Array.isArray(legacy.relations)
+      ? (legacy.relations as unknown[]).map((r) =>
+          typeof r === "string" ? r : ""
+        )
+      : [];
+    const relations = Array.from(
+      { length: RELATION_SLOT_COUNT },
+      (_, i) => rawRelations[i] ?? ""
+    );
+    if (
+      rawRelations.length === 0 &&
+      typeof legacy.relatedPeople === "string" &&
+      legacy.relatedPeople.trim()
+    ) {
+      relations[0] = legacy.relatedPeople;
+    }
+    org = {
+      ...createOrgUniverse(),
+      worldSetting:
+        typeof legacy.worldSetting === "string" ? legacy.worldSetting : "",
+      faction: typeof legacy.faction === "string" ? legacy.faction : "",
+      relations,
+      glossary: typeof legacy.glossary === "string" ? legacy.glossary : "",
+      summary: typeof legacy.summary === "string" ? legacy.summary : "",
+      image: typeof legacy.image === "string" ? legacy.image : undefined,
+    };
+  } else {
+    org = createOrgUniverse();
+  }
+
+  const universes = [org];
+  await getRedis().set(KEYS.universes, universes);
+  return universes;
 }
 
-// ---------- 1:1 대화 기록 ----------
+export async function getUniverse(id: string): Promise<Universe | undefined> {
+  const universes = await getUniverses();
+  return universes.find((u) => u.id === id);
+}
+
+/** 세계관 하나를 만들거나 덮어쓴다 (id가 같으면 수정) */
+export async function saveUniverse(universe: Universe): Promise<void> {
+  const universes = await getUniverses();
+  const idx = universes.findIndex((u) => u.id === universe.id);
+  if (idx >= 0) {
+    universes[idx] = universe;
+  } else {
+    universes.push(universe);
+  }
+  await getRedis().set(KEYS.universes, universes);
+}
+
+/** AU 하나를 삭제한다 (ORG는 호출부에서 막는다) */
+export async function deleteUniverse(id: string): Promise<void> {
+  const universes = await getUniverses();
+  await getRedis().set(
+    KEYS.universes,
+    universes.filter((u) => u.id !== id)
+  );
+  await getRedis().del(observationKey(id));
+}
+
+// ---------- 1:1 대화 기록 (유니버스별) ----------
 
 export async function getChatHistory(
+  universeId: string,
   characterId: string
 ): Promise<ChatMessage[]> {
-  return (
-    (await getRedis().get<ChatMessage[]>(KEYS.chatPrefix + characterId)) ?? []
+  const existing = await getRedis().get<ChatMessage[]>(
+    chatKey(universeId, characterId)
   );
+  if (existing) return existing;
+  if (universeId === ORG_UNIVERSE_ID) {
+    // 예전 버전(유니버스 구분이 없던 시절)의 대화 기록을 그대로 보여준다.
+    // 다음에 저장되면 새 키로 옮겨진다.
+    const legacy = await getRedis().get<ChatMessage[]>(
+      legacyChatKey(characterId)
+    );
+    if (legacy) return legacy;
+  }
+  return [];
 }
 
 export async function saveChatHistory(
+  universeId: string,
   characterId: string,
   messages: ChatMessage[]
 ): Promise<void> {
-  await getRedis().set(KEYS.chatPrefix + characterId, messages);
+  await getRedis().set(chatKey(universeId, characterId), messages);
 }
 
-export async function clearChatHistory(characterId: string): Promise<void> {
-  await getRedis().del(KEYS.chatPrefix + characterId);
+export async function clearChatHistory(
+  universeId: string,
+  characterId: string
+): Promise<void> {
+  await getRedis().del(chatKey(universeId, characterId));
+  if (universeId === ORG_UNIVERSE_ID) {
+    await getRedis().del(legacyChatKey(characterId));
+  }
 }
 
-// ---------- 관찰 모드 세션 ----------
+/** 캐릭터를 삭제할 때, 모든 세계관에 걸친 그 캐릭터의 대화 기록을 지운다 */
+export async function clearChatHistoryEverywhere(
+  characterId: string
+): Promise<void> {
+  const universes = await getUniverses();
+  await Promise.all([
+    ...universes.map((u) => getRedis().del(chatKey(u.id, characterId))),
+    getRedis().del(legacyChatKey(characterId)),
+  ]);
+}
 
-export async function getObservationSession(): Promise<ObservationSession | null> {
-  return (await getRedis().get<ObservationSession>(KEYS.observation)) ?? null;
+// ---------- 관찰 모드 세션 (유니버스별) ----------
+
+export async function getObservationSession(
+  universeId: string
+): Promise<ObservationSession | null> {
+  const existing = await getRedis().get<ObservationSession>(
+    observationKey(universeId)
+  );
+  if (existing) return existing;
+  if (universeId === ORG_UNIVERSE_ID) {
+    // 예전 버전(유니버스 구분이 없던 시절)의 관찰 세션을 그대로 보여준다.
+    const legacy = await getRedis().get<Omit<ObservationSession, "universeId">>(
+      "cc:observation"
+    );
+    if (legacy) return { ...legacy, universeId: ORG_UNIVERSE_ID };
+  }
+  return null;
 }
 
 export async function saveObservationSession(
   session: ObservationSession
 ): Promise<void> {
-  await getRedis().set(KEYS.observation, session);
+  await getRedis().set(observationKey(session.universeId), session);
 }
 
-export async function clearObservationSession(): Promise<void> {
-  await getRedis().del(KEYS.observation);
+export async function clearObservationSession(
+  universeId: string
+): Promise<void> {
+  await getRedis().del(observationKey(universeId));
+  if (universeId === ORG_UNIVERSE_ID) {
+    await getRedis().del("cc:observation");
+  }
 }

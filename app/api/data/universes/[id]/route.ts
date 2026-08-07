@@ -1,10 +1,6 @@
 import { NextResponse } from "next/server";
-import {
-  DbConfigError,
-  clearChatHistoryEverywhere,
-  getCharacters,
-  saveCharacters,
-} from "@/lib/db";
+import { DbConfigError, deleteUniverse } from "@/lib/db";
+import { ORG_UNIVERSE_ID } from "@/lib/types";
 
 export const runtime = "nodejs";
 
@@ -13,10 +9,14 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+  if (id === ORG_UNIVERSE_ID) {
+    return NextResponse.json(
+      { error: "오리지널 세계관은 삭제할 수 없어요." },
+      { status: 400 }
+    );
+  }
   try {
-    const list = await getCharacters();
-    await saveCharacters(list.filter((c) => c.id !== id));
-    await clearChatHistoryEverywhere(id);
+    await deleteUniverse(id);
     return NextResponse.json({ ok: true });
   } catch (err) {
     return NextResponse.json(
@@ -24,7 +24,7 @@ export async function DELETE(
         error:
           err instanceof DbConfigError
             ? err.message
-            : "캐릭터를 삭제하지 못했어요.",
+            : "세계관을 삭제하지 못했어요.",
       },
       { status: 502 }
     );

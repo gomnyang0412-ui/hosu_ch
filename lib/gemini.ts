@@ -1,6 +1,6 @@
 // Gemini API 호출 공통 로직. 이 파일은 서버(Route Handler)에서만 import한다.
 import { ApiError, GoogleGenAI, Type, type Content } from "@google/genai";
-import type { CharacterProfile, World } from "./types";
+import type { CharacterProfile, Universe } from "./types";
 
 // "-latest" 별칭을 쓰면 Google이 모델을 교체해도(2주 전 안내) 여기를 계속
 // 고칠 필요가 없다. 특정 모델명을 고정하면 그 모델이 만료됐을 때 404가 난다.
@@ -76,26 +76,36 @@ export function characterLines(c: CharacterProfile): string[] {
   ].filter(Boolean);
 }
 
-/** 세계관 설정을 시스템 프롬프트용 텍스트로 합친다 */
-export function worldBlock(world: World): string {
+/** 세계관(유니버스) 설정을 시스템 프롬프트용 텍스트로 합친다 */
+export function worldBlock(universe: Universe): string {
   const parts: string[] = [];
-  if (world.worldSetting.trim()) {
-    parts.push(`[세계관]\n${world.worldSetting.trim()}`);
+  if (universe.type === "au") {
+    parts.push(
+      [
+        `[세계관 종류]`,
+        `이건 오리지널 설정이 아니라 "${universe.title}"라는 AU(다른 세계관)다.`,
+        `아래 세계관 설정을 기준으로 하되, 인물의 이름과 근본적인 성격의 뿌리는 유지하면서`,
+        `이 세계관에 맞게 상황과 관계를 재해석해서 연기한다.`,
+      ].join("\n")
+    );
   }
-  if (world.faction?.trim()) {
-    parts.push(`[파벌]\n${world.faction.trim()}`);
+  if (universe.worldSetting.trim()) {
+    parts.push(`[세계관]\n${universe.worldSetting.trim()}`);
   }
-  const relationLines = (world.relations ?? [])
+  if (universe.faction?.trim()) {
+    parts.push(`[파벌]\n${universe.faction.trim()}`);
+  }
+  const relationLines = (universe.relations ?? [])
     .map((r, i) => (r?.trim() ? `- 관계 ${i + 1}: ${r.trim()}` : ""))
     .filter(Boolean);
   if (relationLines.length > 0) {
     parts.push(`[관계]\n${relationLines.join("\n")}`);
   }
-  if (world.glossary?.trim()) {
-    parts.push(`[용어 및 설정]\n${world.glossary.trim()}`);
+  if (universe.glossary?.trim()) {
+    parts.push(`[용어 및 설정]\n${universe.glossary.trim()}`);
   }
-  if (world.summary?.trim()) {
-    parts.push(`[요약]\n${world.summary.trim()}`);
+  if (universe.summary?.trim()) {
+    parts.push(`[요약]\n${universe.summary.trim()}`);
   }
   return parts.join("\n\n");
 }

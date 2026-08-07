@@ -1,21 +1,25 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import BottomNav from "@/components/BottomNav";
 import CharacterAvatar from "@/components/CharacterAvatar";
 import {
   getCharacters,
   getObservationSession,
-  getWorld,
+  getUniverse,
   saveObservationSession,
   clearObservationSession,
 } from "@/lib/storage";
 import {
   ACCENT_COLORS,
+  ORG_UNIVERSE_ID,
+  createOrgUniverse,
   toCharacterProfile,
   type Character,
   type ObservationSession,
   type SceneItem,
+  type Universe,
 } from "@/lib/types";
 
 const MAX_CONTEXT_ITEMS = 30;
@@ -35,6 +39,18 @@ function findCharacter(
 }
 
 export default function ObservePage() {
+  return (
+    <Suspense fallback={null}>
+      <ObservePageInner />
+    </Suspense>
+  );
+}
+
+function ObservePageInner() {
+  const searchParams = useSearchParams();
+  const universeId = searchParams.get("universe") || ORG_UNIVERSE_ID;
+
+  const [universe, setUniverse] = useState<Universe | null>(null);
   const [allCharacters, setAllCharacters] = useState<Character[]>([]);
   const [session, setSession] = useState<ObservationSession | null | undefined>(
     undefined
@@ -47,20 +63,26 @@ export default function ObservePage() {
   const [loadError, setLoadError] = useState("");
 
   useEffect(() => {
+    setSession(undefined);
+    setSelectedIds([]);
+    setTopic("");
+    setError(null);
     (async () => {
       try {
-        const [characters, obsSession] = await Promise.all([
+        const [characters, obsSession, foundUniverse] = await Promise.all([
           getCharacters(),
-          getObservationSession(),
+          getObservationSession(universeId),
+          getUniverse(universeId).catch(() => undefined),
         ]);
         setAllCharacters(characters);
         setSession(obsSession);
+        setUniverse(foundUniverse ?? createOrgUniverse());
       } catch {
         setLoadError("불러오지 못했어요. 새로고침해 주세요.");
         setSession(null);
       }
     })();
-  }, []);
+  }, [universeId]);
 
   const sceneCharacters = session
     ? session.characterIds
@@ -79,16 +101,16 @@ export default function ObservePage() {
     topic: string;
     previousItems?: SceneItem[];
   }) {
+    if (!universe) return null;
     setLoading(true);
     setError(null);
     try {
-      const world = await getWorld();
       const res = await fetch("/api/scene", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           characters: params.characters.map(toCharacterProfile),
-          world,
+          universe,
           topic: params.topic,
           previousItems: params.previousItems?.slice(-MAX_CONTEXT_ITEMS),
         }),
@@ -119,6 +141,7 @@ export default function ObservePage() {
     const items = await requestScene({ characters, topic: topic.trim() });
     if (!items) return;
     const newSession: ObservationSession = {
+      universeId,
       characterIds: selectedIds,
       topic: topic.trim(),
       items,
@@ -157,7 +180,7 @@ export default function ObservePage() {
   async function handleRestart() {
     if (!window.confirm("지금 장면을 지우고 새로 시작할까요?")) return;
     try {
-      await clearObservationSession();
+      await clearObservationSession(universeId);
     } catch {
       // 서버에서 못 지웠어도 화면은 새 설정 화면으로 돌아간다
     }
@@ -169,10 +192,14 @@ export default function ObservePage() {
 
   if (session === undefined) return null;
 
+  const isAu = universe && universe.type === "au";
+
   return (
     <div className="flex flex-1 flex-col">
       <header className="flex items-center justify-between px-4 pt-5 pb-3">
-        <h1 className="text-xl font-bold">관찰 모드</h1>
+        <h1 className="text-xl font-bold">
+          관찰 모드{isAu && <span className="text-muted"> · {universe.title}</span>}
+        </h1>
         {session && (
           <button
             type="button"

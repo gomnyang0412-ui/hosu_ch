@@ -1,19 +1,26 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useRef, useState } from "react";
 import CharacterAvatar from "@/components/CharacterAvatar";
 import TopBar from "@/components/TopBar";
 import {
   getCharacter,
   getChatHistory,
-  getWorld,
+  getUniverse,
   saveChatHistory,
   clearChatHistory,
   StorageError,
 } from "@/lib/storage";
-import { toCharacterProfile, type Character, type ChatMessage } from "@/lib/types";
+import {
+  ORG_UNIVERSE_ID,
+  createOrgUniverse,
+  toCharacterProfile,
+  type Character,
+  type ChatMessage,
+  type Universe,
+} from "@/lib/types";
 
 interface ChatErrorState {
   message: string;
@@ -21,10 +28,21 @@ interface ChatErrorState {
 }
 
 export default function ChatPage() {
+  return (
+    <Suspense fallback={null}>
+      <ChatPageInner />
+    </Suspense>
+  );
+}
+
+function ChatPageInner() {
   const { id } = useParams<{ id: string }>();
+  const searchParams = useSearchParams();
+  const universeId = searchParams.get("universe") || ORG_UNIVERSE_ID;
   const router = useRouter();
 
   const [character, setCharacter] = useState<Character | null>(null);
+  const [universe, setUniverse] = useState<Universe | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loadError, setLoadError] = useState("");
   const [input, setInput] = useState("");
@@ -72,15 +90,20 @@ export default function ChatPage() {
       }
       setCharacter(found);
 
+      const foundUniverse = await getUniverse(universeId).catch(
+        () => undefined
+      );
+      setUniverse(foundUniverse ?? createOrgUniverse());
+
       try {
-        const history = await getChatHistory(id);
+        const history = await getChatHistory(universeId, id);
         if (history.length === 0 && found.firstMessage.trim()) {
           const seeded: ChatMessage[] = [
             { role: "model", text: found.firstMessage.trim(), ts: Date.now() },
           ];
           setMessages(seeded);
           try {
-            await saveChatHistory(id, seeded);
+            await saveChatHistory(universeId, id, seeded);
           } catch {
             // 저장 실패해도 화면에는 첫 인사를 보여준다
           }
@@ -91,23 +114,26 @@ export default function ChatPage() {
         setLoadError("대화 기록을 불러오지 못했어요. 새로고침해 주세요.");
       }
     })();
-  }, [id, router]);
+  }, [id, universeId, router]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: "end" });
   }, [messages.length, loading]);
 
-  async function sendToAI(chatCharacter: Character, history: ChatMessage[]) {
+  async function sendToAI(
+    chatCharacter: Character,
+    chatUniverse: Universe,
+    history: ChatMessage[]
+  ) {
     setLoading(true);
     setError(null);
     try {
-      const world = await getWorld();
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           character: toCharacterProfile(chatCharacter),
-          world,
+          universe: chatUniverse,
           history,
         }),
       });
@@ -125,7 +151,7 @@ export default function ChatPage() {
       ];
       setMessages(next);
       try {
-        await saveChatHistory(id, next);
+        await saveChatHistory(universeId, id, next);
       } catch (err) {
         setError({
           message:
@@ -147,7 +173,7 @@ export default function ChatPage() {
 
   async function handleSend() {
     const text = input.trim();
-    if (!text || !character || loading) return;
+    if (!text || !character || !universe || loading) return;
     const next: ChatMessage[] = [
       ...messages,
       { role: "user", text, ts: Date.now() },
@@ -155,7 +181,7 @@ export default function ChatPage() {
     setMessages(next);
     setInput("");
     try {
-      await saveChatHistory(id, next);
+      await saveChatHistory(universeId, id, next);
     } catch (err) {
       setError({
         message:
@@ -165,24 +191,24 @@ export default function ChatPage() {
         kind: "unknown",
       });
     }
-    sendToAI(character, next);
+    sendToAI(character, universe, next);
   }
 
   function handleRetry() {
-    if (!character) return;
-    sendToAI(character, messages);
+    if (!character || !universe) return;
+    sendToAI(character, universe, messages);
   }
 
   async function handleReset() {
     if (!character) return;
     if (!window.confirm("이 캐릭터와의 대화 기록을 모두 지울까요?")) return;
     try {
-      await clearChatHistory(id);
+      await clearChatHistory(universeId, id);
       const seeded: ChatMessage[] = character.firstMessage.trim()
         ? [{ role: "model", text: character.firstMessage.trim(), ts: Date.now() }]
         : [];
       setMessages(seeded);
-      if (seeded.length) await saveChatHistory(id, seeded);
+      if (seeded.length) await saveChatHistory(universeId, id, seeded);
       setError(null);
     } catch (err) {
       setError({
@@ -201,13 +227,15 @@ export default function ChatPage() {
     ) : null;
   }
 
+  const isAu = universe && universe.type === "au";
+
   return (
     <div
       className="flex flex-1 flex-col overflow-hidden"
       style={viewportHeight ? { height: viewportHeight } : undefined}
     >
       <TopBar
-        title={character.name}
+        title={isAu ? `${character.name} · ${universe.title}` : character.name}
         right={
           <div className="flex shrink-0 items-center gap-1">
             <button

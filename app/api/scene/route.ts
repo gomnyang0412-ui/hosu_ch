@@ -7,24 +7,24 @@ import {
   worldBlock,
 } from "@/lib/gemini";
 import { parseSceneItems, serializeItems } from "@/lib/scene";
-import type { CharacterProfile, SceneItem, World } from "@/lib/types";
+import type { CharacterProfile, SceneItem, Universe } from "@/lib/types";
 
 export const runtime = "nodejs";
 
 interface SceneRequestBody {
   characters: CharacterProfile[];
-  world: World;
+  universe: Universe;
   topic: string;
   previousItems?: SceneItem[];
 }
 
 function buildSystemInstruction(
   characters: CharacterProfile[],
-  world: World
+  universe: Universe
 ): string {
   const blocks: string[] = [];
 
-  const world_ = worldBlock(world);
+  const world_ = worldBlock(universe);
   if (world_) blocks.push(world_);
 
   blocks.push(
@@ -112,7 +112,7 @@ export async function POST(request: Request) {
 
   try {
     const raw = await generateSceneJson({
-      systemInstruction: buildSystemInstruction(body.characters, body.world),
+      systemInstruction: buildSystemInstruction(body.characters, body.universe),
       contents,
     });
     const items = parseSceneItems(raw);

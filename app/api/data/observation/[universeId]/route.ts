@@ -1,29 +1,29 @@
 import { NextResponse } from "next/server";
 import {
   DbConfigError,
-  clearChatHistory,
-  getChatHistory,
-  saveChatHistory,
+  clearObservationSession,
+  getObservationSession,
+  saveObservationSession,
 } from "@/lib/db";
-import type { ChatMessage } from "@/lib/types";
+import type { ObservationSession } from "@/lib/types";
 
 export const runtime = "nodejs";
 
 export async function GET(
   _request: Request,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ universeId: string }> }
 ) {
-  const { id } = await params;
+  const { universeId } = await params;
   try {
-    const messages = await getChatHistory(id);
-    return NextResponse.json({ messages });
+    const session = await getObservationSession(universeId);
+    return NextResponse.json({ session });
   } catch (err) {
     return NextResponse.json(
       {
         error:
           err instanceof DbConfigError
             ? err.message
-            : "대화 기록을 불러오지 못했어요.",
+            : "관찰 장면을 불러오지 못했어요.",
       },
       { status: 502 }
     );
@@ -32,18 +32,17 @@ export async function GET(
 
 export async function POST(
   request: Request,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ universeId: string }> }
 ) {
-  const { id } = await params;
-  let messages: ChatMessage[];
+  const { universeId } = await params;
+  let session: ObservationSession;
   try {
-    ({ messages } = await request.json());
-    if (!Array.isArray(messages)) throw new Error("invalid");
+    session = await request.json();
   } catch {
     return NextResponse.json({ error: "잘못된 요청이에요." }, { status: 400 });
   }
   try {
-    await saveChatHistory(id, messages);
+    await saveObservationSession({ ...session, universeId });
     return NextResponse.json({ ok: true });
   } catch (err) {
     return NextResponse.json(
@@ -51,7 +50,7 @@ export async function POST(
         error:
           err instanceof DbConfigError
             ? err.message
-            : "대화 기록을 저장하지 못했어요.",
+            : "관찰 장면을 저장하지 못했어요.",
       },
       { status: 502 }
     );
@@ -60,11 +59,11 @@ export async function POST(
 
 export async function DELETE(
   _request: Request,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ universeId: string }> }
 ) {
-  const { id } = await params;
+  const { universeId } = await params;
   try {
-    await clearChatHistory(id);
+    await clearObservationSession(universeId);
     return NextResponse.json({ ok: true });
   } catch (err) {
     return NextResponse.json(
@@ -72,7 +71,7 @@ export async function DELETE(
         error:
           err instanceof DbConfigError
             ? err.message
-            : "대화 기록을 지우지 못했어요.",
+            : "관찰 장면을 지우지 못했어요.",
       },
       { status: 502 }
     );

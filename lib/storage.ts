@@ -5,7 +5,7 @@ import type {
   Character,
   ChatMessage,
   ObservationSession,
-  World,
+  Universe,
 } from "./types";
 
 /** 서버와 통신하지 못했을 때 던지는 에러 */
@@ -60,47 +60,70 @@ export async function deleteCharacter(id: string): Promise<void> {
   await request(`/api/data/characters/${id}`, { method: "DELETE" });
 }
 
-// ---------- 세계관 ----------
+// ---------- 세계관(유니버스) ----------
 
-export async function getWorld(): Promise<World> {
-  return request<World>("/api/data/world");
+export async function getUniverses(): Promise<Universe[]> {
+  const data = await request<{ universes: Universe[] }>(
+    "/api/data/universes"
+  );
+  return data.universes;
 }
 
-export async function saveWorld(world: World): Promise<void> {
-  await request("/api/data/world", {
+export async function getUniverse(id: string): Promise<Universe | undefined> {
+  const universes = await getUniverses();
+  return universes.find((u) => u.id === id);
+}
+
+export async function saveUniverse(universe: Universe): Promise<void> {
+  await request("/api/data/universes", {
     method: "POST",
-    body: JSON.stringify(world),
+    body: JSON.stringify(universe),
   });
+}
+
+export async function deleteUniverse(id: string): Promise<void> {
+  await request(`/api/data/universes/${id}`, { method: "DELETE" });
 }
 
 // ---------- 1:1 대화 기록 ----------
 
-export async function getChatHistory(characterId: string): Promise<ChatMessage[]> {
+export async function getChatHistory(
+  universeId: string,
+  characterId: string
+): Promise<ChatMessage[]> {
   const data = await request<{ messages: ChatMessage[] }>(
-    `/api/data/chat/${characterId}`
+    `/api/data/chat/${universeId}/${characterId}`
   );
   return data.messages;
 }
 
 export async function saveChatHistory(
+  universeId: string,
   characterId: string,
   messages: ChatMessage[]
 ): Promise<void> {
-  await request(`/api/data/chat/${characterId}`, {
+  await request(`/api/data/chat/${universeId}/${characterId}`, {
     method: "POST",
     body: JSON.stringify({ messages }),
   });
 }
 
-export async function clearChatHistory(characterId: string): Promise<void> {
-  await request(`/api/data/chat/${characterId}`, { method: "DELETE" });
+export async function clearChatHistory(
+  universeId: string,
+  characterId: string
+): Promise<void> {
+  await request(`/api/data/chat/${universeId}/${characterId}`, {
+    method: "DELETE",
+  });
 }
 
 // ---------- 관찰 모드 세션 ----------
 
-export async function getObservationSession(): Promise<ObservationSession | null> {
+export async function getObservationSession(
+  universeId: string
+): Promise<ObservationSession | null> {
   const data = await request<{ session: ObservationSession | null }>(
-    "/api/data/observation"
+    `/api/data/observation/${universeId}`
   );
   return data.session;
 }
@@ -108,12 +131,14 @@ export async function getObservationSession(): Promise<ObservationSession | null
 export async function saveObservationSession(
   session: ObservationSession
 ): Promise<void> {
-  await request("/api/data/observation", {
+  await request(`/api/data/observation/${session.universeId}`, {
     method: "POST",
     body: JSON.stringify(session),
   });
 }
 
-export async function clearObservationSession(): Promise<void> {
-  await request("/api/data/observation", { method: "DELETE" });
+export async function clearObservationSession(
+  universeId: string
+): Promise<void> {
+  await request(`/api/data/observation/${universeId}`, { method: "DELETE" });
 }

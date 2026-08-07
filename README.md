@@ -4,6 +4,7 @@
 
 - 1:1 대화: 캐릭터 한 명과 메신저처럼 대화
 - 관찰 모드: 캐릭터 2명 이상이 등장하는 장면을 비주얼 노벨처럼 읽기
+- AU(세계관): 오리지널 세계관(ORG) 외에 여러 개의 AU(다른 세계관)를 만들고, 같은 캐릭터를 AU 설정으로 대화/관찰할 수 있음 (대화 기록은 세계관별로 분리됨)
 
 ## 기술 스택
 
@@ -53,13 +54,14 @@
 
 - `app/` — 화면과 API 라우트
   - `app/page.tsx` — 캐릭터 목록 (하단 탭 1)
-  - `app/observe/page.tsx` — 관찰 모드 (하단 탭 2)
-  - `app/world/page.tsx` — 세계관 설정
+  - `app/au/page.tsx` — 세계관 목록: ORG + AU들 (하단 탭 2)
+  - `app/au/new`, `app/au/[id]/edit` — AU 추가/편집 (ORG도 이 화면에서 편집)
+  - `app/observe/page.tsx` — 관찰 모드 (하단 탭 3, `?universe=` 쿼리로 AU 지정 가능)
   - `app/character/new`, `app/character/[id]/edit` — 캐릭터 추가/편집
-  - `app/character/[id]/chat` — 1:1 대화
+  - `app/character/[id]/chat` — 1:1 대화 (`?universe=` 쿼리로 AU 지정 가능)
   - `app/api/chat/route.ts` — 1:1 대화용 Gemini 호출 (서버 전용)
   - `app/api/scene/route.ts` — 관찰 모드 장면 생성용 Gemini 호출 (서버 전용)
-  - `app/api/data/*` — 캐릭터/세계관/대화기록/관찰세션 CRUD (서버 전용, Redis 사용)
+  - `app/api/data/*` — 캐릭터/세계관(유니버스)/대화기록/관찰세션 CRUD (서버 전용, Redis 사용)
 - `lib/db.ts` — Redis 읽기/쓰기 (서버 전용)
 - `lib/storage.ts` — 브라우저에서 `app/api/data/*`를 호출하는 클라이언트
 - `lib/migrate.ts` — 예전 버전(localStorage 저장 방식)의 데이터를 서버가 비어있을 때 한 번 옮기는 마이그레이션

@@ -75,8 +75,24 @@ export function toCharacterProfile(c: Character): CharacterProfile {
 /** 관계 입력 칸 개수 (관계 1 ~ 관계 10) */
 export const RELATION_SLOT_COUNT = 10;
 
-/** 모든 캐릭터가 공유하는 세계관 설정 */
-export interface World {
+/** 오리지널 세계관(ORG)의 고정 id */
+export const ORG_UNIVERSE_ID = "org";
+
+export type UniverseType = "org" | "au";
+
+/**
+ * 세계관 하나. 오리지널 세계관(ORG)도, 각 AU도 모두 이 형태로 저장된다.
+ * 캐릭터는 그대로 두고 이 세계관 설정만 바꿔서 대화/관찰에 사용한다.
+ */
+export interface Universe {
+  id: string;
+  type: UniverseType;
+  /** ORG는 고정 문구, AU는 사용자가 짓는 제목 */
+  title: string;
+  /** AU 소개 문구 (카드에 짧게 보여줄 설명) */
+  tagline?: string;
+  /** AU 해시태그 (예: ["느와르", "현대물"]) */
+  tags?: string[];
   worldSetting: string;
   /** 파벌 */
   faction: string;
@@ -86,11 +102,16 @@ export interface World {
   glossary: string;
   /** 요약 */
   summary: string;
-  /** 리사이즈된 세계관 이미지 (base64 dataURL). 없으면 undefined */
+  /** 리사이즈된 표지 이미지 (base64 dataURL). 없으면 undefined */
   image?: string;
+  createdAt: number;
+  updatedAt: number;
 }
 
-export function emptyWorld(): World {
+export function emptyUniverseFields(): Pick<
+  Universe,
+  "worldSetting" | "faction" | "relations" | "glossary" | "summary" | "image"
+> {
   return {
     worldSetting: "",
     faction: "",
@@ -98,6 +119,18 @@ export function emptyWorld(): World {
     glossary: "",
     summary: "",
     image: undefined,
+  };
+}
+
+export function createOrgUniverse(): Universe {
+  const now = Date.now();
+  return {
+    id: ORG_UNIVERSE_ID,
+    type: "org",
+    title: "오리지널 세계관",
+    ...emptyUniverseFields(),
+    createdAt: now,
+    updatedAt: now,
   };
 }
 
@@ -126,6 +159,7 @@ export type SceneItem = NarrationItem | DialogueItem;
 
 /** 진행 중인 관찰 모드 세션 (캐릭터 선택 + 주제 + 지금까지의 장면) */
 export interface ObservationSession {
+  universeId: string;
   characterIds: string[];
   topic: string;
   items: SceneItem[];

@@ -30,10 +30,10 @@ export default function CharacterListPage() {
       <header className="flex items-center justify-between px-4 pt-5 pb-3">
         <h1 className="text-xl font-bold">내 캐릭터</h1>
         <Link
-          href="/world"
+          href="/au"
           className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted"
         >
-          🌍 세계관 설정
+          🌍 세계관
         </Link>
       </header>
 

@@ -6,13 +6,13 @@ import {
   generateChatReply,
   worldBlock,
 } from "@/lib/gemini";
-import type { ChatMessage, CharacterProfile, World } from "@/lib/types";
+import type { ChatMessage, CharacterProfile, Universe } from "@/lib/types";
 
 export const runtime = "nodejs";
 
 interface ChatRequestBody {
   character: CharacterProfile;
-  world: World;
+  universe: Universe;
   history: ChatMessage[];
 }
 
@@ -20,11 +20,11 @@ const MAX_HISTORY = 24;
 
 function buildSystemInstruction(
   character: ChatRequestBody["character"],
-  world: World
+  universe: Universe
 ): string {
   const blocks: string[] = [];
 
-  const world_ = worldBlock(world);
+  const world_ = worldBlock(universe);
   if (world_) blocks.push(world_);
 
   blocks.push([`[캐릭터]`, ...characterLines(character)].join("\n"));
@@ -69,7 +69,7 @@ export async function POST(request: Request) {
 
   try {
     const reply = await generateChatReply({
-      systemInstruction: buildSystemInstruction(body.character, body.world),
+      systemInstruction: buildSystemInstruction(body.character, body.universe),
       contents,
     });
     return NextResponse.json({ reply });

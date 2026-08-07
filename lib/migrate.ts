@@ -1,7 +1,19 @@
 // 예전 버전(브라우저 localStorage 저장 방식)에 남아있던 데이터를
 // 서버가 비어있을 때 한 번만 서버로 옮기는 마이그레이션.
-import { getCharacters, saveCharacter, saveChatHistory, saveWorld, saveObservationSession } from "./storage";
-import type { Character, ChatMessage, ObservationSession, World } from "./types";
+import {
+  getCharacters,
+  saveCharacter,
+  saveChatHistory,
+  saveUniverse,
+  saveObservationSession,
+} from "./storage";
+import {
+  ORG_UNIVERSE_ID,
+  createOrgUniverse,
+  type Character,
+  type ChatMessage,
+  type ObservationSession,
+} from "./types";
 
 const OLD_KEYS = {
   characters: "cc_characters",
@@ -9,6 +21,12 @@ const OLD_KEYS = {
   chatPrefix: "cc_chat_",
   observation: "cc_observation",
 } as const;
+
+/** 유니버스 개념이 생기기 전, localStorage에 저장되던 세계관 형태 */
+interface OldWorld {
+  worldSetting?: string;
+  relatedPeople?: string;
+}
 
 function readLocal<T>(key: string): T | null {
   try {
@@ -41,18 +59,25 @@ export async function migrateFromLocalStorageIfNeeded(): Promise<void> {
         OLD_KEYS.chatPrefix + character.id
       );
       if (messages && messages.length > 0) {
-        await saveChatHistory(character.id, messages);
+        await saveChatHistory(ORG_UNIVERSE_ID, character.id, messages);
       }
     }
 
-    const world = readLocal<World>(OLD_KEYS.world);
-    if (world) {
-      await saveWorld(world);
+    const oldWorld = readLocal<OldWorld>(OLD_KEYS.world);
+    if (oldWorld) {
+      const org = createOrgUniverse();
+      org.worldSetting = oldWorld.worldSetting ?? "";
+      if (oldWorld.relatedPeople?.trim()) {
+        org.relations[0] = oldWorld.relatedPeople;
+      }
+      await saveUniverse(org);
     }
 
-    const observation = readLocal<ObservationSession>(OLD_KEYS.observation);
+    const observation = readLocal<Omit<ObservationSession, "universeId">>(
+      OLD_KEYS.observation
+    );
     if (observation) {
-      await saveObservationSession(observation);
+      await saveObservationSession({ ...observation, universeId: ORG_UNIVERSE_ID });
     }
   } catch {
     // 일부만 옮겨졌더라도 로컬 데이터는 그대로 남아있으니 다음에 다시 시도된다

@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 
 const TABS = [
   { href: "/", label: "캐릭터", icon: "👤" },
+  { href: "/au", label: "AU", icon: "✨" },
   { href: "/observe", label: "관찰", icon: "🎭" },
 ] as const;
 
@@ -14,7 +15,8 @@ export default function BottomNav() {
   return (
     <nav className="sticky bottom-0 z-10 flex border-t border-border bg-card lg:hidden">
       {TABS.map((tab) => {
-        const active = pathname === tab.href;
+        const active =
+          tab.href === "/" ? pathname === "/" : pathname.startsWith(tab.href);
         return (
           <Link
             key={tab.href}
