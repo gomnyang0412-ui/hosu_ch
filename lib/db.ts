@@ -1,10 +1,12 @@
 // Redis(Upstash) 기반 저장 로직. 이 파일은 서버(Route Handler)에서만 import한다.
 import { Redis } from "@upstash/redis";
-import type {
-  Character,
-  ChatMessage,
-  ObservationSession,
-  World,
+import {
+  RELATION_SLOT_COUNT,
+  emptyWorld,
+  type Character,
+  type ChatMessage,
+  type ObservationSession,
+  type World,
 } from "./types";
 
 /** 데이터베이스 환경 변수가 아직 설정되지 않았을 때 던지는 에러 */
@@ -57,12 +59,34 @@ export async function saveCharacters(characters: Character[]): Promise<void> {
 // ---------- 세계관 ----------
 
 export async function getWorld(): Promise<World> {
-  return (
-    (await getRedis().get<World>(KEYS.world)) ?? {
-      worldSetting: "",
-      relatedPeople: "",
-    }
+  const raw = await getRedis().get<Record<string, unknown>>(KEYS.world);
+  if (!raw) return emptyWorld();
+
+  // 예전 버전(worldSetting + relatedPeople만 있던 시절)의 데이터를
+  // 새 구조로 옮긴다. relatedPeople에 있던 내용은 "관계 1"로 이어진다.
+  const rawRelations = Array.isArray(raw.relations)
+    ? (raw.relations as unknown[]).map((r) => (typeof r === "string" ? r : ""))
+    : [];
+  const relations = Array.from(
+    { length: RELATION_SLOT_COUNT },
+    (_, i) => rawRelations[i] ?? ""
   );
+  if (
+    rawRelations.length === 0 &&
+    typeof raw.relatedPeople === "string" &&
+    raw.relatedPeople.trim()
+  ) {
+    relations[0] = raw.relatedPeople;
+  }
+
+  return {
+    worldSetting: typeof raw.worldSetting === "string" ? raw.worldSetting : "",
+    faction: typeof raw.faction === "string" ? raw.faction : "",
+    relations,
+    glossary: typeof raw.glossary === "string" ? raw.glossary : "",
+    summary: typeof raw.summary === "string" ? raw.summary : "",
+    image: typeof raw.image === "string" ? raw.image : undefined,
+  };
 }
 
 export async function saveWorld(world: World): Promise<void> {

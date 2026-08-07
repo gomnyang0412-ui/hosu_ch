@@ -76,14 +76,26 @@ export function characterLines(c: CharacterProfile): string[] {
   ].filter(Boolean);
 }
 
-/** 세계관 + 관계 인물을 시스템 프롬프트용 텍스트로 합친다 */
+/** 세계관 설정을 시스템 프롬프트용 텍스트로 합친다 */
 export function worldBlock(world: World): string {
   const parts: string[] = [];
   if (world.worldSetting.trim()) {
     parts.push(`[세계관]\n${world.worldSetting.trim()}`);
   }
-  if (world.relatedPeople.trim()) {
-    parts.push(`[관계 인물]\n${world.relatedPeople.trim()}`);
+  if (world.faction?.trim()) {
+    parts.push(`[파벌]\n${world.faction.trim()}`);
+  }
+  const relationLines = (world.relations ?? [])
+    .map((r, i) => (r?.trim() ? `- 관계 ${i + 1}: ${r.trim()}` : ""))
+    .filter(Boolean);
+  if (relationLines.length > 0) {
+    parts.push(`[관계]\n${relationLines.join("\n")}`);
+  }
+  if (world.glossary?.trim()) {
+    parts.push(`[용어 및 설정]\n${world.glossary.trim()}`);
+  }
+  if (world.summary?.trim()) {
+    parts.push(`[요약]\n${world.summary.trim()}`);
   }
   return parts.join("\n\n");
 }

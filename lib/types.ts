@@ -72,10 +72,33 @@ export function toCharacterProfile(c: Character): CharacterProfile {
   };
 }
 
+/** 관계 입력 칸 개수 (관계 1 ~ 관계 10) */
+export const RELATION_SLOT_COUNT = 10;
+
 /** 모든 캐릭터가 공유하는 세계관 설정 */
 export interface World {
   worldSetting: string;
-  relatedPeople: string;
+  /** 파벌 */
+  faction: string;
+  /** 관계 1 ~ 10. 배열 길이는 항상 RELATION_SLOT_COUNT */
+  relations: string[];
+  /** 용어 및 설정 사전 */
+  glossary: string;
+  /** 요약 */
+  summary: string;
+  /** 리사이즈된 세계관 이미지 (base64 dataURL). 없으면 undefined */
+  image?: string;
+}
+
+export function emptyWorld(): World {
+  return {
+    worldSetting: "",
+    faction: "",
+    relations: Array(RELATION_SLOT_COUNT).fill(""),
+    glossary: "",
+    summary: "",
+    image: undefined,
+  };
 }
 
 /** 1:1 대화 한 마디 */
