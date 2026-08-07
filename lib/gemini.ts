@@ -17,20 +17,46 @@ export class GeminiRequestError extends Error {
   }
 }
 
-let client: GoogleGenAI | null = null;
+let clients: GoogleGenAI[] | null = null;
 
-function getClient(): GoogleGenAI {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    throw new GeminiRequestError(
-      "서버에 GEMINI_API_KEY가 설정되어 있지 않아요. Vercel 환경 변수를 확인해 주세요.",
+// GEMINI_API_KEY에 쉼표로 여러 키를 넣으면(예: "키1,키2,키3"), 서로 다른
+// 구글 계정에서 발급받은 키를 순서대로 시도한다. 앞 키의 하루 사용량이
+// 다 떨어지면 자동으로 다음 키로 넘어간다.
+function getClients(): GoogleGenAI[] {
+  if (!clients) {
+    const keys = (process.env.GEMINI_API_KEY ?? "")
+      .split(",")
+      .map((k) => k.trim())
+      .filter(Boolean);
+    if (keys.length === 0) {
+      throw new GeminiRequestError(
+        "서버에 GEMINI_API_KEY가 설정되어 있지 않아요. Vercel 환경 변수를 확인해 주세요.",
+        "unknown"
+      );
+    }
+    clients = keys.map((apiKey) => new GoogleGenAI({ apiKey }));
+  }
+  return clients;
+}
+
+function toGeminiError(err: unknown): GeminiRequestError {
+  if (err instanceof GeminiRequestError) return err;
+  if (err instanceof ApiError) {
+    if (err.status === 429) {
+      return new GeminiRequestError(
+        "오늘 사용량을 다 썼어요. 잠시 후 다시 시도해 주세요.",
+        "quota"
+      );
+    }
+    return new GeminiRequestError(
+      `AI 호출 중 문제가 생겼어요. (${err.status})`,
       "unknown"
     );
   }
-  if (!client) {
-    client = new GoogleGenAI({ apiKey });
-  }
-  return client;
+  return new GeminiRequestError(
+    "네트워크 문제로 AI를 호출하지 못했어요. 다시 시도해 주세요.",
+    "network"
+  );
 }
 
 /** 캐릭터 설정을 시스템 프롬프트용 줄 단위 텍스트로 바꾼다 (빈 항목은 제외) */
@@ -67,63 +93,63 @@ async function generate(params: {
   contents: Content[];
   json?: boolean;
 }): Promise<string> {
-  const ai = getClient();
-  try {
-    const response = await ai.models.generateContent({
-      model: GEMINI_MODEL,
-      contents: params.contents,
-      config: {
-        systemInstruction: params.systemInstruction,
-        ...(params.json
-          ? {
-              responseMimeType: "application/json",
-              responseSchema: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    t: { type: Type.STRING, enum: ["n", "d"] },
-                    text: { type: Type.STRING },
-                    who: { type: Type.STRING },
-                    act: { type: Type.STRING },
-                    say: { type: Type.STRING },
+  const clients = getClients();
+  let lastError: GeminiRequestError | null = null;
+
+  for (const ai of clients) {
+    try {
+      const response = await ai.models.generateContent({
+        model: GEMINI_MODEL,
+        contents: params.contents,
+        config: {
+          systemInstruction: params.systemInstruction,
+          ...(params.json
+            ? {
+                responseMimeType: "application/json",
+                responseSchema: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      t: { type: Type.STRING, enum: ["n", "d"] },
+                      text: { type: Type.STRING },
+                      who: { type: Type.STRING },
+                      act: { type: Type.STRING },
+                      say: { type: Type.STRING },
+                    },
+                    required: ["t"],
                   },
-                  required: ["t"],
+                  minItems: "10",
+                  maxItems: "14",
                 },
-                minItems: "10",
-                maxItems: "14",
-              },
-            }
-          : {}),
-      },
-    });
-    const text = response.text;
-    if (!text) {
-      throw new GeminiRequestError(
-        "AI가 빈 응답을 보냈어요. 다시 시도해 주세요.",
-        "unknown"
-      );
-    }
-    return text;
-  } catch (err) {
-    if (err instanceof GeminiRequestError) throw err;
-    if (err instanceof ApiError) {
-      if (err.status === 429) {
+              }
+            : {}),
+        },
+      });
+      const text = response.text;
+      if (!text) {
         throw new GeminiRequestError(
-          "오늘 사용량을 다 썼어요. 잠시 후 다시 시도해 주세요.",
-          "quota"
+          "AI가 빈 응답을 보냈어요. 다시 시도해 주세요.",
+          "unknown"
         );
       }
-      throw new GeminiRequestError(
-        `AI 호출 중 문제가 생겼어요. (${err.status})`,
-        "unknown"
-      );
+      return text;
+    } catch (err) {
+      const mapped = toGeminiError(err);
+      // 사용량 초과가 아닌 오류는 다른 키로 시도해도 똑같이 실패할 가능성이
+      // 높으니 바로 실패 처리한다. 사용량 초과일 때만 다음 키로 넘어간다.
+      if (mapped.kind !== "quota") throw mapped;
+      lastError = mapped;
     }
-    throw new GeminiRequestError(
-      "네트워크 문제로 AI를 호출하지 못했어요. 다시 시도해 주세요.",
-      "network"
-    );
   }
+
+  throw (
+    lastError ??
+    new GeminiRequestError(
+      "오늘 사용량을 다 썼어요. 잠시 후 다시 시도해 주세요.",
+      "quota"
+    )
+  );
 }
 
 export async function generateChatReply(params: {
