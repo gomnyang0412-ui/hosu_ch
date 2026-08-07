@@ -32,25 +32,36 @@ export default function ChatPage() {
   const [error, setError] = useState<ChatErrorState | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [viewportHeight, setViewportHeight] = useState<number | null>(null);
+  const updateHeightRef = useRef<() => void>(() => {});
 
-  // iOS Safari는 키보드가 올라와도 페이지 레이아웃 높이를 그대로 두기 때문에
-  // 하단 입력창이 키보드 뒤로 가려질 수 있다. visualViewport로 실제 보이는
-  // 높이를 감지해서 채팅 화면 전체 높이를 거기에 맞춘다.
+  // 모바일 브라우저는 키보드가 올라와도 페이지 레이아웃 높이를 그대로 두는
+  // 경우가 많아 하단 입력창이 키보드 뒤로 가려질 수 있다. visualViewport로
+  // 실제 보이는 높이를 감지해서 채팅 화면 전체 높이를 거기에 맞춘다.
+  // 일부 브라우저(예: 삼성 인터넷)는 visualViewport/resize 이벤트를
+  // 안정적으로 쏘지 않을 수 있어, 입력창 포커스 시에도 한 번 더 재확인한다.
   useEffect(() => {
     const vv = window.visualViewport;
-    if (!vv) return;
     const updateHeight = () => {
-      setViewportHeight(vv.height);
+      setViewportHeight(vv?.height ?? window.innerHeight);
       bottomRef.current?.scrollIntoView({ block: "end" });
     };
+    updateHeightRef.current = updateHeight;
     updateHeight();
-    vv.addEventListener("resize", updateHeight);
-    vv.addEventListener("scroll", updateHeight);
+    vv?.addEventListener("resize", updateHeight);
+    vv?.addEventListener("scroll", updateHeight);
+    window.addEventListener("resize", updateHeight);
     return () => {
-      vv.removeEventListener("resize", updateHeight);
-      vv.removeEventListener("scroll", updateHeight);
+      vv?.removeEventListener("resize", updateHeight);
+      vv?.removeEventListener("scroll", updateHeight);
+      window.removeEventListener("resize", updateHeight);
     };
   }, []);
+
+  // 입력창을 눌러 키보드가 올라오는 시점에도, 애니메이션이 끝난 뒤
+  // 실제 보이는 높이를 다시 재본다 (resize 이벤트가 늦거나 안 오는 경우 대비).
+  function handleInputFocus() {
+    setTimeout(() => updateHeightRef.current(), 350);
+  }
 
   useEffect(() => {
     (async () => {
@@ -269,6 +280,7 @@ export default function ChatPage() {
         <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
+          onFocus={handleInputFocus}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
