@@ -10,7 +10,7 @@
 - Next.js (App Router) + TypeScript
 - Tailwind CSS
 - Google Gemini API (`gemini-flash-latest` — Google이 관리하는 최신 Flash 모델 별칭. 특정 모델을 고정하지 않아 모델 만료로 인한 오류를 피한다)
-- 데이터 저장: 브라우저 `localStorage` (로그인/DB 없음, `lib/storage.ts`에 모아둠)
+- 데이터 저장: Vercel의 Upstash Redis 연동 (기기 간 동기화됨, `lib/db.ts` + `app/api/data/*`에 모아둠, 클라이언트는 `lib/storage.ts`로 접근)
 
 ## 로컬에서 실행하기
 
@@ -38,7 +38,16 @@
 
 ## Vercel 배포
 
-이 저장소를 GitHub에 push하면 Vercel이 자동으로 빌드/배포합니다. 배포 전에 Vercel 프로젝트의 **Settings → Environment Variables**에서 `GEMINI_API_KEY`를 등록해야 합니다. (`NEXT_PUBLIC_` 접두사를 붙이지 않아야 브라우저에 노출되지 않습니다.)
+이 저장소를 GitHub에 push하면 Vercel이 자동으로 빌드/배포합니다.
+
+1. Vercel 프로젝트의 **Settings → Environment Variables**에서 `GEMINI_API_KEY`를 등록합니다. (`NEXT_PUBLIC_` 접두사를 붙이지 않아야 브라우저에 노출되지 않습니다.)
+2. **Storage** 탭에서 Upstash Redis를 하나 만들어 이 프로젝트에 연결합니다. 연결하면 `KV_REST_API_URL`, `KV_REST_API_TOKEN` 환경 변수가 자동으로 등록되어 별도 설정이 필요 없습니다.
+
+데이터베이스가 아직 연결되지 않은 상태에서는 화면에 "서버에 데이터베이스가 연결되어 있지 않아요" 같은 안내가 표시됩니다.
+
+### 로그인이 없다는 점 주의
+
+이 앱은 개인용이라 로그인을 두지 않았습니다. 즉 배포된 주소를 아는 사람은 누구나 캐릭터를 보고 대화를 걸 수 있고, 그 과정에서 Gemini 사용량을 소모시킬 수도 있습니다. 주소를 남에게 공유하지 않는 것으로 우선 대비하고 있으며, 필요하면 간단한 비밀번호 잠금을 추가할 수 있습니다.
 
 ## 폴더 구조
 
@@ -50,7 +59,11 @@
   - `app/character/[id]/chat` — 1:1 대화
   - `app/api/chat/route.ts` — 1:1 대화용 Gemini 호출 (서버 전용)
   - `app/api/scene/route.ts` — 관찰 모드 장면 생성용 Gemini 호출 (서버 전용)
-- `lib/` — 데이터 모델, 저장 로직, 이미지 처리, Gemini 호출 로직
+  - `app/api/data/*` — 캐릭터/세계관/대화기록/관찰세션 CRUD (서버 전용, Redis 사용)
+- `lib/db.ts` — Redis 읽기/쓰기 (서버 전용)
+- `lib/storage.ts` — 브라우저에서 `app/api/data/*`를 호출하는 클라이언트
+- `lib/migrate.ts` — 예전 버전(localStorage 저장 방식)의 데이터를 서버가 비어있을 때 한 번 옮기는 마이그레이션
+- `lib/` — 그 외 데이터 모델, 이미지 처리, Gemini 호출 로직
 - `components/` — 공용 UI 컴포넌트
 
 ## API 키 관련 안내

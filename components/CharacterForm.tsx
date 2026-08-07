@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import CharacterAvatar from "@/components/CharacterAvatar";
 import TopBar from "@/components/TopBar";
 import { resizeImageFile } from "@/lib/image";
-import { deleteCharacter, getCharacters, saveCharacter, StorageQuotaError } from "@/lib/storage";
+import { deleteCharacter, getCharacters, saveCharacter, StorageError } from "@/lib/storage";
 import { ACCENT_COLORS, type Character } from "@/lib/types";
 
 function pickAccentColor(existing: Character[]): Character["accentColor"] {
@@ -44,7 +44,11 @@ export default function CharacterForm({
 
   useEffect(() => {
     if (!character) {
-      setAccentColor(pickAccentColor(getCharacters()));
+      getCharacters()
+        .then((existing) => setAccentColor(pickAccentColor(existing)))
+        .catch(() => {
+          // 실패해도 기본 색이 이미 지정되어 있으니 조용히 넘어간다
+        });
     }
     // 새 캐릭터일 때만 클라이언트에서 색을 배정한다 (서버 렌더링과의 불일치 방지)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -65,7 +69,7 @@ export default function CharacterForm({
     }
   }
 
-  function handleSave() {
+  async function handleSave() {
     setError("");
     if (!name.trim()) {
       setError("이름을 입력해 주세요.");
@@ -92,24 +96,32 @@ export default function CharacterForm({
       updatedAt: now,
     };
     try {
-      saveCharacter(next);
+      await saveCharacter(next);
       router.push("/");
     } catch (err) {
       setError(
-        err instanceof StorageQuotaError
+        err instanceof StorageError
           ? err.message
           : "저장 중 문제가 생겼어요. 잠시 후 다시 시도해 주세요."
       );
     }
   }
 
-  function handleDelete() {
+  async function handleDelete() {
     if (!character) return;
     if (!window.confirm(`${character.name} 캐릭터와 대화 기록을 모두 삭제할까요?`)) {
       return;
     }
-    deleteCharacter(character.id);
-    router.push("/");
+    try {
+      await deleteCharacter(character.id);
+      router.push("/");
+    } catch (err) {
+      setError(
+        err instanceof StorageError
+          ? err.message
+          : "삭제 중 문제가 생겼어요. 잠시 후 다시 시도해 주세요."
+      );
+    }
   }
 
   return (

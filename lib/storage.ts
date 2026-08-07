@@ -1,5 +1,4 @@
-// localStorage 기반 저장 모듈.
-// 나중에 서버 DB로 옮기게 되면 이 파일의 함수들만 API 호출로 바꾸면 되도록
+// 서버(Redis) 저장소를 호출하는 클라이언트 모듈.
 // 다른 화면에서는 이 모듈의 함수만 통해 데이터를 읽고 쓰게 한다.
 
 import type {
@@ -9,117 +8,112 @@ import type {
   World,
 } from "./types";
 
-const KEYS = {
-  characters: "cc_characters",
-  world: "cc_world",
-  chatPrefix: "cc_chat_",
-  observation: "cc_observation",
-} as const;
-
-/** localStorage 저장 공간이 꽉 찼을 때 던지는 에러 */
-export class StorageQuotaError extends Error {
-  constructor() {
-    super(
-      "저장 공간이 가득 찼어요. 프로필 이미지나 대화 기록을 정리해 주세요."
-    );
-    this.name = "StorageQuotaError";
+/** 서버와 통신하지 못했을 때 던지는 에러 */
+export class StorageError extends Error {
+  constructor(message = "저장소와 통신하지 못했어요. 인터넷 연결을 확인해 주세요.") {
+    super(message);
+    this.name = "StorageError";
   }
 }
 
-function isBrowser() {
-  return typeof window !== "undefined";
-}
-
-function safeGet<T>(key: string, fallback: T): T {
-  if (!isBrowser()) return fallback;
+async function request<T>(url: string, init?: RequestInit): Promise<T> {
+  let res: Response;
   try {
-    const raw = window.localStorage.getItem(key);
-    if (!raw) return fallback;
-    return JSON.parse(raw) as T;
+    res = await fetch(url, {
+      headers: { "Content-Type": "application/json" },
+      ...init,
+    });
   } catch {
-    return fallback;
+    throw new StorageError();
   }
-}
-
-function safeSet(key: string, value: unknown) {
-  if (!isBrowser()) return;
-  try {
-    window.localStorage.setItem(key, JSON.stringify(value));
-  } catch (err) {
-    if (
-      err instanceof DOMException &&
-      (err.name === "QuotaExceededError" ||
-        err.name === "NS_ERROR_DOM_QUOTA_REACHED")
-    ) {
-      throw new StorageQuotaError();
-    }
-    throw err;
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new StorageError(
+      typeof data.error === "string" ? data.error : undefined
+    );
   }
+  return data as T;
 }
 
 // ---------- 캐릭터 ----------
 
-export function getCharacters(): Character[] {
-  return safeGet<Character[]>(KEYS.characters, []);
+export async function getCharacters(): Promise<Character[]> {
+  const data = await request<{ characters: Character[] }>(
+    "/api/data/characters"
+  );
+  return data.characters;
 }
 
-export function getCharacter(id: string): Character | undefined {
-  return getCharacters().find((c) => c.id === id);
+export async function getCharacter(id: string): Promise<Character | undefined> {
+  const characters = await getCharacters();
+  return characters.find((c) => c.id === id);
 }
 
-export function saveCharacter(character: Character) {
-  const list = getCharacters();
-  const idx = list.findIndex((c) => c.id === character.id);
-  if (idx >= 0) {
-    list[idx] = character;
-  } else {
-    list.push(character);
-  }
-  safeSet(KEYS.characters, list);
+export async function saveCharacter(character: Character): Promise<void> {
+  await request("/api/data/characters", {
+    method: "POST",
+    body: JSON.stringify(character),
+  });
 }
 
-export function deleteCharacter(id: string) {
-  const list = getCharacters().filter((c) => c.id !== id);
-  safeSet(KEYS.characters, list);
-  clearChatHistory(id);
+export async function deleteCharacter(id: string): Promise<void> {
+  await request(`/api/data/characters/${id}`, { method: "DELETE" });
 }
 
 // ---------- 세계관 ----------
 
-export function getWorld(): World {
-  return safeGet<World>(KEYS.world, { worldSetting: "", relatedPeople: "" });
+export async function getWorld(): Promise<World> {
+  return request<World>("/api/data/world");
 }
 
-export function saveWorld(world: World) {
-  safeSet(KEYS.world, world);
+export async function saveWorld(world: World): Promise<void> {
+  await request("/api/data/world", {
+    method: "POST",
+    body: JSON.stringify(world),
+  });
 }
 
 // ---------- 1:1 대화 기록 ----------
 
-export function getChatHistory(characterId: string): ChatMessage[] {
-  return safeGet<ChatMessage[]>(KEYS.chatPrefix + characterId, []);
+export async function getChatHistory(characterId: string): Promise<ChatMessage[]> {
+  const data = await request<{ messages: ChatMessage[] }>(
+    `/api/data/chat/${characterId}`
+  );
+  return data.messages;
 }
 
-export function saveChatHistory(characterId: string, messages: ChatMessage[]) {
-  safeSet(KEYS.chatPrefix + characterId, messages);
+export async function saveChatHistory(
+  characterId: string,
+  messages: ChatMessage[]
+): Promise<void> {
+  await request(`/api/data/chat/${characterId}`, {
+    method: "POST",
+    body: JSON.stringify({ messages }),
+  });
 }
 
-export function clearChatHistory(characterId: string) {
-  if (!isBrowser()) return;
-  window.localStorage.removeItem(KEYS.chatPrefix + characterId);
+export async function clearChatHistory(characterId: string): Promise<void> {
+  await request(`/api/data/chat/${characterId}`, { method: "DELETE" });
 }
 
 // ---------- 관찰 모드 세션 ----------
 
-export function getObservationSession(): ObservationSession | null {
-  return safeGet<ObservationSession | null>(KEYS.observation, null);
+export async function getObservationSession(): Promise<ObservationSession | null> {
+  const data = await request<{ session: ObservationSession | null }>(
+    "/api/data/observation"
+  );
+  return data.session;
 }
 
-export function saveObservationSession(session: ObservationSession) {
-  safeSet(KEYS.observation, session);
+export async function saveObservationSession(
+  session: ObservationSession
+): Promise<void> {
+  await request("/api/data/observation", {
+    method: "POST",
+    body: JSON.stringify(session),
+  });
 }
 
-export function clearObservationSession() {
-  if (!isBrowser()) return;
-  window.localStorage.removeItem(KEYS.observation);
+export async function clearObservationSession(): Promise<void> {
+  await request("/api/data/observation", { method: "DELETE" });
 }

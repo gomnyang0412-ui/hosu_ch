@@ -44,9 +44,22 @@ export default function ObservePage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<SceneErrorState | null>(null);
 
+  const [loadError, setLoadError] = useState("");
+
   useEffect(() => {
-    setAllCharacters(getCharacters());
-    setSession(getObservationSession());
+    (async () => {
+      try {
+        const [characters, obsSession] = await Promise.all([
+          getCharacters(),
+          getObservationSession(),
+        ]);
+        setAllCharacters(characters);
+        setSession(obsSession);
+      } catch {
+        setLoadError("불러오지 못했어요. 새로고침해 주세요.");
+        setSession(null);
+      }
+    })();
   }, []);
 
   const sceneCharacters = session
@@ -69,12 +82,13 @@ export default function ObservePage() {
     setLoading(true);
     setError(null);
     try {
+      const world = await getWorld();
       const res = await fetch("/api/scene", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           characters: params.characters.map(toCharacterProfile),
-          world: getWorld(),
+          world,
           topic: params.topic,
           previousItems: params.previousItems?.slice(-MAX_CONTEXT_ITEMS),
         }),
@@ -112,7 +126,11 @@ export default function ObservePage() {
       updatedAt: Date.now(),
     };
     setSession(newSession);
-    saveObservationSession(newSession);
+    try {
+      await saveObservationSession(newSession);
+    } catch {
+      setError({ message: "장면을 저장하지 못했어요.", kind: "unknown" });
+    }
   }
 
   async function handleContinue() {
@@ -129,12 +147,20 @@ export default function ObservePage() {
       updatedAt: Date.now(),
     };
     setSession(updated);
-    saveObservationSession(updated);
+    try {
+      await saveObservationSession(updated);
+    } catch {
+      setError({ message: "장면을 저장하지 못했어요.", kind: "unknown" });
+    }
   }
 
-  function handleRestart() {
+  async function handleRestart() {
     if (!window.confirm("지금 장면을 지우고 새로 시작할까요?")) return;
-    clearObservationSession();
+    try {
+      await clearObservationSession();
+    } catch {
+      // 서버에서 못 지웠어도 화면은 새 설정 화면으로 돌아간다
+    }
     setSession(null);
     setSelectedIds([]);
     setTopic("");
@@ -159,6 +185,7 @@ export default function ObservePage() {
       </header>
 
       <main className="mx-auto w-full max-w-[680px] flex-1 px-4 pb-4">
+        {loadError && <p className="mb-3 text-sm text-red-600">{loadError}</p>}
         {!session ? (
           <div className="flex flex-col gap-5">
             {allCharacters.length < 2 ? (

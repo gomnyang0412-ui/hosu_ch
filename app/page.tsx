@@ -5,15 +5,24 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import BottomNav from "@/components/BottomNav";
 import CharacterAvatar from "@/components/CharacterAvatar";
+import { migrateFromLocalStorageIfNeeded } from "@/lib/migrate";
 import { getCharacters } from "@/lib/storage";
 import type { Character } from "@/lib/types";
 
 export default function CharacterListPage() {
   const router = useRouter();
   const [characters, setCharacters] = useState<Character[] | null>(null);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    setCharacters(getCharacters());
+    (async () => {
+      try {
+        await migrateFromLocalStorageIfNeeded();
+        setCharacters(await getCharacters());
+      } catch {
+        setError("캐릭터 목록을 불러오지 못했어요. 새로고침해 주세요.");
+      }
+    })();
   }, []);
 
   return (
@@ -29,6 +38,7 @@ export default function CharacterListPage() {
       </header>
 
       <main className="flex-1 px-4 pb-4">
+        {error && <p className="mb-3 text-sm text-red-600">{error}</p>}
         {characters === null ? null : characters.length === 0 ? (
           <div className="mt-16 flex flex-col items-center gap-2 text-center text-sm text-muted">
             <p>아직 등록된 캐릭터가 없어요.</p>

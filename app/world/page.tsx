@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import TopBar from "@/components/TopBar";
-import { getWorld, saveWorld, StorageQuotaError } from "@/lib/storage";
+import { getWorld, saveWorld, StorageError } from "@/lib/storage";
 
 export default function WorldSettingsPage() {
   const router = useRouter();
@@ -13,20 +13,26 @@ export default function WorldSettingsPage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    const w = getWorld();
-    setWorldSetting(w.worldSetting);
-    setRelatedPeople(w.relatedPeople);
+    (async () => {
+      try {
+        const w = await getWorld();
+        setWorldSetting(w.worldSetting);
+        setRelatedPeople(w.relatedPeople);
+      } catch {
+        setError("세계관 설정을 불러오지 못했어요. 새로고침해 주세요.");
+      }
+    })();
   }, []);
 
-  function handleSave() {
+  async function handleSave() {
     setError("");
     try {
-      saveWorld({ worldSetting, relatedPeople });
+      await saveWorld({ worldSetting, relatedPeople });
       setSaved(true);
       setTimeout(() => setSaved(false), 1500);
     } catch (err) {
       setError(
-        err instanceof StorageQuotaError
+        err instanceof StorageError
           ? err.message
           : "저장 중 문제가 생겼어요. 잠시 후 다시 시도해 주세요."
       );

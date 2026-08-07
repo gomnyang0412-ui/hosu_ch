@@ -11,7 +11,7 @@ import {
   getWorld,
   saveChatHistory,
   clearChatHistory,
-  StorageQuotaError,
+  StorageError,
 } from "@/lib/storage";
 import { toCharacterProfile, type Character, type ChatMessage } from "@/lib/types";
 
@@ -26,35 +26,41 @@ export default function ChatPage() {
 
   const [character, setCharacter] = useState<Character | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [loadError, setLoadError] = useState("");
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<ChatErrorState | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const found = getCharacter(id);
-    if (!found) {
-      router.replace("/");
-      return;
-    }
-    setCharacter(found);
-
-    const history = getChatHistory(id);
-    if (history.length === 0 && found.firstMessage.trim()) {
-      const seeded: ChatMessage[] = [
-        { role: "model", text: found.firstMessage.trim(), ts: Date.now() },
-      ];
-      setMessages(seeded);
-      try {
-        saveChatHistory(id, seeded);
-      } catch {
-        // 저장 실패해도 화면에는 첫 인사를 보여준다
+    (async () => {
+      const found = await getCharacter(id).catch(() => undefined);
+      if (!found) {
+        router.replace("/");
+        return;
       }
-    } else {
-      setMessages(history);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+      setCharacter(found);
+
+      try {
+        const history = await getChatHistory(id);
+        if (history.length === 0 && found.firstMessage.trim()) {
+          const seeded: ChatMessage[] = [
+            { role: "model", text: found.firstMessage.trim(), ts: Date.now() },
+          ];
+          setMessages(seeded);
+          try {
+            await saveChatHistory(id, seeded);
+          } catch {
+            // 저장 실패해도 화면에는 첫 인사를 보여준다
+          }
+        } else {
+          setMessages(history);
+        }
+      } catch {
+        setLoadError("대화 기록을 불러오지 못했어요. 새로고침해 주세요.");
+      }
+    })();
+  }, [id, router]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: "end" });
@@ -64,12 +70,13 @@ export default function ChatPage() {
     setLoading(true);
     setError(null);
     try {
+      const world = await getWorld();
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           character: toCharacterProfile(chatCharacter),
-          world: getWorld(),
+          world,
           history,
         }),
       });
@@ -87,11 +94,11 @@ export default function ChatPage() {
       ];
       setMessages(next);
       try {
-        saveChatHistory(id, next);
+        await saveChatHistory(id, next);
       } catch (err) {
         setError({
           message:
-            err instanceof StorageQuotaError
+            err instanceof StorageError
               ? err.message
               : "대화를 저장하지 못했어요.",
           kind: "unknown",
@@ -107,7 +114,7 @@ export default function ChatPage() {
     }
   }
 
-  function handleSend() {
+  async function handleSend() {
     const text = input.trim();
     if (!text || !character || loading) return;
     const next: ChatMessage[] = [
@@ -117,11 +124,11 @@ export default function ChatPage() {
     setMessages(next);
     setInput("");
     try {
-      saveChatHistory(id, next);
+      await saveChatHistory(id, next);
     } catch (err) {
       setError({
         message:
-          err instanceof StorageQuotaError
+          err instanceof StorageError
             ? err.message
             : "대화를 저장하지 못했어요.",
         kind: "unknown",
@@ -135,19 +142,33 @@ export default function ChatPage() {
     sendToAI(character, messages);
   }
 
-  function handleReset() {
+  async function handleReset() {
     if (!character) return;
     if (!window.confirm("이 캐릭터와의 대화 기록을 모두 지울까요?")) return;
-    clearChatHistory(id);
-    const seeded: ChatMessage[] = character.firstMessage.trim()
-      ? [{ role: "model", text: character.firstMessage.trim(), ts: Date.now() }]
-      : [];
-    setMessages(seeded);
-    if (seeded.length) saveChatHistory(id, seeded);
-    setError(null);
+    try {
+      await clearChatHistory(id);
+      const seeded: ChatMessage[] = character.firstMessage.trim()
+        ? [{ role: "model", text: character.firstMessage.trim(), ts: Date.now() }]
+        : [];
+      setMessages(seeded);
+      if (seeded.length) await saveChatHistory(id, seeded);
+      setError(null);
+    } catch (err) {
+      setError({
+        message:
+          err instanceof StorageError
+            ? err.message
+            : "대화 기록을 지우지 못했어요.",
+        kind: "unknown",
+      });
+    }
   }
 
-  if (!character) return null;
+  if (!character) {
+    return loadError ? (
+      <p className="p-4 text-sm text-red-600">{loadError}</p>
+    ) : null;
+  }
 
   return (
     <div className="flex flex-1 flex-col">
@@ -175,6 +196,7 @@ export default function ChatPage() {
       />
 
       <main className="flex flex-1 flex-col gap-3 overflow-y-auto px-3 py-4">
+        {loadError && <p className="text-sm text-red-600">{loadError}</p>}
         {messages.map((m, i) =>
           m.role === "model" ? (
             <div key={`${m.ts}-${i}`} className="flex items-end gap-2">

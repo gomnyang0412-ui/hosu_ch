@@ -14,12 +14,14 @@ export default function EditCharacterPage() {
   );
 
   useEffect(() => {
-    const found = getCharacter(id);
-    if (!found) {
-      router.replace("/");
-      return;
-    }
-    setCharacter(found);
+    (async () => {
+      const found = await getCharacter(id).catch(() => undefined);
+      if (!found) {
+        router.replace("/");
+        return;
+      }
+      setCharacter(found);
+    })();
   }, [id, router]);
 
   if (!character) return null;
