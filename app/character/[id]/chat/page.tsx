@@ -31,6 +31,26 @@ export default function ChatPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<ChatErrorState | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const [viewportHeight, setViewportHeight] = useState<number | null>(null);
+
+  // iOS Safari는 키보드가 올라와도 페이지 레이아웃 높이를 그대로 두기 때문에
+  // 하단 입력창이 키보드 뒤로 가려질 수 있다. visualViewport로 실제 보이는
+  // 높이를 감지해서 채팅 화면 전체 높이를 거기에 맞춘다.
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const updateHeight = () => {
+      setViewportHeight(vv.height);
+      bottomRef.current?.scrollIntoView({ block: "end" });
+    };
+    updateHeight();
+    vv.addEventListener("resize", updateHeight);
+    vv.addEventListener("scroll", updateHeight);
+    return () => {
+      vv.removeEventListener("resize", updateHeight);
+      vv.removeEventListener("scroll", updateHeight);
+    };
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -171,7 +191,10 @@ export default function ChatPage() {
   }
 
   return (
-    <div className="flex flex-1 flex-col">
+    <div
+      className="flex flex-1 flex-col overflow-hidden"
+      style={viewportHeight ? { height: viewportHeight } : undefined}
+    >
       <TopBar
         title={character.name}
         right={
