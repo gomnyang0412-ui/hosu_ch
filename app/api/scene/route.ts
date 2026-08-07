@@ -1,27 +1,25 @@
 import type { Content } from "@google/genai";
 import { NextResponse } from "next/server";
-import { GeminiRequestError, generateSceneJson, worldBlock } from "@/lib/gemini";
+import {
+  GeminiRequestError,
+  characterLines,
+  generateSceneJson,
+  worldBlock,
+} from "@/lib/gemini";
 import { parseSceneItems, serializeItems } from "@/lib/scene";
-import type { SceneItem, World } from "@/lib/types";
+import type { CharacterProfile, SceneItem, World } from "@/lib/types";
 
 export const runtime = "nodejs";
 
-interface SceneCharacter {
-  name: string;
-  oneLiner: string;
-  personality: string;
-  speechStyle: string;
-}
-
 interface SceneRequestBody {
-  characters: SceneCharacter[];
+  characters: CharacterProfile[];
   world: World;
   topic: string;
   previousItems?: SceneItem[];
 }
 
 function buildSystemInstruction(
-  characters: SceneCharacter[],
+  characters: CharacterProfile[],
   world: World
 ): string {
   const blocks: string[] = [];
@@ -32,15 +30,12 @@ function buildSystemInstruction(
   blocks.push(
     `[등장 인물]\n` +
       characters
-        .map((c) =>
-          [
-            `- 이름: ${c.name}`,
-            c.oneLiner ? `  한 줄 소개: ${c.oneLiner}` : "",
-            c.personality ? `  성격과 배경: ${c.personality}` : "",
-            c.speechStyle ? `  말투: ${c.speechStyle}` : "",
-          ]
-            .filter(Boolean)
-            .join("\n")
+        .map(
+          (c) =>
+            `- ${c.name} -\n` +
+            characterLines(c)
+              .map((line) => `  ${line}`)
+              .join("\n")
         )
         .join("\n")
   );

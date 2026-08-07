@@ -1,6 +1,6 @@
 // Gemini API 호출 공통 로직. 이 파일은 서버(Route Handler)에서만 import한다.
 import { ApiError, GoogleGenAI, Type, type Content } from "@google/genai";
-import type { World } from "./types";
+import type { CharacterProfile, World } from "./types";
 
 export const GEMINI_MODEL = "gemini-2.5-flash";
 
@@ -29,6 +29,23 @@ function getClient(): GoogleGenAI {
     client = new GoogleGenAI({ apiKey });
   }
   return client;
+}
+
+/** 캐릭터 설정을 시스템 프롬프트용 줄 단위 텍스트로 바꾼다 (빈 항목은 제외) */
+export function characterLines(c: CharacterProfile): string[] {
+  return [
+    `이름: ${c.name}`,
+    c.oneLiner ? `한 줄 소개: ${c.oneLiner}` : "",
+    c.goal ? `목표: ${c.goal}` : "",
+    c.appearance ? `외형 특징: ${c.appearance}` : "",
+    c.scentNote ? `향 노트: ${c.scentNote}` : "",
+    c.personality ? `성격: ${c.personality}` : "",
+    c.speechStyle ? `말투: ${c.speechStyle}` : "",
+    c.background ? `배경 이야기: ${c.background}` : "",
+    c.lifeHistory ? `살아온 궤적: ${c.lifeHistory}` : "",
+    c.relatedCharacters ? `연관 인물: ${c.relatedCharacters}` : "",
+    c.romance ? `애정 관계: ${c.romance}` : "",
+  ].filter(Boolean);
 }
 
 /** 세계관 + 관계 인물을 시스템 프롬프트용 텍스트로 합친다 */

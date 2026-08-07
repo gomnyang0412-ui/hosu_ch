@@ -10,7 +10,13 @@ import {
   saveObservationSession,
   clearObservationSession,
 } from "@/lib/storage";
-import { ACCENT_COLORS, type Character, type ObservationSession, type SceneItem } from "@/lib/types";
+import {
+  ACCENT_COLORS,
+  toCharacterProfile,
+  type Character,
+  type ObservationSession,
+  type SceneItem,
+} from "@/lib/types";
 
 const MAX_CONTEXT_ITEMS = 30;
 
@@ -67,12 +73,7 @@ export default function ObservePage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          characters: params.characters.map((c) => ({
-            name: c.name,
-            oneLiner: c.oneLiner,
-            personality: c.personality,
-            speechStyle: c.speechStyle,
-          })),
+          characters: params.characters.map(toCharacterProfile),
           world: getWorld(),
           topic: params.topic,
           previousItems: params.previousItems?.slice(-MAX_CONTEXT_ITEMS),

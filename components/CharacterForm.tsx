@@ -22,8 +22,17 @@ export default function CharacterForm({
 
   const [name, setName] = useState(character?.name ?? "");
   const [oneLiner, setOneLiner] = useState(character?.oneLiner ?? "");
+  const [goal, setGoal] = useState(character?.goal ?? "");
+  const [appearance, setAppearance] = useState(character?.appearance ?? "");
+  const [scentNote, setScentNote] = useState(character?.scentNote ?? "");
   const [personality, setPersonality] = useState(character?.personality ?? "");
   const [speechStyle, setSpeechStyle] = useState(character?.speechStyle ?? "");
+  const [background, setBackground] = useState(character?.background ?? "");
+  const [lifeHistory, setLifeHistory] = useState(character?.lifeHistory ?? "");
+  const [relatedCharacters, setRelatedCharacters] = useState(
+    character?.relatedCharacters ?? ""
+  );
+  const [romance, setRomance] = useState(character?.romance ?? "");
   const [firstMessage, setFirstMessage] = useState(character?.firstMessage ?? "");
   const [image, setImage] = useState<string | undefined>(character?.image);
   const [error, setError] = useState("");
@@ -67,8 +76,15 @@ export default function CharacterForm({
       id: character?.id ?? crypto.randomUUID(),
       name: name.trim(),
       oneLiner: oneLiner.trim(),
+      goal,
+      appearance,
+      scentNote,
       personality,
       speechStyle,
+      background,
+      lifeHistory,
+      relatedCharacters,
+      romance,
       firstMessage,
       image,
       accentColor,
@@ -138,12 +154,45 @@ export default function CharacterForm({
         </label>
 
         <label className="flex flex-col gap-1.5">
-          <span className="text-sm font-medium">성격과 배경</span>
+          <span className="text-sm font-medium">목표</span>
+          <textarea
+            value={goal}
+            onChange={(e) => setGoal(e.target.value)}
+            placeholder="캐릭터가 이루고 싶어 하는 것, 원하는 것을 적어주세요."
+            rows={3}
+            className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-foreground/30"
+          />
+        </label>
+
+        <label className="flex flex-col gap-1.5">
+          <span className="text-sm font-medium">외형 특징</span>
+          <textarea
+            value={appearance}
+            onChange={(e) => setAppearance(e.target.value)}
+            placeholder="키, 체형, 헤어, 옷차림 등 겉모습을 적어주세요."
+            rows={4}
+            className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-foreground/30"
+          />
+        </label>
+
+        <label className="flex flex-col gap-1.5">
+          <span className="text-sm font-medium">향 노트</span>
+          <textarea
+            value={scentNote}
+            onChange={(e) => setScentNote(e.target.value)}
+            placeholder="이 캐릭터를 떠올리게 하는 향, 분위기를 적어주세요."
+            rows={3}
+            className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-foreground/30"
+          />
+        </label>
+
+        <label className="flex flex-col gap-1.5">
+          <span className="text-sm font-medium">성격</span>
           <textarea
             value={personality}
             onChange={(e) => setPersonality(e.target.value)}
-            placeholder="성격, 과거, 취향 등 캐릭터를 이루는 설정을 적어주세요."
-            rows={6}
+            placeholder="성격, 가치관, 취향 등을 적어주세요."
+            rows={5}
             className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-foreground/30"
           />
         </label>
@@ -154,6 +203,50 @@ export default function CharacterForm({
             value={speechStyle}
             onChange={(e) => setSpeechStyle(e.target.value)}
             placeholder="말투와 어휘, 자주 쓰는 표현 등을 적어주세요."
+            rows={4}
+            className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-foreground/30"
+          />
+        </label>
+
+        <label className="flex flex-col gap-1.5">
+          <span className="text-sm font-medium">배경 이야기</span>
+          <textarea
+            value={background}
+            onChange={(e) => setBackground(e.target.value)}
+            placeholder="이 캐릭터를 둘러싼 상황이나 설정을 적어주세요."
+            rows={5}
+            className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-foreground/30"
+          />
+        </label>
+
+        <label className="flex flex-col gap-1.5">
+          <span className="text-sm font-medium">살아온 궤적</span>
+          <textarea
+            value={lifeHistory}
+            onChange={(e) => setLifeHistory(e.target.value)}
+            placeholder="어린 시절부터 지금까지 겪어온 일들을 적어주세요."
+            rows={5}
+            className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-foreground/30"
+          />
+        </label>
+
+        <label className="flex flex-col gap-1.5">
+          <span className="text-sm font-medium">연관 인물</span>
+          <textarea
+            value={relatedCharacters}
+            onChange={(e) => setRelatedCharacters(e.target.value)}
+            placeholder="가족, 친구, 라이벌 등 이 캐릭터와 개인적으로 얽힌 인물을 적어주세요."
+            rows={4}
+            className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-foreground/30"
+          />
+        </label>
+
+        <label className="flex flex-col gap-1.5">
+          <span className="text-sm font-medium">애정 관계</span>
+          <textarea
+            value={romance}
+            onChange={(e) => setRomance(e.target.value)}
+            placeholder="짝사랑, 연인 등 애정과 관련된 관계를 적어주세요."
             rows={4}
             className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-foreground/30"
           />

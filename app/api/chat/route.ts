@@ -1,17 +1,17 @@
 import type { Content } from "@google/genai";
 import { NextResponse } from "next/server";
-import { GeminiRequestError, generateChatReply, worldBlock } from "@/lib/gemini";
-import type { ChatMessage, World } from "@/lib/types";
+import {
+  GeminiRequestError,
+  characterLines,
+  generateChatReply,
+  worldBlock,
+} from "@/lib/gemini";
+import type { ChatMessage, CharacterProfile, World } from "@/lib/types";
 
 export const runtime = "nodejs";
 
 interface ChatRequestBody {
-  character: {
-    name: string;
-    oneLiner: string;
-    personality: string;
-    speechStyle: string;
-  };
+  character: CharacterProfile;
   world: World;
   history: ChatMessage[];
 }
@@ -27,17 +27,7 @@ function buildSystemInstruction(
   const world_ = worldBlock(world);
   if (world_) blocks.push(world_);
 
-  blocks.push(
-    [
-      `[캐릭터]`,
-      `이름: ${character.name}`,
-      character.oneLiner ? `한 줄 소개: ${character.oneLiner}` : "",
-      character.personality ? `성격과 배경:\n${character.personality}` : "",
-      character.speechStyle ? `말투:\n${character.speechStyle}` : "",
-    ]
-      .filter(Boolean)
-      .join("\n")
-  );
+  blocks.push([`[캐릭터]`, ...characterLines(character)].join("\n"));
 
   blocks.push(
     [

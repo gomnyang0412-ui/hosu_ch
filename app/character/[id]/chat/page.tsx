@@ -13,7 +13,7 @@ import {
   clearChatHistory,
   StorageQuotaError,
 } from "@/lib/storage";
-import type { Character, ChatMessage } from "@/lib/types";
+import { toCharacterProfile, type Character, type ChatMessage } from "@/lib/types";
 
 interface ChatErrorState {
   message: string;
@@ -68,12 +68,7 @@ export default function ChatPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          character: {
-            name: chatCharacter.name,
-            oneLiner: chatCharacter.oneLiner,
-            personality: chatCharacter.personality,
-            speechStyle: chatCharacter.speechStyle,
-          },
+          character: toCharacterProfile(chatCharacter),
           world: getWorld(),
           history,
         }),
