@@ -55,9 +55,9 @@ function buildSystemInstruction(
   blocks.push(
     [
       `[규칙]`,
-      `지금 사용자가 말을 거는 대상은 "${targetName}"이다. 기본적으로 ${targetName}이(가) 응답한다.`,
-      `다른 등장인물은 그 자리에 있을 자연스러운 이유가 있고 끼어들 상황일 때만 등장시킨다. 매번 전원이 반응할 필요는 없다.`,
-      `대화 기록 마지막에 "(상황 전환)"으로 표시된 지시문이 있다면, 그 지시에 맞게 시간·장소·상황이 바뀐 새 장면을 지문으로 자연스럽게 열고 이어간다.`,
+      `지금 사용자가 말을 거는 대상은 "${targetName}"이다. ${targetName}은 반드시 대사(t: "d", who: "${targetName}")로 최소 한 번 응답해야 한다. 지문만으로 응답을 끝내지 않는다 — ${targetName}은 항상 말이나 행동으로 반응한다.`,
+      `다른 등장인물은 그 자리에 있을 자연스러운 이유가 있고 끼어들 상황일 때만 등장시킨다. 매번 전원이 반응할 필요는 없지만, ${targetName}만은 예외 없이 응답한다.`,
+      `대화 기록 마지막에 "(상황 전환)"으로 표시된 지시문이 있다면, 그 지시에 맞게 시간·장소·상황이 바뀐 새 장면을 지문으로 자연스럽게 열고, ${targetName}의 대사로 이어간다.`,
       `인물마다 말투를 뚜렷이 구분해서 쓴다.`,
       `응답은 보통 1~4개 항목 정도로 짧게 끝낸다.`,
       `설정에 없는 부분은 각 인물의 성격에 맞게 채우되 세계관과 모순되지 않게 한다.`,
@@ -111,15 +111,27 @@ export async function POST(request: Request) {
   const contents: Content[] = [{ role: "user", parts: [{ text: userText }] }];
 
   try {
-    const raw = await generateThreadJson({
-      systemInstruction: buildSystemInstruction(
-        body.characters,
-        body.universe,
-        body.targetName.trim()
-      ),
-      contents,
-    });
-    const items = parseSceneItems(raw);
+    const targetName = body.targetName.trim();
+    const systemInstruction = buildSystemInstruction(
+      body.characters,
+      body.universe,
+      targetName
+    );
+    const targetSpoke = (items: ThreadItem[]) =>
+      items.some((it) => it.t === "d" && it.who === targetName);
+
+    let items = parseSceneItems(
+      await generateThreadJson({ systemInstruction, contents })
+    );
+    // 가끔 지목한 캐릭터가 대사 없이 지문으로만 넘어갈 때가 있어, 그럴 때만 한 번 더 시도한다.
+    if (!targetSpoke(items)) {
+      items = parseSceneItems(
+        await generateThreadJson({ systemInstruction, contents })
+      );
+    }
+    if (!targetSpoke(items)) {
+      throw new Error(`${targetName}이(가) 대답하지 않았어요. 다시 시도해 주세요.`);
+    }
     return NextResponse.json({ items });
   } catch (err) {
     if (err instanceof GeminiRequestError) {
