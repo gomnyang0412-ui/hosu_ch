@@ -72,30 +72,25 @@ function ChatPageInner() {
   const [renaming, setRenaming] = useState(false);
   const [renameText, setRenameText] = useState("");
   const [savingName, setSavingName] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const [viewportHeight, setViewportHeight] = useState<number | null>(null);
   const updateHeightRef = useRef<() => void>(() => {});
 
-  // 모바일 브라우저는 키보드가 올라와도 페이지 레이아웃 높이를 그대로 두는
-  // 경우가 많아 하단 입력창이 키보드 뒤로 가려질 수 있다. visualViewport로
-  // 실제 보이는 높이를 감지해서 채팅 화면 전체 높이를 거기에 맞춘다.
-  // 일부 브라우저(예: 삼성 인터넷)는 visualViewport/resize 이벤트를
-  // 안정적으로 쏘지 않을 수 있어, 입력창 포커스 시에도 한 번 더 재확인한다.
+  // 화면 높이는 CSS dvh 단위(아래 컨테이너의 h-dvh)에 맡긴다 — 모바일
+  // 브라우저가 키보드/주소창 표시에 맞춰 알아서 갱신해줘서, JS로 매번
+  // 높이를 계산하는 것보다 삼성 인터넷 같은 브라우저에서 더 안정적이다.
+  // 여기서는 키보드가 올라올 때 입력창이 보이도록 스크롤만 맞춰준다.
   useEffect(() => {
     const vv = window.visualViewport;
-    const updateHeight = () => {
-      setViewportHeight(vv?.height ?? window.innerHeight);
+    const scrollToBottom = () => {
       bottomRef.current?.scrollIntoView({ block: "end" });
     };
-    updateHeightRef.current = updateHeight;
-    updateHeight();
-    vv?.addEventListener("resize", updateHeight);
-    vv?.addEventListener("scroll", updateHeight);
-    window.addEventListener("resize", updateHeight);
+    updateHeightRef.current = scrollToBottom;
+    vv?.addEventListener("resize", scrollToBottom);
+    vv?.addEventListener("scroll", scrollToBottom);
     return () => {
-      vv?.removeEventListener("resize", updateHeight);
-      vv?.removeEventListener("scroll", updateHeight);
-      window.removeEventListener("resize", updateHeight);
+      vv?.removeEventListener("resize", scrollToBottom);
+      vv?.removeEventListener("scroll", scrollToBottom);
     };
   }, []);
 
@@ -402,43 +397,63 @@ function ChatPageInner() {
   const isAu = universe && universe.type === "au";
 
   return (
-    <div
-      className="flex flex-1 flex-col overflow-hidden"
-      style={viewportHeight ? { height: viewportHeight } : undefined}
-    >
+    <div className="relative flex h-dvh flex-col overflow-hidden lg:h-auto lg:flex-1">
       <TopBar
         title={isAu ? `${character.name} · ${universe.title}` : character.name}
         right={
-          <div className="flex shrink-0 items-center gap-1">
-            <button
-              type="button"
-              onClick={toggleSplitMode}
-              aria-label="대화 나누기"
-              className={`flex h-8 w-8 items-center justify-center rounded-full hover:bg-background ${
-                splitMode ? "text-foreground" : "text-muted"
-              }`}
-            >
-              ✂
-            </button>
-            <button
-              type="button"
-              onClick={handleReset}
-              aria-label="대화 초기화"
-              className="flex h-8 w-8 items-center justify-center rounded-full text-muted hover:bg-background"
-            >
-              ↺
-            </button>
-            <button
-              type="button"
-              onClick={openRename}
-              aria-label="채팅방 이름 바꾸기"
-              className="flex h-8 w-8 items-center justify-center rounded-full text-muted hover:bg-background"
-            >
-              ✎
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => setMenuOpen((v) => !v)}
+            aria-label="채팅방 메뉴"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-lg text-muted hover:bg-background"
+          >
+            ☰
+          </button>
         }
       />
+
+      {menuOpen && (
+        <>
+          <button
+            type="button"
+            aria-label="메뉴 닫기"
+            onClick={() => setMenuOpen(false)}
+            className="fixed inset-0 z-10 cursor-default"
+          />
+          <div className="absolute right-3 top-14 z-20 flex w-56 flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-lg">
+            <button
+              type="button"
+              onClick={() => {
+                openRename();
+                setMenuOpen(false);
+              }}
+              className="px-4 py-3 text-left text-sm hover:bg-background"
+            >
+              ✎ 채팅방 이름 바꾸기
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                toggleSplitMode();
+                setMenuOpen(false);
+              }}
+              className="border-t border-border px-4 py-3 text-left text-sm hover:bg-background"
+            >
+              ✂ 대화 나누기
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMenuOpen(false);
+                handleReset();
+              }}
+              className="border-t border-border px-4 py-3 text-left text-sm text-red-600 hover:bg-background"
+            >
+              ↺ 대화 초기화
+            </button>
+          </div>
+        </>
+      )}
 
       {renaming && (
         <div className="flex items-center gap-2 border-b border-border bg-card px-3 py-2">
@@ -447,7 +462,7 @@ function ChatPageInner() {
             onChange={(e) => setRenameText(e.target.value)}
             autoFocus
             placeholder="채팅방 이름"
-            className="flex-1 rounded-xl border border-border bg-background p-2 text-sm outline-none focus:border-foreground/30"
+            className="min-w-0 flex-1 rounded-xl border border-border bg-background p-2 text-sm outline-none focus:border-foreground/30"
           />
           <button
             type="button"
