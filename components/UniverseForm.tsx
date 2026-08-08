@@ -55,13 +55,12 @@ export default function UniverseForm({ universe }: { universe?: Universe }) {
   const [characters, setCharacters] = useState<Character[]>([]);
 
   useEffect(() => {
-    if (isOrg) return;
     getCharacters()
       .then(setCharacters)
       .catch(() => {
         // 캐릭터 목록을 못 가져와도 폼 자체는 계속 쓸 수 있게 둔다
       });
-  }, [isOrg]);
+  }, []);
 
   function updateRelation(index: number, value: string) {
     setRelations((prev) => {
@@ -407,6 +406,28 @@ export default function UniverseForm({ universe }: { universe?: Universe }) {
                   이 AU로 관찰 모드 시작하기
                 </Link>
               </>
+            )}
+          </div>
+        )}
+
+        {!isNew && (
+          <div className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-4">
+            <p className="text-sm font-semibold">여러 캐릭터와 대화하기</p>
+            <p className="text-xs text-muted">
+              캐릭터 2명 이상을 모아 하나의 대화방을 만들어요. 대화하다가
+              말 거는 상대를 바꿔도, 지금까지의 이야기를 모두가 기억해요.
+            </p>
+            {characters.length < 2 ? (
+              <p className="text-xs text-muted">
+                캐릭터가 2명 이상 있어야 만들 수 있어요.
+              </p>
+            ) : (
+              <Link
+                href={`/thread/new?universe=${base.id}`}
+                className="rounded-xl border border-border py-2.5 text-center text-sm font-semibold"
+              >
+                + 새 대화방 만들기
+              </Link>
             )}
           </div>
         )}

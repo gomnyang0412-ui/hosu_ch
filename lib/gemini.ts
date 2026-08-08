@@ -114,9 +114,14 @@ async function generate(params: {
   systemInstruction: string;
   contents: Content[];
   json?: boolean;
+  itemRange?: { min: number; max: number };
 }): Promise<string> {
   const clients = getClients();
   let lastError: GeminiRequestError | null = null;
+  const { min: minItems, max: maxItems } = params.itemRange ?? {
+    min: 10,
+    max: 14,
+  };
 
   for (const ai of clients) {
     try {
@@ -141,8 +146,8 @@ async function generate(params: {
                     },
                     required: ["t"],
                   },
-                  minItems: "10",
-                  maxItems: "14",
+                  minItems: String(minItems),
+                  maxItems: String(maxItems),
                 },
               }
             : {}),
@@ -174,16 +179,26 @@ async function generate(params: {
   );
 }
 
-export async function generateChatReply(params: {
+/** 1:1 대화 응답 (지문+대사 혼합, 보통 1~4개 항목) */
+export async function generateChatJson(params: {
   systemInstruction: string;
   contents: Content[];
 }): Promise<string> {
-  return generate({ ...params, json: false });
+  return generate({ ...params, json: true, itemRange: { min: 1, max: 4 } });
 }
 
+/** 관찰 모드 장면 (지문+대사, 10~14개 항목) */
 export async function generateSceneJson(params: {
   systemInstruction: string;
   contents: Content[];
 }): Promise<string> {
-  return generate({ ...params, json: true });
+  return generate({ ...params, json: true, itemRange: { min: 10, max: 14 } });
+}
+
+/** 멀티 대화방 응답 (지문+대사, 보통 1~6개 항목) */
+export async function generateThreadJson(params: {
+  systemInstruction: string;
+  contents: Content[];
+}): Promise<string> {
+  return generate({ ...params, json: true, itemRange: { min: 1, max: 6 } });
 }

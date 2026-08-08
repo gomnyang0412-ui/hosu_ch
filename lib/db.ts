@@ -6,6 +6,7 @@ import {
   createOrgUniverse,
   type Character,
   type ChatMessage,
+  type MultiThread,
   type ObservationSession,
   type Universe,
 } from "./types";
@@ -47,6 +48,7 @@ const KEYS = {
   legacyWorld: "cc:world",
   chatPrefix: "cc:chat:",
   observationPrefix: "cc:observation:",
+  threadsPrefix: "cc:threads:",
 } as const;
 
 function chatKey(universeId: string, characterId: string) {
@@ -59,6 +61,10 @@ function legacyChatKey(characterId: string) {
 
 function observationKey(universeId: string) {
   return `${KEYS.observationPrefix}${universeId}`;
+}
+
+function threadsKey(universeId: string) {
+  return `${KEYS.threadsPrefix}${universeId}`;
 }
 
 // ---------- 캐릭터 ----------
@@ -173,6 +179,7 @@ export async function deleteUniverse(id: string): Promise<void> {
     universes.filter((u) => u.id !== id)
   );
   await getRedis().del(observationKey(id));
+  await getRedis().del(threadsKey(id));
 }
 
 // ---------- 1:1 대화 기록 (유니버스별) ----------
@@ -222,6 +229,7 @@ export async function clearChatHistoryEverywhere(
   await Promise.all([
     ...universes.map((u) => getRedis().del(chatKey(u.id, characterId))),
     getRedis().del(legacyChatKey(characterId)),
+    ...universes.map((u) => removeCharacterFromThreads(u.id, characterId)),
   ]);
 }
 
@@ -257,4 +265,56 @@ export async function clearObservationSession(
   if (universeId === ORG_UNIVERSE_ID) {
     await getRedis().del("cc:observation");
   }
+}
+
+// ---------- 멀티 캐릭터 대화방 (유니버스별, 여러 개 가능) ----------
+
+export async function getThreads(universeId: string): Promise<MultiThread[]> {
+  return (await getRedis().get<MultiThread[]>(threadsKey(universeId))) ?? [];
+}
+
+export async function getThread(
+  universeId: string,
+  threadId: string
+): Promise<MultiThread | undefined> {
+  const threads = await getThreads(universeId);
+  return threads.find((t) => t.id === threadId);
+}
+
+/** 대화방 하나를 만들거나 덮어쓴다 (id가 같으면 수정) */
+export async function saveThread(thread: MultiThread): Promise<void> {
+  const threads = await getThreads(thread.universeId);
+  const idx = threads.findIndex((t) => t.id === thread.id);
+  if (idx >= 0) {
+    threads[idx] = thread;
+  } else {
+    threads.push(thread);
+  }
+  await getRedis().set(threadsKey(thread.universeId), threads);
+}
+
+export async function deleteThread(
+  universeId: string,
+  threadId: string
+): Promise<void> {
+  const threads = await getThreads(universeId);
+  await getRedis().set(
+    threadsKey(universeId),
+    threads.filter((t) => t.id !== threadId)
+  );
+}
+
+/** 캐릭터 삭제 시, 그 유니버스의 모든 대화방 참가자 목록에서 해당 캐릭터를 뺀다 */
+async function removeCharacterFromThreads(
+  universeId: string,
+  characterId: string
+): Promise<void> {
+  const threads = await getThreads(universeId);
+  if (threads.length === 0) return;
+  const updated = threads.map((t) =>
+    t.characterIds.includes(characterId)
+      ? { ...t, characterIds: t.characterIds.filter((id) => id !== characterId) }
+      : t
+  );
+  await getRedis().set(threadsKey(universeId), updated);
 }

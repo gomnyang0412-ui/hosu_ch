@@ -14,6 +14,7 @@ import {
   clearChatHistory,
   StorageError,
 } from "@/lib/storage";
+import { serializeItems } from "@/lib/scene";
 import { resolveUniverseTemplate } from "@/lib/template";
 import {
   ORG_UNIVERSE_ID,
@@ -21,12 +22,19 @@ import {
   toCharacterProfile,
   type Character,
   type ChatMessage,
+  type SceneItem,
   type Universe,
 } from "@/lib/types";
 
 interface ChatErrorState {
   message: string;
-  kind: "quota" | "network" | "unknown";
+  kind: "quota" | "network" | "unknown" | "parse";
+}
+
+/** items가 없는 예전 메시지는 대사 1개짜리로 감싸서 보여준다 */
+function modelItems(m: ChatMessage, characterName: string): SceneItem[] {
+  if (m.items && m.items.length > 0) return m.items;
+  return [{ t: "d", who: characterName, say: m.text }];
 }
 
 export default function ChatPage() {
@@ -104,8 +112,14 @@ function ChatPageInner() {
       try {
         const history = await getChatHistory(universeId, id);
         if (history.length === 0 && found.firstMessage.trim()) {
+          const firstText = found.firstMessage.trim();
           const seeded: ChatMessage[] = [
-            { role: "model", text: found.firstMessage.trim(), ts: Date.now() },
+            {
+              role: "model",
+              text: firstText,
+              items: [{ t: "d", who: found.name, say: firstText }],
+              ts: Date.now(),
+            },
           ];
           setMessages(seeded);
           try {
@@ -151,9 +165,15 @@ function ChatPageInner() {
         });
         return;
       }
+      const items: SceneItem[] = data.items;
       const next: ChatMessage[] = [
         ...history,
-        { role: "model", text: data.reply, ts: Date.now() },
+        {
+          role: "model",
+          text: data.text ?? serializeItems(items),
+          items,
+          ts: Date.now(),
+        },
       ];
       setMessages(next);
       try {
@@ -214,8 +234,16 @@ function ChatPageInner() {
     if (!window.confirm("이 캐릭터와의 대화 기록을 모두 지울까요?")) return;
     try {
       await clearChatHistory(universeId, id);
-      const seeded: ChatMessage[] = character.firstMessage.trim()
-        ? [{ role: "model", text: character.firstMessage.trim(), ts: Date.now() }]
+      const firstText = character.firstMessage.trim();
+      const seeded: ChatMessage[] = firstText
+        ? [
+            {
+              role: "model",
+              text: firstText,
+              items: [{ t: "d", who: character.name, say: firstText }],
+              ts: Date.now(),
+            },
+          ]
         : [];
       setMessages(seeded);
       if (seeded.length) await saveChatHistory(universeId, id, seeded);
@@ -271,11 +299,29 @@ function ChatPageInner() {
         {loadError && <p className="text-sm text-red-600">{loadError}</p>}
         {messages.map((m, i) =>
           m.role === "model" ? (
-            <div key={`${m.ts}-${i}`} className="flex items-end gap-2">
-              <CharacterAvatar character={character} size="sm" />
-              <div className="max-w-[75%] whitespace-pre-wrap rounded-2xl rounded-bl-sm bg-card border border-border px-3 py-2 text-sm leading-relaxed md:max-w-[420px]">
-                {m.text}
-              </div>
+            <div key={`${m.ts}-${i}`} className="flex flex-col gap-2">
+              {modelItems(m, character.name).map((item, j) =>
+                item.t === "n" ? (
+                  <p
+                    key={j}
+                    className="border-l-2 border-border pl-3 text-[13px] italic leading-relaxed text-muted"
+                  >
+                    {item.text}
+                  </p>
+                ) : (
+                  <div key={j} className="flex items-end gap-2">
+                    <CharacterAvatar character={character} size="sm" />
+                    <div className="max-w-[75%] whitespace-pre-wrap rounded-2xl rounded-bl-sm bg-card border border-border px-3 py-2 text-sm leading-relaxed md:max-w-[420px]">
+                      {item.act && (
+                        <p className="mb-1 text-xs italic text-muted">
+                          {item.act}
+                        </p>
+                      )}
+                      {item.say}
+                    </div>
+                  </div>
+                )
+              )}
             </div>
           ) : (
             <div key={`${m.ts}-${i}`} className="flex justify-end">

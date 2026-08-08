@@ -4,6 +4,7 @@
 import type {
   Character,
   ChatMessage,
+  MultiThread,
   ObservationSession,
   Universe,
 } from "./types";
@@ -141,4 +142,39 @@ export async function clearObservationSession(
   universeId: string
 ): Promise<void> {
   await request(`/api/data/observation/${universeId}`, { method: "DELETE" });
+}
+
+// ---------- 멀티 캐릭터 대화방 ----------
+
+export async function getThreads(universeId: string): Promise<MultiThread[]> {
+  const data = await request<{ threads: MultiThread[] }>(
+    `/api/data/threads/${universeId}`
+  );
+  return data.threads;
+}
+
+export async function getThread(
+  universeId: string,
+  threadId: string
+): Promise<MultiThread | null> {
+  const data = await request<{ thread: MultiThread | null }>(
+    `/api/data/threads/${universeId}/${threadId}`
+  );
+  return data.thread;
+}
+
+export async function saveThread(thread: MultiThread): Promise<void> {
+  await request(`/api/data/threads/${thread.universeId}`, {
+    method: "POST",
+    body: JSON.stringify(thread),
+  });
+}
+
+export async function deleteThread(
+  universeId: string,
+  threadId: string
+): Promise<void> {
+  await request(`/api/data/threads/${universeId}/${threadId}`, {
+    method: "DELETE",
+  });
 }

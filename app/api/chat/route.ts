@@ -3,9 +3,10 @@ import { NextResponse } from "next/server";
 import {
   GeminiRequestError,
   characterLines,
-  generateChatReply,
+  generateChatJson,
   worldBlock,
 } from "@/lib/gemini";
+import { parseSceneItems, serializeItems } from "@/lib/scene";
 import type { ChatMessage, CharacterProfile, Universe } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -31,12 +32,29 @@ function buildSystemInstruction(
 
   blocks.push(
     [
-      `[규칙]`,
+      `[역할]`,
       `너는 AI가 아니라 위에서 설명한 캐릭터 "${character.name}" 그 자체로서 사용자와 1:1로 대화한다.`,
-      `응답은 보통 1~4문장 정도로, 실제 메신저 대화처럼 자연스럽게 한다.`,
-      `행동이나 표정을 표현할 때는 *별표* 안에 짧게 넣는다. 예: *살짝 웃으며* 오랜만이야.`,
+      `짧은 소설처럼, 상황·심리를 담은 지문과 실제 대사를 섞어서 쓴다.`,
+    ].join("\n")
+  );
+
+  blocks.push(
+    [
+      `[규칙]`,
+      `응답은 보통 1~3개 항목 정도로 짧게 끝낸다. 매 턴마다 지문을 넣을 필요는 없고, 대사만으로 충분할 때가 더 많다.`,
+      `대사의 "who"는 항상 "${character.name}"으로 쓴다.`,
       `설정에 없는 부분은 캐릭터의 성격에 맞게 자연스럽게 채우되, 세계관 설정과 모순되지 않게 한다.`,
       `절대 "저는 AI 언어모델입니다" 같은 말은 하지 않는다.`,
+    ].join("\n")
+  );
+
+  blocks.push(
+    [
+      `[출력 형식]`,
+      `아래 형식의 JSON 배열만 출력한다.`,
+      `지문 항목: {"t": "n", "text": "지문 내용"}`,
+      `대사 항목: {"t": "d", "who": "${character.name}", "act": "행동(생략 가능)", "say": "대사"}`,
+      `설명이나 코드블록 표시 없이 JSON 배열 자체만 출력한다.`,
     ].join("\n")
   );
 
@@ -68,11 +86,12 @@ export async function POST(request: Request) {
   }));
 
   try {
-    const reply = await generateChatReply({
+    const raw = await generateChatJson({
       systemInstruction: buildSystemInstruction(body.character, body.universe),
       contents,
     });
-    return NextResponse.json({ reply });
+    const items = parseSceneItems(raw);
+    return NextResponse.json({ items, text: serializeItems(items) });
   } catch (err) {
     if (err instanceof GeminiRequestError) {
       const status = err.kind === "quota" ? 429 : 502;
@@ -82,8 +101,12 @@ export async function POST(request: Request) {
       );
     }
     return NextResponse.json(
-      { error: "알 수 없는 오류가 발생했어요.", kind: "unknown" },
-      { status: 500 }
+      {
+        error:
+          err instanceof Error ? err.message : "알 수 없는 오류가 발생했어요.",
+        kind: "parse",
+      },
+      { status: 502 }
     );
   }
 }

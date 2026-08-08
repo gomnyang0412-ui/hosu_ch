@@ -140,20 +140,26 @@ export function createOrgUniverse(): Universe {
   };
 }
 
-/** 1:1 대화 한 마디 */
+/**
+ * 1:1 대화 한 마디.
+ * role이 "model"인 경우 items(지문+대사 혼합)가 있으면 그걸로 그리고,
+ * text는 대화 맥락을 AI에게 다시 보여줄 때 쓰는 평문 요약이다.
+ * role이 "user"인 경우 items 없이 text만 쓴다.
+ */
 export interface ChatMessage {
   role: "user" | "model";
   text: string;
+  items?: SceneItem[];
   ts: number;
 }
 
-/** 관찰 모드 장면 한 항목 - 지문 */
+/** 지문(상황·심리 묘사) 항목 */
 export interface NarrationItem {
   t: "n";
   text: string;
 }
 
-/** 관찰 모드 장면 한 항목 - 대사 */
+/** 캐릭터 대사 항목 */
 export interface DialogueItem {
   t: "d";
   who: string;
@@ -161,6 +167,7 @@ export interface DialogueItem {
   say: string;
 }
 
+/** 지문 + 대사. 관찰 모드 장면과 1:1 대화의 캐릭터 응답에 공통으로 쓴다 */
 export type SceneItem = NarrationItem | DialogueItem;
 
 /** 진행 중인 관찰 모드 세션 (캐릭터 선택 + 주제 + 지금까지의 장면) */
@@ -169,6 +176,38 @@ export interface ObservationSession {
   characterIds: string[];
   topic: string;
   items: SceneItem[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** 멀티 대화방에서 사용자가 직접 보낸 한 마디 */
+export interface UserItem {
+  t: "u";
+  text: string;
+}
+
+/** 멀티 대화방에서 사용자가 넣는 "상황 전환" 지시문 (화면엔 구분선처럼 표시) */
+export interface DirectiveItem {
+  t: "x";
+  text: string;
+}
+
+/** 멀티 대화방 기록 한 항목 (지문/대사/사용자 발화/상황 전환) */
+export type ThreadItem = SceneItem | UserItem | DirectiveItem;
+
+/**
+ * 여러 캐릭터 + 나가 참가자인 연속 대화방.
+ * 캐릭터를 바꿔가며 이야기해도 하나의 items 배열을 공유하므로
+ * 모든 참가 캐릭터가 지금까지의 흐름을 알고 있다.
+ */
+export interface MultiThread {
+  id: string;
+  universeId: string;
+  /** 참가 캐릭터 id 목록. 순서 = 화면에 보여줄 칩 순서 */
+  characterIds: string[];
+  /** 목록 화면에 보여줄 제목 (없으면 참가자 이름으로 대신 표시) */
+  title?: string;
+  items: ThreadItem[];
   createdAt: number;
   updatedAt: number;
 }
