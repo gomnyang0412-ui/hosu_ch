@@ -6,8 +6,13 @@ import {
   generateChatJson,
   worldBlock,
 } from "@/lib/gemini";
-import { parseSceneItems, serializeItems } from "@/lib/scene";
-import type { ChatMessage, CharacterProfile, Universe } from "@/lib/types";
+import { hasContent, parseSceneItems, serializeItems } from "@/lib/scene";
+import type {
+  ChatMessage,
+  CharacterProfile,
+  SceneItem,
+  Universe,
+} from "@/lib/types";
 
 export const runtime = "nodejs";
 
@@ -34,17 +39,16 @@ function buildSystemInstruction(
     [
       `[역할]`,
       `너는 AI가 아니라 위에서 설명한 캐릭터 "${character.name}" 그 자체로서 사용자와 1:1로 대화한다.`,
-      `짧은 소설처럼, 상황·심리를 담은 지문과 실제 대사를 섞어서 쓴다.`,
+      `응답의 중심은 항상 대사다. 지문은 분위기를 살릴 때만 짧게 곁들이는 보조 요소다.`,
     ].join("\n")
   );
 
   blocks.push(
     [
       `[규칙]`,
-      `응답은 보통 1~3개 항목 정도로 짧게 끝낸다. 매 턴마다 지문을 넣을 필요는 없고, 대사만으로 충분할 때가 더 많다.`,
-      `단, 대사(t: "d") 항목은 반드시 최소 1개 포함해야 한다. 지문(t: "n")만으로 응답을 끝내지 않는다 — "${character.name}"은 항상 말이나 행동으로 반응한다.`,
-      `지문을 쓸 때는 반드시 그 뒤에 대사가 이어지게 한다. 지문으로 응답을 마무리하지 않는다.`,
-      `캐릭터가 말을 잇지 못하거나 침묵하는 상황이라도, 그 상태 자체를 짧은 대사로 표현한다 (예: say: "..." 나 말끝을 흐리는 짧은 문장). 완전한 무응답은 없다.`,
+      `대사(t: "d") 항목을 반드시 최소 1개 포함하고, 그 대사에는 실제로 하는 말이 구체적으로 담겨야 한다.`,
+      `"...", "음..." 같은 내용 없는 말줄임표만으로 대사를 때우지 않는다. 캐릭터가 망설이거나 긴장하는 상황이라도, 그 안에서 실제로 할 만한 말을 구체적으로 쓴다.`,
+      `지문(t: "n")은 꼭 필요할 때만 짧게 넣는다. 매 턴마다 넣을 필요는 없고, 대사만으로 끝나는 응답이 더 많아야 한다. 지문만으로 응답을 마무리하지 않는다 — 지문 뒤에는 항상 대사가 이어진다.`,
       `대사의 "who"는 항상 "${character.name}"으로 쓴다.`,
       `설정에 없는 부분은 캐릭터의 성격에 맞게 자연스럽게 채우되, 세계관 설정과 모순되지 않게 한다.`,
       `절대 "저는 AI 언어모델입니다" 같은 말은 하지 않는다.`,
@@ -93,18 +97,21 @@ export async function POST(request: Request) {
       body.character,
       body.universe
     );
+    const hasRealReply = (items: SceneItem[]) =>
+      items.some((it) => it.t === "d" && hasContent(it.say));
+
     let items = parseSceneItems(
       await generateChatJson({ systemInstruction, contents })
     );
-    // 가끔 지문만 있고 대사가 빠질 때가 있어, 그럴 때만 한 번 더 시도한다.
-    if (!items.some((it) => it.t === "d")) {
+    // 가끔 대사가 빠지거나 "..."로만 때울 때가 있어, 그럴 때만 한 번 더 시도한다.
+    if (!hasRealReply(items)) {
       const retryContents: Content[] = [
         ...contents,
         {
           role: "user",
           parts: [
             {
-              text: `(방금 응답에는 대사가 없었어요. 이번엔 "${body.character.name}"이(가) 짧게라도 말이나 소리로 반응하게 다시 써줘.)`,
+              text: `(방금 응답은 대사가 없거나 "..."뿐이었어요. 이번엔 "${body.character.name}"이(가) 실제로 무슨 말을 하는지 구체적인 대사로 다시 써줘.)`,
             },
           ],
         },
@@ -113,9 +120,9 @@ export async function POST(request: Request) {
         await generateChatJson({ systemInstruction, contents: retryContents })
       );
     }
-    // 그래도 안 되면, 침묵도 하나의 반응이니 짧은 대사로 대신 채운다.
+    // 대사 자체가 아예 없는 극단적인 경우에만 사용자가 다시 시도하도록 알린다.
     if (!items.some((it) => it.t === "d")) {
-      items = [...items, { t: "d", who: body.character.name, say: "..." }];
+      throw new Error("캐릭터가 대답하지 않았어요. 다시 시도해 주세요.");
     }
     return NextResponse.json({ items, text: serializeItems(items) });
   } catch (err) {

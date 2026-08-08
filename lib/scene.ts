@@ -59,6 +59,11 @@ export function parseSceneItems(raw: string): SceneItem[] {
   return items;
 }
 
+/** "...", "‥" 처럼 내용 없는 말줄임표뿐인 대사는 실제로 대답한 게 아니라고 본다 */
+export function hasContent(say: string): boolean {
+  return say.replace(/[.\s…‥]/g, "").length > 0;
+}
+
 /** 이전 장면을 AI에게 다시 보여줄 때 쓰는 텍스트 표현 */
 export function serializeItems(items: SceneItem[]): string {
   return items

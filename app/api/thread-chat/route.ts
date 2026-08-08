@@ -6,7 +6,7 @@ import {
   generateThreadJson,
   worldBlock,
 } from "@/lib/gemini";
-import { parseSceneItems } from "@/lib/scene";
+import { hasContent, parseSceneItems } from "@/lib/scene";
 import { serializeThreadItems } from "@/lib/thread";
 import type { CharacterProfile, ThreadItem, Universe } from "@/lib/types";
 
@@ -49,18 +49,19 @@ function buildSystemInstruction(
       `[역할]`,
       `너는 비주얼 노벨 각본가다. 위 인물들과 사용자("나")가 함께 있는 하나의 이야기를 짧은 소설처럼 이어 쓴다.`,
       `사용자는 이 이야기의 참가자다. 사용자의 말과 행동은 이미 대화 기록에 있으니 새로 만들지 않는다.`,
+      `응답의 중심은 항상 대사다. 지문은 분위기를 살릴 때만 짧게 곁들이는 보조 요소다.`,
     ].join("\n")
   );
 
   blocks.push(
     [
       `[규칙]`,
-      `지금 사용자가 말을 거는 대상은 "${targetName}"이다. ${targetName}은 반드시 대사(t: "d", who: "${targetName}")로 최소 한 번 응답해야 한다. 지문만으로 응답을 끝내지 않는다 — ${targetName}은 항상 말이나 행동으로 반응한다.`,
-      `다른 등장인물은 그 자리에 있을 자연스러운 이유가 있고 끼어들 상황일 때만 등장시킨다. 매번 전원이 반응할 필요는 없지만, ${targetName}만은 예외 없이 응답한다.`,
-      `${targetName}이 말을 잇지 못하거나 침묵하는 상황이라도, 그 상태 자체를 짧은 대사로 표현한다 (예: say: "..." 나 말끝을 흐리는 짧은 문장). 완전한 무응답은 없다.`,
+      `지금 사용자가 말을 거는 대상은 "${targetName}"이다. ${targetName}은 반드시 대사(t: "d", who: "${targetName}")로 최소 한 번 응답하고, 그 대사에는 실제로 하는 말이 구체적으로 담겨야 한다.`,
+      `"...", "음..." 같은 내용 없는 말줄임표만으로 대사를 때우지 않는다. ${targetName}이 망설이거나 긴장하는 상황이라도, 그 안에서 실제로 할 만한 말을 구체적으로 쓴다.`,
+      `다른 등장인물은 그 자리에 있을 자연스러운 이유가 있고 끼어들 상황일 때만 등장시킨다. 매번 전원이 반응할 필요는 없지만, ${targetName}만은 예외 없이 실제 대사로 응답한다.`,
       `대화 기록 마지막에 "(상황 전환)"으로 표시된 지시문이 있다면, 그 지시에 맞게 시간·장소·상황이 바뀐 새 장면을 지문으로 자연스럽게 열고, ${targetName}의 대사로 이어간다.`,
       `인물마다 말투를 뚜렷이 구분해서 쓴다.`,
-      `응답은 보통 1~4개 항목 정도로 짧게 끝낸다.`,
+      `지문은 꼭 필요할 때만 짧게 넣는다. 대사만으로 끝나는 응답이 더 많아야 한다.`,
       `설정에 없는 부분은 각 인물의 성격에 맞게 채우되 세계관과 모순되지 않게 한다.`,
     ].join("\n")
   );
@@ -120,19 +121,21 @@ export async function POST(request: Request) {
     );
     const targetSpoke = (items: ThreadItem[]) =>
       items.some((it) => it.t === "d" && it.who === targetName);
+    const targetReallySpoke = (items: ThreadItem[]) =>
+      items.some((it) => it.t === "d" && it.who === targetName && hasContent(it.say));
 
     let items = parseSceneItems(
       await generateThreadJson({ systemInstruction, contents })
     );
-    // 가끔 지목한 캐릭터가 대사 없이 지문으로만 넘어갈 때가 있어, 그럴 때만 한 번 더 시도한다.
-    if (!targetSpoke(items)) {
+    // 가끔 지목한 캐릭터의 대사가 빠지거나 "..."로만 때울 때가 있어, 그럴 때만 한 번 더 시도한다.
+    if (!targetReallySpoke(items)) {
       const retryContents: Content[] = [
         ...contents,
         {
           role: "user",
           parts: [
             {
-              text: `(방금 응답에는 ${targetName}의 대사가 없었어요. 이번엔 ${targetName}이(가) 짧게라도 말이나 소리로 반응하게 다시 써줘.)`,
+              text: `(방금 응답은 ${targetName}의 대사가 없거나 "..."뿐이었어요. 이번엔 ${targetName}이(가) 실제로 무슨 말을 하는지 구체적인 대사로 다시 써줘.)`,
             },
           ],
         },
@@ -141,9 +144,9 @@ export async function POST(request: Request) {
         await generateThreadJson({ systemInstruction, contents: retryContents })
       );
     }
-    // 그래도 안 되면, 침묵도 하나의 반응이니 짧은 대사로 대신 채운다.
+    // 대사 자체가 아예 없는 극단적인 경우에만 사용자가 다시 시도하도록 알린다.
     if (!targetSpoke(items)) {
-      items = [...items, { t: "d", who: targetName, say: "..." }];
+      throw new Error(`${targetName}이(가) 대답하지 않았어요. 다시 시도해 주세요.`);
     }
     return NextResponse.json({ items });
   } catch (err) {
