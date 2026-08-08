@@ -110,6 +110,10 @@ export function worldBlock(universe: Universe): string {
   return parts.join("\n\n");
 }
 
+// Gemini 호출 한 번이 이 시간을 넘기면 응답을 무한정 기다리지 않고
+// 바로 실패 처리해서, 사용자가 "입력 중…" 상태로 무한정 갇히지 않게 한다.
+const CALL_TIMEOUT_MS = 25_000;
+
 async function generate(params: {
   systemInstruction: string;
   contents: Content[];
@@ -129,6 +133,7 @@ async function generate(params: {
         model: GEMINI_MODEL,
         contents: params.contents,
         config: {
+          abortSignal: AbortSignal.timeout(CALL_TIMEOUT_MS),
           systemInstruction: params.systemInstruction,
           ...(params.json
             ? {

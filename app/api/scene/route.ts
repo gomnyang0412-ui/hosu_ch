@@ -10,6 +10,9 @@ import { parseSceneItems, serializeItems } from "@/lib/scene";
 import type { CharacterProfile, SceneItem, Universe } from "@/lib/types";
 
 export const runtime = "nodejs";
+// 지문+대사 10~14개짜리 긴 장면을 생성해 시간이 걸릴 수 있어, 기본
+// 실행 시간 제한에 걸려 응답이 끊기지 않도록 넉넉히 늘려둔다.
+export const maxDuration = 60;
 
 interface SceneRequestBody {
   characters: CharacterProfile[];

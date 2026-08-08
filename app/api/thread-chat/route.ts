@@ -11,6 +11,9 @@ import { serializeThreadItems } from "@/lib/thread";
 import type { CharacterProfile, ThreadItem, Universe } from "@/lib/types";
 
 export const runtime = "nodejs";
+// Gemini를 최대 2번(재시도 포함) 순차 호출할 수 있어, 기본 실행 시간
+// 제한에 걸려 응답이 끊기지 않도록 넉넉히 늘려둔다.
+export const maxDuration = 60;
 
 interface ThreadChatRequestBody {
   characters: CharacterProfile[];
