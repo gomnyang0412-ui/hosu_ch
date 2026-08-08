@@ -11,7 +11,8 @@ import { serializeThreadItems } from "@/lib/thread";
 import type { CharacterProfile, ThreadItem, Universe } from "@/lib/types";
 
 export const runtime = "nodejs";
-export const maxDuration = 30;
+// 대사 검증에 실패하면 재시도로 Gemini를 한 번 더 호출할 수 있어 여유를 둔다.
+export const maxDuration = 60;
 
 interface ThreadChatRequestBody {
   characters: CharacterProfile[];
@@ -58,8 +59,8 @@ function buildSystemInstruction(
   blocks.push(
     [
       `[규칙]`,
-      `지금 사용자가 말을 거는 대상은 "${targetName}"이다. ${targetName}은 반드시 대사(t: "d", who: "${targetName}")로 최소 한 번 응답하고, 그 대사에는 실제로 하는 말이 구체적으로 담겨야 한다.`,
-      `"...", "음..." 같은 내용 없는 말줄임표만으로 대사를 때우지 않는다. ${targetName}이 망설이거나 긴장하는 상황이라도, 그 안에서 실제로 할 만한 말을 구체적으로 쓴다.`,
+      `지금 사용자가 말을 거는 대상은 "${targetName}"이다. ${targetName}은 반드시 대사(t: "d", who: "${targetName}")로 최소 한 번 응답하고, 그 대사에는 실제로 내는 소리나 말이 담겨야 한다.`,
+      `"...", "음..." 같은 마침표·말줄임표뿐인 대사는 안 되지만, 짧은 감탄사나 더듬는 말(예: "어...", "그, 그게")은 괜찮다. ${targetName}이 말을 잃거나 얼어붙는 순간이라도 완전한 무음으로 두지 않고, 그 상태에 맞는 짧은 소리라도 반드시 낸다.`,
       `다른 등장인물은 그 자리에 있을 자연스러운 이유가 있고 끼어들 상황일 때만 등장시킨다. 매번 전원이 반응할 필요는 없지만, ${targetName}만은 예외 없이 실제 대사로 응답한다.`,
       `대화 기록 마지막에 "(상황 전환)"으로 표시된 지시문이 있다면, 그 지시에 맞게 시간·장소·상황이 바뀐 새 장면을 지문으로 자연스럽게 열고, ${targetName}의 대사로 이어간다.`,
       `인물마다 말투를 뚜렷이 구분해서 쓴다.`,
@@ -121,16 +122,32 @@ export async function POST(request: Request) {
       body.universe,
       targetName
     );
-    const items = parseSceneItems(
+    const targetReallySpoke = (list: ThreadItem[]) =>
+      list.some(
+        (it) => it.t === "d" && it.who === targetName && hasContent(it.say)
+      );
+
+    let items = parseSceneItems(
       await generateThreadJson({ systemInstruction, contents })
     );
-    // 프롬프트로 대사를 강제하지만, 혹시 안 지켜졌으면 곧바로 재시도하는
-    // 대신 사용자가 "다시 시도" 버튼으로 직접 다시 받게 해서 매 응답이
-    // 불필요하게 느려지지 않게 한다.
-    const targetReallySpoke = items.some(
-      (it) => it.t === "d" && it.who === targetName && hasContent(it.say)
-    );
-    if (!targetReallySpoke) {
+    // 프롬프트로 대사를 강제해도 가끔 안 지켜질 때가 있어, 그때만 한 번 더 시도한다.
+    if (!targetReallySpoke(items)) {
+      const retryContents: Content[] = [
+        ...contents,
+        {
+          role: "user",
+          parts: [
+            {
+              text: `(방금 응답에는 ${targetName}의 실제 대사가 없었어요. 짧아도 좋으니, 이번엔 반드시 ${targetName}이 실제로 내는 말이나 소리를 대사로 써줘.)`,
+            },
+          ],
+        },
+      ];
+      items = parseSceneItems(
+        await generateThreadJson({ systemInstruction, contents: retryContents })
+      );
+    }
+    if (!targetReallySpoke(items)) {
       throw new Error(`${targetName}이(가) 대답하지 않았어요. 다시 시도해 주세요.`);
     }
     return NextResponse.json({ items });

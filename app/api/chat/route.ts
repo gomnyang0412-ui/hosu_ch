@@ -15,7 +15,8 @@ import type {
 } from "@/lib/types";
 
 export const runtime = "nodejs";
-export const maxDuration = 30;
+// 대사 검증에 실패하면 재시도로 Gemini를 한 번 더 호출할 수 있어 여유를 둔다.
+export const maxDuration = 60;
 
 interface ChatRequestBody {
   character: CharacterProfile;
@@ -48,8 +49,8 @@ function buildSystemInstruction(
   blocks.push(
     [
       `[규칙]`,
-      `대사(t: "d") 항목을 반드시 최소 1개 포함하고, 그 대사에는 실제로 하는 말이 구체적으로 담겨야 한다.`,
-      `"...", "음..." 같은 내용 없는 말줄임표만으로 대사를 때우지 않는다. 캐릭터가 망설이거나 긴장하는 상황이라도, 그 안에서 실제로 할 만한 말을 구체적으로 쓴다.`,
+      `대사(t: "d") 항목을 반드시 최소 1개 포함하고, 그 대사에는 실제로 내는 소리나 말이 담겨야 한다.`,
+      `"...", "음..." 같은 마침표·말줄임표뿐인 대사는 안 되지만, 짧은 감탄사나 더듬는 말(예: "어...", "그, 그게", "아뇨, 그런 게 아니라")은 괜찮다. 캐릭터가 말을 잃거나 얼어붙는 순간이라도 완전한 무음으로 두지 않고, 그 상태에 맞는 짧은 소리라도 반드시 낸다.`,
       `지문(t: "n")은 꼭 필요할 때만 짧게 넣는다. 매 턴마다 넣을 필요는 없고, 대사만으로 끝나는 응답이 더 많아야 한다. 지문만으로 응답을 마무리하지 않는다 — 지문 뒤에는 항상 대사가 이어진다.`,
       `대사의 "who"는 항상 "${character.name}"으로 쓴다.`,
       `설정에 없는 부분은 캐릭터의 성격에 맞게 자연스럽게 채우되, 세계관 설정과 모순되지 않게 한다.`,
@@ -99,14 +100,29 @@ export async function POST(request: Request) {
       body.character,
       body.universe
     );
-    const items = parseSceneItems(
-      await generateChatJson({ systemInstruction, contents })
-    );
-    // 프롬프트로 대사를 강제하지만, 혹시 안 지켜졌으면 곧바로 재시도하는
-    // 대신 사용자가 "다시 시도" 버튼으로 직접 다시 받게 해서 매 응답이
-    // 불필요하게 느려지지 않게 한다.
     const hasRealReply = (list: SceneItem[]) =>
       list.some((it) => it.t === "d" && hasContent(it.say));
+
+    let items = parseSceneItems(
+      await generateChatJson({ systemInstruction, contents })
+    );
+    // 프롬프트로 대사를 강제해도 가끔 안 지켜질 때가 있어, 그때만 한 번 더 시도한다.
+    if (!hasRealReply(items)) {
+      const retryContents: Content[] = [
+        ...contents,
+        {
+          role: "user",
+          parts: [
+            {
+              text: `(방금 응답에는 "${body.character.name}"의 실제 대사가 없었어요. 짧아도 좋으니, 이번엔 반드시 실제로 내는 말이나 소리를 대사로 써줘.)`,
+            },
+          ],
+        },
+      ];
+      items = parseSceneItems(
+        await generateChatJson({ systemInstruction, contents: retryContents })
+      );
+    }
     if (!hasRealReply(items)) {
       throw new Error("캐릭터가 대답하지 않았어요. 다시 시도해 주세요.");
     }
