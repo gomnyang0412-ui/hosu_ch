@@ -11,9 +11,7 @@ import { serializeThreadItems } from "@/lib/thread";
 import type { CharacterProfile, ThreadItem, Universe } from "@/lib/types";
 
 export const runtime = "nodejs";
-// Gemini를 최대 2번(재시도 포함) 순차 호출할 수 있어, 기본 실행 시간
-// 제한에 걸려 응답이 끊기지 않도록 넉넉히 늘려둔다.
-export const maxDuration = 60;
+export const maxDuration = 30;
 
 interface ThreadChatRequestBody {
   characters: CharacterProfile[];
@@ -22,7 +20,8 @@ interface ThreadChatRequestBody {
   items: ThreadItem[];
 }
 
-const MAX_CONTEXT_ITEMS = 40;
+// 너무 크면 매 요청마다 처리할 토큰이 늘어나 응답이 느려진다.
+const MAX_CONTEXT_ITEMS = 24;
 
 function buildSystemInstruction(
   characters: CharacterProfile[],
@@ -122,33 +121,16 @@ export async function POST(request: Request) {
       body.universe,
       targetName
     );
-    const targetSpoke = (items: ThreadItem[]) =>
-      items.some((it) => it.t === "d" && it.who === targetName);
-    const targetReallySpoke = (items: ThreadItem[]) =>
-      items.some((it) => it.t === "d" && it.who === targetName && hasContent(it.say));
-
-    let items = parseSceneItems(
+    const items = parseSceneItems(
       await generateThreadJson({ systemInstruction, contents })
     );
-    // 가끔 지목한 캐릭터의 대사가 빠지거나 "..."로만 때울 때가 있어, 그럴 때만 한 번 더 시도한다.
-    if (!targetReallySpoke(items)) {
-      const retryContents: Content[] = [
-        ...contents,
-        {
-          role: "user",
-          parts: [
-            {
-              text: `(방금 응답은 ${targetName}의 대사가 없거나 "..."뿐이었어요. 이번엔 ${targetName}이(가) 실제로 무슨 말을 하는지 구체적인 대사로 다시 써줘.)`,
-            },
-          ],
-        },
-      ];
-      items = parseSceneItems(
-        await generateThreadJson({ systemInstruction, contents: retryContents })
-      );
-    }
-    // 대사 자체가 아예 없는 극단적인 경우에만 사용자가 다시 시도하도록 알린다.
-    if (!targetSpoke(items)) {
+    // 프롬프트로 대사를 강제하지만, 혹시 안 지켜졌으면 곧바로 재시도하는
+    // 대신 사용자가 "다시 시도" 버튼으로 직접 다시 받게 해서 매 응답이
+    // 불필요하게 느려지지 않게 한다.
+    const targetReallySpoke = items.some(
+      (it) => it.t === "d" && it.who === targetName && hasContent(it.say)
+    );
+    if (!targetReallySpoke) {
       throw new Error(`${targetName}이(가) 대답하지 않았어요. 다시 시도해 주세요.`);
     }
     return NextResponse.json({ items });
