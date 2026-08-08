@@ -480,7 +480,7 @@ function ChatPageInner() {
             onChange={(e) => setRenameText(e.target.value)}
             autoFocus
             placeholder="채팅방 이름"
-            className="min-w-0 flex-1 rounded-xl border border-border bg-background p-2 text-sm outline-none focus:border-foreground/30"
+            className="min-w-0 flex-1 rounded-xl border border-border bg-background p-2 text-sm outline-none focus:border-primary/50"
           />
           <button
             type="button"
@@ -493,7 +493,7 @@ function ChatPageInner() {
             type="button"
             onClick={confirmRename}
             disabled={!renameText.trim() || savingName}
-            className="rounded-full bg-foreground px-3 py-1.5 text-xs font-semibold text-background disabled:opacity-40"
+            className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground disabled:opacity-40"
           >
             {savingName ? "저장 중…" : "저장"}
           </button>
@@ -569,7 +569,7 @@ function ChatPageInner() {
                     type="button"
                     onClick={submitEdit}
                     disabled={!editingText.trim()}
-                    className="rounded-full bg-foreground px-3 py-1 text-xs font-semibold text-background disabled:opacity-40"
+                    className="rounded-full bg-primary px-3 py-1 text-xs font-semibold text-primary-foreground disabled:opacity-40"
                   >
                     수정하고 다시 받기
                   </button>
@@ -613,7 +613,7 @@ function ChatPageInner() {
                 <select
                   value={splitTargetId}
                   onChange={(e) => setSplitTargetId(e.target.value)}
-                  className="w-full rounded-xl border border-border bg-background p-2 text-sm outline-none focus:border-foreground/30"
+                  className="w-full rounded-xl border border-border bg-background p-2 text-sm outline-none focus:border-primary/50"
                 >
                   <option value="">캐릭터 선택</option>
                   {allCharacters
@@ -636,7 +636,7 @@ function ChatPageInner() {
                     type="button"
                     onClick={confirmSplit}
                     disabled={!splitTargetId || splitting}
-                    className="rounded-full bg-foreground px-3 py-1 text-xs font-semibold text-background disabled:opacity-40"
+                    className="rounded-full bg-primary px-3 py-1 text-xs font-semibold text-primary-foreground disabled:opacity-40"
                   >
                     {splitting ? "옮기는 중…" : "이 지점부터 옮기기"}
                   </button>
@@ -684,13 +684,13 @@ function ChatPageInner() {
           }}
           placeholder="메시지를 입력하세요"
           rows={1}
-          className="max-h-32 flex-1 resize-none rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:border-foreground/30"
+          className="max-h-32 flex-1 resize-none rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary/50"
         />
         <button
           type="button"
           onClick={handleSend}
           disabled={loading || !input.trim()}
-          className="shrink-0 rounded-xl bg-foreground px-4 py-2 text-sm font-semibold text-background disabled:opacity-40"
+          className="shrink-0 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-40"
         >
           전송
         </button>

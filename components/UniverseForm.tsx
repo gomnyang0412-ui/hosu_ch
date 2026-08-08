@@ -192,7 +192,7 @@ export default function UniverseForm({ universe }: { universe?: Universe }) {
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="AU 제목 (예: 친구에서 가이드로)"
-                className="rounded-xl border border-border bg-card p-3 text-sm outline-none focus:border-foreground/30"
+                className="rounded-xl border border-border bg-card p-3 text-sm outline-none focus:border-primary/50"
               />
             </label>
 
@@ -202,7 +202,7 @@ export default function UniverseForm({ universe }: { universe?: Universe }) {
                 value={tagline}
                 onChange={(e) => setTagline(e.target.value)}
                 placeholder="목록 카드에 짧게 보여줄 소개 문구"
-                className="rounded-xl border border-border bg-card p-3 text-sm outline-none focus:border-foreground/30"
+                className="rounded-xl border border-border bg-card p-3 text-sm outline-none focus:border-primary/50"
               />
             </label>
 
@@ -212,7 +212,7 @@ export default function UniverseForm({ universe }: { universe?: Universe }) {
                 value={tagsText}
                 onChange={(e) => setTagsText(e.target.value)}
                 placeholder="쉼표로 구분해서 적어주세요 (예: 현대물, 소꿉친구)"
-                className="rounded-xl border border-border bg-card p-3 text-sm outline-none focus:border-foreground/30"
+                className="rounded-xl border border-border bg-card p-3 text-sm outline-none focus:border-primary/50"
               />
             </label>
 
@@ -233,7 +233,7 @@ export default function UniverseForm({ universe }: { universe?: Universe }) {
                     <select
                       value={roleA}
                       onChange={(e) => setRoleA(e.target.value)}
-                      className="flex-1 rounded-xl border border-border bg-background p-2.5 text-sm outline-none focus:border-foreground/30"
+                      className="flex-1 rounded-xl border border-border bg-background p-2.5 text-sm outline-none focus:border-primary/50"
                     >
                       <option value="">선택 안 함</option>
                       {characters.map((c) => (
@@ -248,7 +248,7 @@ export default function UniverseForm({ universe }: { universe?: Universe }) {
                     <select
                       value={roleB}
                       onChange={(e) => setRoleB(e.target.value)}
-                      className="flex-1 rounded-xl border border-border bg-background p-2.5 text-sm outline-none focus:border-foreground/30"
+                      className="flex-1 rounded-xl border border-border bg-background p-2.5 text-sm outline-none focus:border-primary/50"
                     >
                       <option value="">선택 안 함</option>
                       {characters.map((c) => (
@@ -275,7 +275,7 @@ export default function UniverseForm({ universe }: { universe?: Universe }) {
                 : "이 AU만의 시대, 장소, 배경을 적어주세요."
             }
             rows={8}
-            className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-foreground/30"
+            className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-primary/50"
           />
         </label>
 
@@ -286,7 +286,7 @@ export default function UniverseForm({ universe }: { universe?: Universe }) {
             onChange={(e) => setFaction(e.target.value)}
             placeholder="조직, 가문, 그룹 등 파벌 구도를 적어주세요."
             rows={5}
-            className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-foreground/30"
+            className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-primary/50"
           />
         </label>
 
@@ -300,7 +300,7 @@ export default function UniverseForm({ universe }: { universe?: Universe }) {
                 onChange={(e) => updateRelation(i, e.target.value)}
                 placeholder="인물이나 파벌 사이의 관계 하나를 자유롭게 적어주세요."
                 rows={3}
-                className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-foreground/30"
+                className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-primary/50"
               />
             </label>
           ))}
@@ -313,7 +313,7 @@ export default function UniverseForm({ universe }: { universe?: Universe }) {
             onChange={(e) => setGlossary(e.target.value)}
             placeholder="이 세계관만의 용어, 지명, 규칙 등을 적어주세요."
             rows={5}
-            className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-foreground/30"
+            className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-primary/50"
           />
         </label>
 
@@ -324,7 +324,7 @@ export default function UniverseForm({ universe }: { universe?: Universe }) {
             onChange={(e) => setSummary(e.target.value)}
             placeholder="세계관 전체를 짧게 요약해 주세요."
             rows={4}
-            className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-foreground/30"
+            className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-primary/50"
           />
         </label>
 
@@ -333,7 +333,7 @@ export default function UniverseForm({ universe }: { universe?: Universe }) {
         <button
           type="button"
           onClick={handleSave}
-          className="mt-2 rounded-xl bg-foreground py-3 text-sm font-semibold text-background"
+          className="mt-2 rounded-xl bg-primary py-3 text-sm font-semibold text-primary-foreground"
         >
           저장하기
         </button>

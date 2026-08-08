@@ -218,7 +218,7 @@ function NewThreadPageInner() {
               type="button"
               onClick={handleCreate}
               disabled={selectedIds.length < 2 || creating}
-              className="rounded-xl bg-foreground py-3 text-sm font-semibold text-background disabled:opacity-40"
+              className="rounded-xl bg-primary py-3 text-sm font-semibold text-primary-foreground disabled:opacity-40"
             >
               {creating
                 ? importIds.length > 0

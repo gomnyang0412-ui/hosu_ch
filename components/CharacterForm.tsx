@@ -151,13 +151,36 @@ export default function CharacterForm({
           </label>
         </div>
 
+        <div className="flex flex-col items-center gap-2">
+          <span className="text-sm font-medium">강조색</span>
+          <div className="flex gap-2">
+            {ACCENT_COLORS.map((color) => (
+              <button
+                key={color}
+                type="button"
+                aria-label={`강조색 ${color}`}
+                onClick={() => setAccentColor(color)}
+                className="h-8 w-8 shrink-0 rounded-full transition-transform"
+                style={{
+                  backgroundColor: color,
+                  outline:
+                    accentColor === color
+                      ? "2px solid var(--foreground)"
+                      : "2px solid transparent",
+                  outlineOffset: 2,
+                }}
+              />
+            ))}
+          </div>
+        </div>
+
         <label className="flex flex-col gap-1.5">
           <span className="text-sm font-medium">이름</span>
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="캐릭터 이름"
-            className="rounded-xl border border-border bg-card p-3 text-sm outline-none focus:border-foreground/30"
+            className="rounded-xl border border-border bg-card p-3 text-sm outline-none focus:border-primary/50"
           />
         </label>
 
@@ -167,7 +190,7 @@ export default function CharacterForm({
             value={oneLiner}
             onChange={(e) => setOneLiner(e.target.value)}
             placeholder="캐릭터를 한 문장으로 설명해 주세요."
-            className="rounded-xl border border-border bg-card p-3 text-sm outline-none focus:border-foreground/30"
+            className="rounded-xl border border-border bg-card p-3 text-sm outline-none focus:border-primary/50"
           />
         </label>
 
@@ -178,7 +201,7 @@ export default function CharacterForm({
             onChange={(e) => setGoal(e.target.value)}
             placeholder="캐릭터가 이루고 싶어 하는 것, 원하는 것을 적어주세요."
             rows={3}
-            className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-foreground/30"
+            className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-primary/50"
           />
         </label>
 
@@ -189,7 +212,7 @@ export default function CharacterForm({
             onChange={(e) => setAppearance(e.target.value)}
             placeholder="키, 체형, 헤어, 옷차림 등 겉모습을 적어주세요."
             rows={4}
-            className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-foreground/30"
+            className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-primary/50"
           />
         </label>
 
@@ -200,7 +223,7 @@ export default function CharacterForm({
             onChange={(e) => setScentNote(e.target.value)}
             placeholder="이 캐릭터를 떠올리게 하는 향, 분위기를 적어주세요."
             rows={3}
-            className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-foreground/30"
+            className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-primary/50"
           />
         </label>
 
@@ -211,7 +234,7 @@ export default function CharacterForm({
             onChange={(e) => setPersonality(e.target.value)}
             placeholder="성격, 가치관, 취향 등을 적어주세요."
             rows={5}
-            className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-foreground/30"
+            className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-primary/50"
           />
         </label>
 
@@ -222,7 +245,7 @@ export default function CharacterForm({
             onChange={(e) => setSpeechStyle(e.target.value)}
             placeholder="말투와 어휘, 자주 쓰는 표현 등을 적어주세요."
             rows={4}
-            className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-foreground/30"
+            className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-primary/50"
           />
         </label>
 
@@ -233,7 +256,7 @@ export default function CharacterForm({
             onChange={(e) => setBackground(e.target.value)}
             placeholder="이 캐릭터를 둘러싼 상황이나 설정을 적어주세요."
             rows={5}
-            className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-foreground/30"
+            className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-primary/50"
           />
         </label>
 
@@ -244,7 +267,7 @@ export default function CharacterForm({
             onChange={(e) => setLifeHistory(e.target.value)}
             placeholder="어린 시절부터 지금까지 겪어온 일들을 적어주세요."
             rows={5}
-            className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-foreground/30"
+            className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-primary/50"
           />
         </label>
 
@@ -255,7 +278,7 @@ export default function CharacterForm({
             onChange={(e) => setRelatedCharacters(e.target.value)}
             placeholder="가족, 친구, 라이벌 등 이 캐릭터와 개인적으로 얽힌 인물을 적어주세요."
             rows={4}
-            className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-foreground/30"
+            className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-primary/50"
           />
         </label>
 
@@ -266,7 +289,7 @@ export default function CharacterForm({
             onChange={(e) => setRomance(e.target.value)}
             placeholder="짝사랑, 연인 등 애정과 관련된 관계를 적어주세요."
             rows={4}
-            className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-foreground/30"
+            className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-primary/50"
           />
         </label>
 
@@ -277,7 +300,7 @@ export default function CharacterForm({
             onChange={(e) => setFirstMessage(e.target.value)}
             placeholder="1:1 대화를 처음 열었을 때 캐릭터가 먼저 건네는 말이에요."
             rows={3}
-            className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-foreground/30"
+            className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-primary/50"
           />
         </label>
 
@@ -298,7 +321,7 @@ export default function CharacterForm({
               <select
                 value={aiVoiceCharacterId}
                 onChange={(e) => setAiVoiceCharacterId(e.target.value)}
-                className="rounded-xl border border-border bg-background p-2.5 text-sm outline-none focus:border-foreground/30"
+                className="rounded-xl border border-border bg-background p-2.5 text-sm outline-none focus:border-primary/50"
               >
                 <option value="">사용 안 함 (기본: 이 캐릭터 자신)</option>
                 {otherCharacters.map((c) => (
@@ -316,7 +339,7 @@ export default function CharacterForm({
         <button
           type="button"
           onClick={handleSave}
-          className="mt-2 rounded-xl bg-foreground py-3 text-sm font-semibold text-background"
+          className="mt-2 rounded-xl bg-primary py-3 text-sm font-semibold text-primary-foreground"
         >
           저장하기
         </button>

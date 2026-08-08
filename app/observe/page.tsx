@@ -274,7 +274,7 @@ function ObservePageInner() {
                     onChange={(e) => setTopic(e.target.value)}
                     placeholder="예: 고등학교 생활 / 비 오는 날 하교길에 마주쳤다"
                     rows={3}
-                    className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-foreground/30"
+                    className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-primary/50"
                   />
                 </label>
 
@@ -295,7 +295,7 @@ function ObservePageInner() {
                   type="button"
                   onClick={handleStart}
                   disabled={selectedIds.length < 2 || !topic.trim() || loading}
-                  className="rounded-xl bg-foreground py-3 text-sm font-semibold text-background disabled:opacity-40"
+                  className="rounded-xl bg-primary py-3 text-sm font-semibold text-primary-foreground disabled:opacity-40"
                 >
                   {loading ? "장면을 만드는 중…" : "장면 시작"}
                 </button>

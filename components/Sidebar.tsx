@@ -25,7 +25,7 @@ export default function Sidebar() {
             href={tab.href}
             className={`flex items-center gap-2 rounded-xl px-3 py-2 text-sm transition-colors ${
               active
-                ? "bg-background font-semibold text-foreground"
+                ? "bg-primary-soft font-semibold text-primary-strong"
                 : "text-muted hover:bg-background"
             }`}
           >

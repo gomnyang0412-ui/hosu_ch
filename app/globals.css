@@ -1,12 +1,17 @@
 @import "tailwindcss";
 
 :root {
-  /* 아주 옅은 회보라빛 회색 배경, 짙은 텍스트, 흰색 카드 */
-  --background: #f4f2f7;
-  --foreground: #1c1a20;
+  /* 메신저풍 민트 톤: 아주 옅은 민트빛 배경, 짙은 텍스트, 흰색 카드 */
+  --background: #eef6f1;
+  --foreground: #17211c;
   --card: #ffffff;
-  --border: #e3dfe9;
-  --muted: #8b8594;
+  --border: #dbe8e0;
+  --muted: #79897f;
+  /* 브랜드 포인트 컬러 (전송 버튼, 주요 액션, 활성 탭 등) */
+  --primary: #1f9d75;
+  --primary-strong: #16805f;
+  --primary-foreground: #ffffff;
+  --primary-soft: #dcf3e7;
 }
 
 @theme inline {
@@ -15,6 +20,10 @@
   --color-card: var(--card);
   --color-border: var(--border);
   --color-muted: var(--muted);
+  --color-primary: var(--primary);
+  --color-primary-strong: var(--primary-strong);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-soft: var(--primary-soft);
   --font-sans: "Pretendard Variable", Pretendard, -apple-system,
     BlinkMacSystemFont, "Segoe UI", system-ui, Roboto, "Apple SD Gothic Neo",
     "Noto Sans KR", "Malgun Gothic", sans-serif;

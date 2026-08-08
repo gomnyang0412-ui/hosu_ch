@@ -23,7 +23,7 @@ export default function BottomNav() {
             key={tab.href}
             href={tab.href}
             className={`flex flex-1 flex-col items-center gap-0.5 py-2.5 text-xs transition-colors ${
-              active ? "text-foreground font-medium" : "text-muted"
+              active ? "text-primary font-medium" : "text-muted"
             }`}
           >
             <span aria-hidden className="text-lg leading-none">

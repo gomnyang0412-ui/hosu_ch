@@ -1,13 +1,13 @@
 // 앱 전역에서 쓰는 데이터 타입 정의
 
-/** 캐릭터마다 부여할 강조색 후보 */
+/** 캐릭터마다 부여할 강조색 후보 (메신저풍 선명한 팔레트) */
 export const ACCENT_COLORS = [
-  "#4B3F72",
-  "#2F6B5E",
-  "#8C4A3F",
-  "#3B5C86",
-  "#6B4A78",
-  "#2E5F6B",
+  "#1F9D75",
+  "#E2694B",
+  "#3E7CB8",
+  "#C25693",
+  "#D9A441",
+  "#6A66C7",
 ] as const;
 
 export type AccentColor = (typeof ACCENT_COLORS)[number];
