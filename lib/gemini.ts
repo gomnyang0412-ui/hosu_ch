@@ -158,11 +158,25 @@ export function worldBlock(universe: Universe): string {
 // 그 라우트의 maxDuration(60초) 안에 여유 있게 들어가도록 잡는다.
 const CALL_TIMEOUT_MS = 25_000;
 
+// 1:1 대화 한 턴의 응답 스키마. 배열이 아니라 객체 하나라서, "say"가
+// 스키마상 필수 필드가 된다 — 지문(narration)만 있고 대사가 아예
+// 없는 응답 자체가 구조적으로 나올 수 없다.
+const SINGLE_REPLY_SCHEMA = {
+  type: Type.OBJECT,
+  properties: {
+    narration: { type: Type.STRING },
+    act: { type: Type.STRING },
+    say: { type: Type.STRING },
+  },
+  required: ["say"],
+};
+
 async function generate(params: {
   systemInstruction: string;
   contents: Content[];
   json?: boolean;
   itemRange?: { min: number; max: number };
+  singleReply?: boolean;
 }): Promise<string> {
   const clients = getClients();
   let lastError: GeminiRequestError | null = null;
@@ -183,22 +197,24 @@ async function generate(params: {
           ...(params.json
             ? {
                 responseMimeType: "application/json",
-                responseSchema: {
-                  type: Type.ARRAY,
-                  items: {
-                    type: Type.OBJECT,
-                    properties: {
-                      t: { type: Type.STRING, enum: ["n", "d"] },
-                      text: { type: Type.STRING },
-                      who: { type: Type.STRING },
-                      act: { type: Type.STRING },
-                      say: { type: Type.STRING },
+                responseSchema: params.singleReply
+                  ? SINGLE_REPLY_SCHEMA
+                  : {
+                      type: Type.ARRAY,
+                      items: {
+                        type: Type.OBJECT,
+                        properties: {
+                          t: { type: Type.STRING, enum: ["n", "d"] },
+                          text: { type: Type.STRING },
+                          who: { type: Type.STRING },
+                          act: { type: Type.STRING },
+                          say: { type: Type.STRING },
+                        },
+                        required: ["t"],
+                      },
+                      minItems: String(minItems),
+                      maxItems: String(maxItems),
                     },
-                    required: ["t"],
-                  },
-                  minItems: String(minItems),
-                  maxItems: String(maxItems),
-                },
               }
             : {}),
         },
@@ -236,12 +252,12 @@ async function generate(params: {
   );
 }
 
-/** 1:1 대화 응답 (지문+대사 혼합, 보통 1~4개 항목) */
-export async function generateChatJson(params: {
+/** 1:1 대화 응답 (지문 + 대사 한 쌍. say는 스키마상 필수) */
+export async function generateChatReply(params: {
   systemInstruction: string;
   contents: Content[];
 }): Promise<string> {
-  return generate({ ...params, json: true, itemRange: { min: 1, max: 4 } });
+  return generate({ ...params, json: true, singleReply: true });
 }
 
 /** 관찰 모드 장면 (지문+대사, 10~14개 항목) */

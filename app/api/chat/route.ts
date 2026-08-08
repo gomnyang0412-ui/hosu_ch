@@ -3,10 +3,10 @@ import { NextResponse } from "next/server";
 import {
   GeminiRequestError,
   characterLines,
-  generateChatJson,
+  generateChatReply,
   worldBlock,
 } from "@/lib/gemini";
-import { hasContent, parseSceneItems, serializeItems } from "@/lib/scene";
+import { hasContent, parseChatReply, serializeItems } from "@/lib/scene";
 import type { ChatMessage, CharacterProfile, Universe } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -57,10 +57,9 @@ function buildSystemInstruction(
   blocks.push(
     [
       `[규칙]`,
-      `대사(t: "d") 항목을 반드시 최소 1개 포함하고, 그 대사에는 실제로 내는 소리나 말이 담겨야 한다.`,
+      `"say"(대사)에는 반드시 실제로 내는 소리나 말이 담겨야 한다. 빈 문자열로 두지 않는다.`,
       `"...", "음..." 같은 마침표·말줄임표뿐인 대사는 안 되지만, 짧은 감탄사나 더듬는 말(예: "어...", "그, 그게", "아뇨, 그런 게 아니라")은 괜찮다. 캐릭터가 말을 잃거나 얼어붙는 순간이라도 완전한 무음으로 두지 않고, 그 상태에 맞는 짧은 소리라도 반드시 낸다.`,
-      `지문(t: "n")은 꼭 필요할 때만 짧게 넣는다. 매 턴마다 넣을 필요는 없고, 대사만으로 끝나는 응답이 더 많아야 한다. 지문만으로 응답을 마무리하지 않는다 — 지문 뒤에는 항상 대사가 이어진다.`,
-      `대사의 "who"는 항상 "${character.name}"으로 쓴다.`,
+      `"narration"(지문)은 꼭 필요할 때만 짧게 쓴다. 매 턴마다 넣을 필요는 없고, 비워도 된다. narration을 썼다면 반드시 그 상황에 바로 이어지는 say를 함께 채운다 — 지문만 쓰고 대사를 비워두지 않는다.`,
       `설정에 없는 부분은 캐릭터의 성격에 맞게 자연스럽게 채우되, 세계관 설정과 모순되지 않게 한다.`,
       `절대 "저는 AI 언어모델입니다" 같은 말은 하지 않는다.`,
     ].join("\n")
@@ -69,10 +68,9 @@ function buildSystemInstruction(
   blocks.push(
     [
       `[출력 형식]`,
-      `아래 형식의 JSON 배열만 출력한다.`,
-      `지문 항목: {"t": "n", "text": "지문 내용"}`,
-      `대사 항목: {"t": "d", "who": "${character.name}", "act": "행동(생략 가능)", "say": "대사"}`,
-      `설명이나 코드블록 표시 없이 JSON 배열 자체만 출력한다.`,
+      `아래 형식의 JSON 객체 하나만 출력한다 (배열이 아니다).`,
+      `{"narration": "지문(생략 가능)", "act": "대사와 함께 나오는 짧은 행동·표정(생략 가능)", "say": "실제 대사(필수)"}`,
+      `설명이나 코드블록 표시 없이 JSON 객체 자체만 출력한다.`,
     ].join("\n")
   );
 
@@ -109,17 +107,32 @@ export async function POST(request: Request) {
       body.universe,
       body.playerName
     );
-    const hasRealReply = (list: ReturnType<typeof parseSceneItems>) =>
+
+    // generateChatReply가 던지는 GeminiRequestError(네트워크·사용량·안전
+    // 정책 등)는 여기서 삼키지 않고 그대로 위로 던진다 — 재시도해도
+    // 똑같이 실패할 종류라 바로 사용자에게 알리는 게 맞다. say가 비어
+    // 파싱 자체가 실패하는 경우만 null로 받아서 재시도 대상으로 삼는다.
+    async function attempt(
+      useContents: Content[]
+    ): Promise<ReturnType<typeof parseChatReply> | null> {
+      const raw = await generateChatReply({
+        systemInstruction,
+        contents: useContents,
+      });
+      try {
+        return parseChatReply(raw, body.character.name);
+      } catch {
+        return null;
+      }
+    }
+
+    const hasRealReply = (list: ReturnType<typeof parseChatReply>) =>
       list.some((it) => it.t === "d" && hasContent(it.say));
 
-    let items = parseSceneItems(
-      await generateChatJson({ systemInstruction, contents })
-    );
-    // 캐릭터 설정(특히 순종적·긴장 상태 같은 성격)에 끌려가서 대사 없이
-    // 지문만 쓸 때가 있어, 그럴 때만 한 번 더 시도한다. 그래도 안
-    // 나오면 에러로 막지 않고 받은 그대로 보여준다 — 막히는 것보다는
-    // 낫다.
-    if (!hasRealReply(items)) {
+    // say는 스키마상 필수라 대사 자체가 아예 없는 응답은 거의 안 나오지만,
+    // "..."처럼 내용 없는 대사로 때울 때는 있어 그럴 때만 한 번 더 시도한다.
+    let items = await attempt(contents);
+    if (!items || !hasRealReply(items)) {
       const retryContents: Content[] = [
         ...contents,
         {
@@ -131,9 +144,10 @@ export async function POST(request: Request) {
           ],
         },
       ];
-      items = parseSceneItems(
-        await generateChatJson({ systemInstruction, contents: retryContents })
-      );
+      items = await attempt(retryContents);
+    }
+    if (!items) {
+      throw new Error("캐릭터가 대답하지 않았어요. 다시 시도해 주세요.");
     }
     return NextResponse.json({ items, text: serializeItems(items) });
   } catch (err) {
