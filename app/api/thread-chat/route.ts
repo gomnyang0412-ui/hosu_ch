@@ -147,9 +147,8 @@ export async function POST(request: Request) {
         await generateThreadJson({ systemInstruction, contents: retryContents })
       );
     }
-    if (!targetReallySpoke(items)) {
-      throw new Error(`${targetName}이(가) 대답하지 않았어요. 다시 시도해 주세요.`);
-    }
+    // 재시도까지 대사가 부실해도, 사용자를 막다른 에러로 가로막는 대신
+    // 받은 그대로(지문만 있더라도) 보여준다. 대화가 끊기지 않는 게 우선이다.
     return NextResponse.json({ items });
   } catch (err) {
     if (err instanceof GeminiRequestError) {
