@@ -10,6 +10,7 @@ import {
   getCharacters,
   getChatHistory,
   getUniverse,
+  saveCharacter,
   saveChatHistory,
   clearChatHistory,
   StorageError,
@@ -68,6 +69,9 @@ function ChatPageInner() {
   const [splitDone, setSplitDone] = useState<{ name: string; targetId: string } | null>(
     null
   );
+  const [renaming, setRenaming] = useState(false);
+  const [renameText, setRenameText] = useState("");
+  const [savingName, setSavingName] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [viewportHeight, setViewportHeight] = useState<number | null>(null);
   const updateHeightRef = useRef<() => void>(() => {});
@@ -347,6 +351,48 @@ function ChatPageInner() {
     }
   }
 
+  function openRename() {
+    if (!character) return;
+    setRenameText(character.name);
+    setRenaming(true);
+  }
+
+  function cancelRename() {
+    setRenaming(false);
+    setRenameText("");
+  }
+
+  async function confirmRename() {
+    const newName = renameText.trim();
+    if (!newName || savingName || !character) return;
+    setSavingName(true);
+    setError(null);
+    try {
+      const updated: Character = {
+        ...character,
+        name: newName,
+        updatedAt: Date.now(),
+      };
+      await saveCharacter(updated);
+      setCharacter(updated);
+      setAllCharacters((prev) =>
+        prev.map((c) => (c.id === updated.id ? updated : c))
+      );
+      setRenaming(false);
+      setRenameText("");
+    } catch (err) {
+      setError({
+        message:
+          err instanceof StorageError
+            ? err.message
+            : "이름을 저장하지 못했어요.",
+        kind: "unknown",
+      });
+    } finally {
+      setSavingName(false);
+    }
+  }
+
   if (!character) {
     return loadError ? (
       <p className="p-4 text-sm text-red-600">{loadError}</p>
@@ -382,16 +428,44 @@ function ChatPageInner() {
             >
               ↺
             </button>
-            <Link
-              href={`/character/${id}/edit`}
-              aria-label="캐릭터 설정 편집"
+            <button
+              type="button"
+              onClick={openRename}
+              aria-label="채팅방 이름 바꾸기"
               className="flex h-8 w-8 items-center justify-center rounded-full text-muted hover:bg-background"
             >
               ✎
-            </Link>
+            </button>
           </div>
         }
       />
+
+      {renaming && (
+        <div className="flex items-center gap-2 border-b border-border bg-card px-3 py-2">
+          <input
+            value={renameText}
+            onChange={(e) => setRenameText(e.target.value)}
+            autoFocus
+            placeholder="채팅방 이름"
+            className="flex-1 rounded-xl border border-border bg-background p-2 text-sm outline-none focus:border-foreground/30"
+          />
+          <button
+            type="button"
+            onClick={cancelRename}
+            className="rounded-full border border-border px-3 py-1.5 text-xs font-medium text-muted"
+          >
+            취소
+          </button>
+          <button
+            type="button"
+            onClick={confirmRename}
+            disabled={!renameText.trim() || savingName}
+            className="rounded-full bg-foreground px-3 py-1.5 text-xs font-semibold text-background disabled:opacity-40"
+          >
+            {savingName ? "저장 중…" : "저장"}
+          </button>
+        </div>
+      )}
 
       <main className="flex flex-1 flex-col gap-3 overflow-y-auto px-3 py-4">
         {loadError && <p className="text-sm text-red-600">{loadError}</p>}
