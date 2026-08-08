@@ -6,6 +6,7 @@ import type {
   ChatMessage,
   MultiThread,
   ObservationSession,
+  RoomSummary,
   Universe,
 } from "./types";
 
@@ -177,4 +178,11 @@ export async function deleteThread(
   await request(`/api/data/threads/${universeId}/${threadId}`, {
     method: "DELETE",
   });
+}
+
+// ---------- 채팅 목록 (1:1 + 멀티 대화방 통합) ----------
+
+export async function getRooms(): Promise<RoomSummary[]> {
+  const data = await request<{ rooms: RoomSummary[] }>("/api/data/rooms");
+  return data.rooms;
 }

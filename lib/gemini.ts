@@ -259,3 +259,11 @@ export async function generateThreadJson(params: {
 }): Promise<string> {
   return generate({ ...params, json: true, itemRange: { min: 1, max: 6 } });
 }
+
+/** 1:1 대화 기록을 짧은 지문으로 요약하는 평문 응답 (JSON 아님) */
+export async function generateSummaryText(params: {
+  systemInstruction: string;
+  contents: Content[];
+}): Promise<string> {
+  return generate({ ...params, json: false });
+}

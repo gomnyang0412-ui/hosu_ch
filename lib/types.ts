@@ -211,3 +211,16 @@ export interface MultiThread {
   createdAt: number;
   updatedAt: number;
 }
+
+/** 기록이 하나라도 있는 대화방 하나 요약 (채팅 목록 화면에 보여줄 정보) */
+export interface RoomSummary {
+  kind: "single" | "group";
+  universeId: string;
+  /** kind가 "single"일 때만 있음 */
+  characterId?: string;
+  /** kind가 "group"일 때만 있음 */
+  threadId?: string;
+  title: string;
+  preview: string;
+  updatedAt: number;
+}

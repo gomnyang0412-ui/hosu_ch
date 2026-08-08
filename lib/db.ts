@@ -1,5 +1,6 @@
 // Redis(Upstash) 기반 저장 로직. 이 파일은 서버(Route Handler)에서만 import한다.
 import { Redis } from "@upstash/redis";
+import { serializeThreadItems } from "./thread";
 import {
   ORG_UNIVERSE_ID,
   RELATION_SLOT_COUNT,
@@ -8,6 +9,7 @@ import {
   type ChatMessage,
   type MultiThread,
   type ObservationSession,
+  type RoomSummary,
   type Universe,
 } from "./types";
 
@@ -317,4 +319,59 @@ async function removeCharacterFromThreads(
       : t
   );
   await getRedis().set(threadsKey(universeId), updated);
+}
+
+// ---------- 채팅 목록 (1:1 + 멀티 대화방 통합) ----------
+
+/** 기록이 있는 1:1 방 + 멀티 대화방을 전부 모아 최근 순으로 반환한다 */
+export async function getRoomSummaries(): Promise<RoomSummary[]> {
+  const [characters, universes] = await Promise.all([
+    getCharacters(),
+    getUniverses(),
+  ]);
+
+  const rooms: RoomSummary[] = [];
+
+  await Promise.all(
+    universes.flatMap((u) =>
+      characters.map(async (c) => {
+        const history = await getChatHistory(u.id, c.id);
+        if (history.length === 0) return;
+        const last = history[history.length - 1];
+        rooms.push({
+          kind: "single",
+          universeId: u.id,
+          characterId: c.id,
+          title: u.type === "au" ? `${c.name} · ${u.title}` : c.name,
+          preview: last.text,
+          updatedAt: last.ts,
+        });
+      })
+    )
+  );
+
+  await Promise.all(
+    universes.map(async (u) => {
+      const threads = await getThreads(u.id);
+      for (const t of threads) {
+        if (t.items.length === 0) continue;
+        const names = t.characterIds
+          .map((id) => characters.find((c) => c.id === id)?.name)
+          .filter((n): n is string => !!n);
+        rooms.push({
+          kind: "group",
+          universeId: u.id,
+          threadId: t.id,
+          title:
+            (t.title?.trim() || names.join(" · ") || "대화방") +
+            (u.type === "au" ? ` · ${u.title}` : ""),
+          preview: serializeThreadItems([t.items[t.items.length - 1]]),
+          updatedAt: t.updatedAt,
+        });
+      }
+    })
+  );
+
+  rooms.sort((a, b) => b.updatedAt - a.updatedAt);
+  return rooms;
 }
