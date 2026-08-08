@@ -125,6 +125,7 @@ function ThreadPageInner() {
           characters: participants.map(toCharacterProfile),
           universe: resolveUniverseTemplate(universe, allCharacters),
           targetName: targetChar.name,
+          targetId: targetChar.id,
           items: base.items,
         }),
       });

@@ -6,6 +6,7 @@ import {
   RELATION_SLOT_COUNT,
   createOrgUniverse,
   type Character,
+  type CharacterMemory,
   type ChatMessage,
   type MultiThread,
   type ObservationSession,
@@ -51,6 +52,7 @@ const KEYS = {
   chatPrefix: "cc:chat:",
   observationPrefix: "cc:observation:",
   threadsPrefix: "cc:threads:",
+  memoryPrefix: "cc:memory:",
 } as const;
 
 function chatKey(universeId: string, characterId: string) {
@@ -67,6 +69,10 @@ function observationKey(universeId: string) {
 
 function threadsKey(universeId: string) {
   return `${KEYS.threadsPrefix}${universeId}`;
+}
+
+function memoryKey(characterId: string) {
+  return `${KEYS.memoryPrefix}${characterId}`;
 }
 
 // ---------- 캐릭터 ----------
@@ -232,7 +238,22 @@ export async function clearChatHistoryEverywhere(
     ...universes.map((u) => getRedis().del(chatKey(u.id, characterId))),
     getRedis().del(legacyChatKey(characterId)),
     ...universes.map((u) => removeCharacterFromThreads(u.id, characterId)),
+    getRedis().del(memoryKey(characterId)),
   ]);
+}
+
+// ---------- 캐릭터별 누적 기억 ----------
+
+export async function getCharacterMemory(
+  characterId: string
+): Promise<CharacterMemory | null> {
+  return (await getRedis().get<CharacterMemory>(memoryKey(characterId))) ?? null;
+}
+
+export async function saveCharacterMemory(
+  memory: CharacterMemory
+): Promise<void> {
+  await getRedis().set(memoryKey(memory.characterId), memory);
 }
 
 // ---------- 관찰 모드 세션 (유니버스별) ----------

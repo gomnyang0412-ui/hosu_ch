@@ -15,6 +15,7 @@ import {
   clearChatHistory,
   StorageError,
 } from "@/lib/storage";
+import { resolveVoiceCharacter } from "@/lib/character";
 import { serializeItems } from "@/lib/scene";
 import { resolveUniverseTemplate } from "@/lib/template";
 import {
@@ -36,12 +37,6 @@ interface ChatErrorState {
 function modelItems(m: ChatMessage, characterName: string): SceneItem[] {
   if (m.items && m.items.length > 0) return m.items;
   return [{ t: "d", who: characterName, say: m.text }];
-}
-
-/** 역할 반전 설정이 있으면 AI가 실제로 연기할 캐릭터를 돌려준다 */
-function resolveVoiceCharacter(base: Character, all: Character[]): Character {
-  if (!base.aiVoiceCharacterId) return base;
-  return all.find((c) => c.id === base.aiVoiceCharacterId) ?? base;
 }
 
 export default function ChatPage() {
@@ -179,6 +174,7 @@ function ChatPageInner() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           character: toCharacterProfile(voiceCharacter),
+          characterId: voiceCharacter.id,
           universe: chatUniverse,
           history,
           playerName,

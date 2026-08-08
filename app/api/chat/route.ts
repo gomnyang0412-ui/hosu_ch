@@ -1,11 +1,13 @@
 import type { Content } from "@google/genai";
 import { NextResponse } from "next/server";
+import { getCharacterMemory } from "@/lib/db";
 import {
   GeminiRequestError,
   characterLines,
   generateChatReply,
   worldBlock,
 } from "@/lib/gemini";
+import { buildMemoryBlock } from "@/lib/memory";
 import { hasContent, parseChatReply, serializeItems } from "@/lib/scene";
 import type { ChatMessage, CharacterProfile, Universe } from "@/lib/types";
 
@@ -15,6 +17,8 @@ export const maxDuration = 60;
 
 interface ChatRequestBody {
   character: CharacterProfile;
+  /** body.character가 실제로 연기하는 캐릭터의 id (기억 조회용) */
+  characterId?: string;
   universe: Universe;
   history: ChatMessage[];
   /**
@@ -30,7 +34,8 @@ const MAX_HISTORY = 16;
 function buildSystemInstruction(
   character: ChatRequestBody["character"],
   universe: Universe,
-  playerName?: string
+  playerName?: string,
+  memoryBlock?: string
 ): string {
   const blocks: string[] = [];
 
@@ -38,6 +43,8 @@ function buildSystemInstruction(
   if (world_) blocks.push(world_);
 
   blocks.push([`[캐릭터]`, ...characterLines(character)].join("\n"));
+
+  if (memoryBlock) blocks.push(memoryBlock);
 
   blocks.push(
     [
@@ -102,10 +109,14 @@ export async function POST(request: Request) {
   }));
 
   try {
+    const memory = body.characterId
+      ? await getCharacterMemory(body.characterId).catch(() => null)
+      : null;
     const systemInstruction = buildSystemInstruction(
       body.character,
       body.universe,
-      body.playerName
+      body.playerName,
+      buildMemoryBlock(body.character.name, memory)
     );
 
     // generateChatReply가 던지는 GeminiRequestError(네트워크·사용량·안전

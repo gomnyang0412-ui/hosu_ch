@@ -230,3 +230,24 @@ export interface RoomSummary {
   preview: string;
   updatedAt: number;
 }
+
+/** 기억 항목 하나. 최근 것은 하루 단위, 오래될수록 주/달 단위로 압축된다 */
+export interface MemoryEntry {
+  scope: "day" | "week" | "month";
+  /** scope에 맞는 기간 라벨. day: "2026-08-08", week: "2026-W32", month: "2026-08" */
+  label: string;
+  summary: string;
+  createdAt: number;
+}
+
+/**
+ * 캐릭터 한 명이 (어느 방에서 대화했든) 누적해서 쌓은 기억.
+ * summarizedThrough는 "이 날짜까지는 이미 기억으로 정리했다"는 뜻의
+ * YYYY-MM-DD(KST)이며, 그 이후 날짜의 대화만 다음 정리 대상이 된다.
+ */
+export interface CharacterMemory {
+  characterId: string;
+  summarizedThrough: string;
+  entries: MemoryEntry[];
+  updatedAt: number;
+}

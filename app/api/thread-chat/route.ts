@@ -1,11 +1,13 @@
 import type { Content } from "@google/genai";
 import { NextResponse } from "next/server";
+import { getCharacterMemory } from "@/lib/db";
 import {
   GeminiRequestError,
   characterLines,
   generateThreadJson,
   worldBlock,
 } from "@/lib/gemini";
+import { buildMemoryBlock } from "@/lib/memory";
 import { parseSceneItems } from "@/lib/scene";
 import { serializeThreadItems } from "@/lib/thread";
 import type { CharacterProfile, ThreadItem, Universe } from "@/lib/types";
@@ -17,6 +19,8 @@ interface ThreadChatRequestBody {
   characters: CharacterProfile[];
   universe: Universe;
   targetName: string;
+  /** 지금 말할 차례인 캐릭터의 id (기억 조회용) */
+  targetId?: string;
   items: ThreadItem[];
 }
 
@@ -26,7 +30,8 @@ const MAX_CONTEXT_ITEMS = 24;
 function buildSystemInstruction(
   characters: CharacterProfile[],
   universe: Universe,
-  targetName: string
+  targetName: string,
+  memoryBlock?: string
 ): string {
   const blocks: string[] = [];
 
@@ -45,6 +50,8 @@ function buildSystemInstruction(
         )
         .join("\n")
   );
+
+  if (memoryBlock) blocks.push(memoryBlock);
 
   blocks.push(
     [
@@ -116,10 +123,14 @@ export async function POST(request: Request) {
 
   try {
     const targetName = body.targetName.trim();
+    const memory = body.targetId
+      ? await getCharacterMemory(body.targetId).catch(() => null)
+      : null;
     const systemInstruction = buildSystemInstruction(
       body.characters,
       body.universe,
-      targetName
+      targetName,
+      buildMemoryBlock(targetName, memory)
     );
     // 재시도는 실패 확률(특히 네트워크 타임아웃)을 두 배로 늘리기만 하고
     // 더 이상 에러를 막아주지도 않으니, 한 번만 호출하고 받은 그대로
