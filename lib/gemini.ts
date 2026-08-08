@@ -1,6 +1,7 @@
 // Gemini API 호출 공통 로직. 이 파일은 서버(Route Handler)에서만 import한다.
 import {
   ApiError,
+  FinishReason,
   GoogleGenAI,
   HarmBlockThreshold,
   HarmCategory,
@@ -12,8 +13,9 @@ import type { CharacterProfile, Universe } from "./types";
 
 // 캐릭터 롤플레이는 갈등·위협·권력관계 같은 긴장된 상황을 다루는 경우가
 // 많은데, 기본 안전 설정은 그런 장면에서 실제 폭력·성적 콘텐츠가 전혀
-// 없어도 모델이 과도하게 몸을 사려서 대사 없이 지문만 내놓게 만들 때가
-// 있다. "높은 확률"로 유해하다고 판단될 때만 막도록 완화한다.
+// 없어도 모델이 과도하게 몸을 사려서 대사 없이 지문만 내놓거나 아예
+// 응답을 끊어버릴 때가 있다. 개인용 캐릭터 롤플레이 앱이라는 용도에
+// 맞게, 이 카테고리들은 걸러내지 않도록 최대한 완화한다.
 const SAFETY_SETTINGS: SafetySetting[] = [
   HarmCategory.HARM_CATEGORY_HARASSMENT,
   HarmCategory.HARM_CATEGORY_HATE_SPEECH,
@@ -21,8 +23,19 @@ const SAFETY_SETTINGS: SafetySetting[] = [
   HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
 ].map((category) => ({
   category,
-  threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+  threshold: HarmBlockThreshold.BLOCK_NONE,
 }));
+
+// 안전 필터 등으로 생성이 중간에 막혔을 때 붙는 finishReason들.
+// 이 경우엔 JSON이 잘려서 파싱이 실패하는 게 당연하므로, 혼란스러운
+// "형식을 이해하지 못했어요" 대신 원인을 그대로 알려준다.
+const BLOCKED_FINISH_REASONS = new Set<string>([
+  FinishReason.SAFETY,
+  FinishReason.PROHIBITED_CONTENT,
+  FinishReason.BLOCKLIST,
+  FinishReason.RECITATION,
+  FinishReason.SPII,
+]);
 
 // "-latest" 별칭을 쓰면 Google이 모델을 교체해도(2주 전 안내) 여기를 계속
 // 고칠 필요가 없다. 특정 모델명을 고정하면 그 모델이 만료됐을 때 404가 난다.
@@ -181,6 +194,13 @@ async function generate(params: {
             : {}),
         },
       });
+      const finishReason = response.candidates?.[0]?.finishReason;
+      if (finishReason && BLOCKED_FINISH_REASONS.has(finishReason)) {
+        throw new GeminiRequestError(
+          "AI 안전 정책에 걸려 이 내용을 만들지 못했어요. 표현을 조금 바꿔서 다시 시도해 주세요.",
+          "unknown"
+        );
+      }
       const text = response.text;
       if (!text) {
         throw new GeminiRequestError(
