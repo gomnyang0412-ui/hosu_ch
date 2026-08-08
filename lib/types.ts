@@ -37,6 +37,12 @@ export interface Character {
   /** 리사이즈된 프로필 이미지 (base64 dataURL). 없으면 undefined */
   image?: string;
   accentColor: AccentColor;
+  /**
+   * 역할 반전: 이 값이 있으면 이 캐릭터의 1:1 방에서 AI는 이 캐릭터가
+   * 아니라 이 id의 캐릭터를 연기한다. 사용자가 입력하는 메시지는
+   * 이 캐릭터(방 주인) 본인이 하는 말로 취급된다.
+   */
+  aiVoiceCharacterId?: string;
   createdAt: number;
   updatedAt: number;
 }

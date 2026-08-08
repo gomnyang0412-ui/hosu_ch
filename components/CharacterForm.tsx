@@ -41,15 +41,20 @@ export default function CharacterForm({
   const [accentColor, setAccentColor] = useState<Character["accentColor"]>(
     character?.accentColor ?? ACCENT_COLORS[0]
   );
+  const [aiVoiceCharacterId, setAiVoiceCharacterId] = useState(
+    character?.aiVoiceCharacterId ?? ""
+  );
+  const [otherCharacters, setOtherCharacters] = useState<Character[]>([]);
 
   useEffect(() => {
-    if (!character) {
-      getCharacters()
-        .then((existing) => setAccentColor(pickAccentColor(existing)))
-        .catch(() => {
-          // 실패해도 기본 색이 이미 지정되어 있으니 조용히 넘어간다
-        });
-    }
+    getCharacters()
+      .then((existing) => {
+        if (!character) setAccentColor(pickAccentColor(existing));
+        setOtherCharacters(existing.filter((c) => c.id !== character?.id));
+      })
+      .catch(() => {
+        // 실패해도 기본 색이 이미 지정되어 있으니 조용히 넘어간다
+      });
     // 새 캐릭터일 때만 클라이언트에서 색을 배정한다 (서버 렌더링과의 불일치 방지)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -92,6 +97,7 @@ export default function CharacterForm({
       firstMessage,
       image,
       accentColor,
+      aiVoiceCharacterId: aiVoiceCharacterId || undefined,
       createdAt: character?.createdAt ?? now,
       updatedAt: now,
     };
@@ -274,6 +280,36 @@ export default function CharacterForm({
             className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-foreground/30"
           />
         </label>
+
+        {isEdit && (
+          <div className="flex flex-col gap-2 rounded-2xl border border-border bg-card p-3">
+            <span className="text-sm font-medium">역할 반전</span>
+            <p className="text-xs text-muted">
+              이 캐릭터의 1:1 방에서, AI가 &ldquo;{name || "이 캐릭터"}
+              &rdquo;가 아니라 아래에서 고른 다른 캐릭터를 연기하게 해요.
+              대신 내가 입력하는 메시지는 &ldquo;{name || "이 캐릭터"}
+              &rdquo;가 하는 말로 취급돼요.
+            </p>
+            {otherCharacters.length === 0 ? (
+              <p className="text-xs text-muted">
+                아직 다른 캐릭터가 없어요. 먼저 캐릭터를 추가해 주세요.
+              </p>
+            ) : (
+              <select
+                value={aiVoiceCharacterId}
+                onChange={(e) => setAiVoiceCharacterId(e.target.value)}
+                className="rounded-xl border border-border bg-background p-2.5 text-sm outline-none focus:border-foreground/30"
+              >
+                <option value="">사용 안 함 (기본: 이 캐릭터 자신)</option>
+                {otherCharacters.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+        )}
 
         {error && <p className="text-sm text-red-600">{error}</p>}
 

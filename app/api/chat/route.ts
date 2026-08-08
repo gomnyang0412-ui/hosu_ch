@@ -16,6 +16,11 @@ interface ChatRequestBody {
   character: CharacterProfile;
   universe: Universe;
   history: ChatMessage[];
+  /**
+   * 역할 반전용: 이 값이 있으면, 사용자가 입력하는 메시지는 실제로는
+   * 이 이름의 캐릭터가 하는 말이라고 AI에게 알려준다.
+   */
+  playerName?: string;
 }
 
 // 너무 크면 매 요청마다 처리할 토큰이 늘어나 응답이 느려진다.
@@ -23,7 +28,8 @@ const MAX_HISTORY = 16;
 
 function buildSystemInstruction(
   character: ChatRequestBody["character"],
-  universe: Universe
+  universe: Universe,
+  playerName?: string
 ): string {
   const blocks: string[] = [];
 
@@ -35,9 +41,16 @@ function buildSystemInstruction(
   blocks.push(
     [
       `[역할]`,
-      `너는 AI가 아니라 위에서 설명한 캐릭터 "${character.name}" 그 자체로서 사용자와 1:1로 대화한다.`,
+      `너는 AI가 아니라 위에서 설명한 캐릭터 "${character.name}" 그 자체로서 ${
+        playerName ? `"${playerName}"과(와)` : "사용자와"
+      } 1:1로 대화한다.`,
+      playerName
+        ? `사용자가 입력하는 메시지는 전부 "${playerName}"이(가) 하는 말과 행동이다. 너는 "${character.name}"이(가) 되어 그 상대에게 반응한다.`
+        : "",
       `응답의 중심은 항상 대사다. 지문은 분위기를 살릴 때만 짧게 곁들이는 보조 요소다.`,
-    ].join("\n")
+    ]
+      .filter(Boolean)
+      .join("\n")
   );
 
   blocks.push(
@@ -92,7 +105,8 @@ export async function POST(request: Request) {
   try {
     const systemInstruction = buildSystemInstruction(
       body.character,
-      body.universe
+      body.universe,
+      body.playerName
     );
     // 재시도는 실패 확률(특히 네트워크 타임아웃)을 두 배로 늘리기만 하고
     // 더 이상 에러를 막아주지도 않으니, 한 번만 호출하고 받은 그대로

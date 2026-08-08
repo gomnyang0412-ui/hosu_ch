@@ -38,6 +38,12 @@ function modelItems(m: ChatMessage, characterName: string): SceneItem[] {
   return [{ t: "d", who: characterName, say: m.text }];
 }
 
+/** 역할 반전 설정이 있으면 AI가 실제로 연기할 캐릭터를 돌려준다 */
+function resolveVoiceCharacter(base: Character, all: Character[]): Character {
+  if (!base.aiVoiceCharacterId) return base;
+  return all.find((c) => c.id === base.aiVoiceCharacterId) ?? base;
+}
+
 export default function ChatPage() {
   return (
     <Suspense fallback={null}>
@@ -116,16 +122,17 @@ function ChatPageInner() {
 
       const characters = await getCharacters().catch(() => []);
       setAllCharacters(characters);
+      const voiceCharacter = resolveVoiceCharacter(found, characters);
 
       try {
         const history = await getChatHistory(universeId, id);
-        if (history.length === 0 && found.firstMessage.trim()) {
-          const firstText = found.firstMessage.trim();
+        if (history.length === 0 && voiceCharacter.firstMessage.trim()) {
+          const firstText = voiceCharacter.firstMessage.trim();
           const seeded: ChatMessage[] = [
             {
               role: "model",
               text: firstText,
-              items: [{ t: "d", who: found.name, say: firstText }],
+              items: [{ t: "d", who: voiceCharacter.name, say: firstText }],
               ts: Date.now(),
             },
           ];
@@ -155,14 +162,18 @@ function ChatPageInner() {
   ) {
     setLoading(true);
     setError(null);
+    const voiceCharacter = resolveVoiceCharacter(chatCharacter, allCharacters);
+    const playerName =
+      voiceCharacter.id !== chatCharacter.id ? chatCharacter.name : undefined;
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          character: toCharacterProfile(chatCharacter),
+          character: toCharacterProfile(voiceCharacter),
           universe: chatUniverse,
           history,
+          playerName,
         }),
       });
       const data = await res.json();
@@ -277,13 +288,14 @@ function ChatPageInner() {
     if (!window.confirm("이 캐릭터와의 대화 기록을 모두 지울까요?")) return;
     try {
       await clearChatHistory(universeId, id);
-      const firstText = character.firstMessage.trim();
+      const voiceCharacter = resolveVoiceCharacter(character, allCharacters);
+      const firstText = voiceCharacter.firstMessage.trim();
       const seeded: ChatMessage[] = firstText
         ? [
             {
               role: "model",
               text: firstText,
-              items: [{ t: "d", who: character.name, say: firstText }],
+              items: [{ t: "d", who: voiceCharacter.name, say: firstText }],
               ts: Date.now(),
             },
           ]
@@ -395,11 +407,17 @@ function ChatPageInner() {
   }
 
   const isAu = universe && universe.type === "au";
+  const voiceCharacter = resolveVoiceCharacter(character, allCharacters);
+  const isReversed = voiceCharacter.id !== character.id;
 
   return (
     <div className="relative flex h-dvh flex-col overflow-hidden lg:h-auto lg:flex-1">
       <TopBar
-        title={isAu ? `${character.name} · ${universe.title}` : character.name}
+        title={
+          character.name +
+          (isReversed ? ` · AI: ${voiceCharacter.name}` : "") +
+          (isAu ? ` · ${universe.title}` : "")
+        }
         right={
           <button
             type="button"
@@ -507,7 +525,7 @@ function ChatPageInner() {
           <div key={`${m.ts}-${i}`} className="flex flex-col gap-1.5">
             {m.role === "model" ? (
               <div className="flex flex-col gap-2">
-                {modelItems(m, character.name).map((item, j) =>
+                {modelItems(m, voiceCharacter.name).map((item, j) =>
                   item.t === "n" ? (
                     <p
                       key={j}
@@ -517,7 +535,7 @@ function ChatPageInner() {
                     </p>
                   ) : (
                     <div key={j} className="flex items-end gap-2">
-                      <CharacterAvatar character={character} size="sm" />
+                      <CharacterAvatar character={voiceCharacter} size="sm" />
                       <div className="max-w-[75%] whitespace-pre-wrap rounded-2xl rounded-bl-sm bg-card border border-border px-3 py-2 text-sm leading-relaxed md:max-w-[420px]">
                         {item.act && (
                           <p className="mb-1 text-xs italic text-muted">
@@ -630,7 +648,7 @@ function ChatPageInner() {
 
         {loading && (
           <div className="flex items-end gap-2">
-            <CharacterAvatar character={character} size="sm" />
+            <CharacterAvatar character={voiceCharacter} size="sm" />
             <div className="rounded-2xl rounded-bl-sm border border-border bg-card px-3 py-2 text-sm text-muted">
               입력 중…
             </div>
