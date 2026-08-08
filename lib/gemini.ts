@@ -88,6 +88,13 @@ function toGeminiError(err: unknown): GeminiRequestError {
       "unknown"
     );
   }
+  // AbortSignal.timeout()이 걸리면 DOMException(name: "TimeoutError")이 온다.
+  if (err instanceof Error && err.name === "TimeoutError") {
+    return new GeminiRequestError(
+      "AI 응답이 너무 오래 걸려서 중단했어요. 다시 시도해 주세요.",
+      "network"
+    );
+  }
   return new GeminiRequestError(
     "네트워크 문제로 AI를 호출하지 못했어요. 다시 시도해 주세요.",
     "network"
@@ -147,7 +154,9 @@ export function worldBlock(universe: Universe): string {
 
 // Gemini 호출 한 번이 이 시간을 넘기면 응답을 무한정 기다리지 않고
 // 바로 실패 처리해서, 사용자가 "입력 중…" 상태로 무한정 갇히지 않게 한다.
-const CALL_TIMEOUT_MS = 25_000;
+// chat/thread-chat 라우트는 이 호출을 최대 2번(재시도 포함) 할 수 있으니,
+// 그 라우트들의 maxDuration(60초) 안에 여유 있게 들어가도록 잡는다.
+const CALL_TIMEOUT_MS = 28_000;
 
 async function generate(params: {
   systemInstruction: string;
