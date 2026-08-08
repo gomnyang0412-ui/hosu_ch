@@ -1,6 +1,28 @@
 // Gemini API 호출 공통 로직. 이 파일은 서버(Route Handler)에서만 import한다.
-import { ApiError, GoogleGenAI, Type, type Content } from "@google/genai";
+import {
+  ApiError,
+  GoogleGenAI,
+  HarmBlockThreshold,
+  HarmCategory,
+  Type,
+  type Content,
+  type SafetySetting,
+} from "@google/genai";
 import type { CharacterProfile, Universe } from "./types";
+
+// 캐릭터 롤플레이는 갈등·위협·권력관계 같은 긴장된 상황을 다루는 경우가
+// 많은데, 기본 안전 설정은 그런 장면에서 실제 폭력·성적 콘텐츠가 전혀
+// 없어도 모델이 과도하게 몸을 사려서 대사 없이 지문만 내놓게 만들 때가
+// 있다. "높은 확률"로 유해하다고 판단될 때만 막도록 완화한다.
+const SAFETY_SETTINGS: SafetySetting[] = [
+  HarmCategory.HARM_CATEGORY_HARASSMENT,
+  HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+  HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+  HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+].map((category) => ({
+  category,
+  threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+}));
 
 // "-latest" 별칭을 쓰면 Google이 모델을 교체해도(2주 전 안내) 여기를 계속
 // 고칠 필요가 없다. 특정 모델명을 고정하면 그 모델이 만료됐을 때 404가 난다.
@@ -135,6 +157,7 @@ async function generate(params: {
         config: {
           abortSignal: AbortSignal.timeout(CALL_TIMEOUT_MS),
           systemInstruction: params.systemInstruction,
+          safetySettings: SAFETY_SETTINGS,
           ...(params.json
             ? {
                 responseMimeType: "application/json",
