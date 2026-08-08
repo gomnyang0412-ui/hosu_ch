@@ -7,12 +7,14 @@ import CharacterAvatar from "@/components/CharacterAvatar";
 import TopBar from "@/components/TopBar";
 import {
   getCharacter,
+  getCharacters,
   getChatHistory,
   getUniverse,
   saveChatHistory,
   clearChatHistory,
   StorageError,
 } from "@/lib/storage";
+import { resolveUniverseTemplate } from "@/lib/template";
 import {
   ORG_UNIVERSE_ID,
   createOrgUniverse,
@@ -43,6 +45,7 @@ function ChatPageInner() {
 
   const [character, setCharacter] = useState<Character | null>(null);
   const [universe, setUniverse] = useState<Universe | null>(null);
+  const [allCharacters, setAllCharacters] = useState<Character[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loadError, setLoadError] = useState("");
   const [input, setInput] = useState("");
@@ -94,6 +97,9 @@ function ChatPageInner() {
         () => undefined
       );
       setUniverse(foundUniverse ?? createOrgUniverse());
+
+      const characters = await getCharacters().catch(() => []);
+      setAllCharacters(characters);
 
       try {
         const history = await getChatHistory(universeId, id);
@@ -191,12 +197,16 @@ function ChatPageInner() {
         kind: "unknown",
       });
     }
-    sendToAI(character, universe, next);
+    sendToAI(character, resolveUniverseTemplate(universe, allCharacters), next);
   }
 
   function handleRetry() {
     if (!character || !universe) return;
-    sendToAI(character, universe, messages);
+    sendToAI(
+      character,
+      resolveUniverseTemplate(universe, allCharacters),
+      messages
+    );
   }
 
   async function handleReset() {

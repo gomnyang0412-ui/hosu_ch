@@ -31,3 +31,13 @@ export function resizeImageFile(file: File): Promise<string> {
     reader.readAsDataURL(file);
   });
 }
+
+/** 실제 이미지가 없을 때 쓰는 단색 배경 + 이모지 하나짜리 임시 표지 이미지 */
+export function moodPlaceholderImage(bgColor: string, emoji: string): string {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="320"><rect width="320" height="320" fill="${bgColor}"/><text x="50%" y="52%" font-size="130" text-anchor="middle" dominant-baseline="middle">${emoji}</text></svg>`;
+  const base64 =
+    typeof window === "undefined"
+      ? Buffer.from(svg, "utf8").toString("base64")
+      : window.btoa(unescape(encodeURIComponent(svg)));
+  return `data:image/svg+xml;base64,${base64}`;
+}

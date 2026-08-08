@@ -93,6 +93,12 @@ export interface Universe {
   tagline?: string;
   /** AU 해시태그 (예: ["느와르", "현대물"]) */
   tags?: string[];
+  /**
+   * AU 전용: 세계관 설정 속 {{A}}, {{B}}가 실제로 어떤 캐릭터인지 배정한 값.
+   * 대화·관찰 시작 시 이 캐릭터 이름으로 치환된다.
+   */
+  roleA?: string;
+  roleB?: string;
   worldSetting: string;
   /** 파벌 */
   faction: string;

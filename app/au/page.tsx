@@ -3,8 +3,10 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import BottomNav from "@/components/BottomNav";
-import { getUniverses } from "@/lib/storage";
-import type { Universe } from "@/lib/types";
+import { moodPlaceholderImage } from "@/lib/image";
+import { SAMPLE_AUS } from "@/lib/sampleAus";
+import { getUniverses, saveUniverse, StorageError } from "@/lib/storage";
+import { RELATION_SLOT_COUNT, type Universe } from "@/lib/types";
 
 function UniverseThumb({ universe }: { universe: Universe }) {
   return (
@@ -28,6 +30,7 @@ function UniverseThumb({ universe }: { universe: Universe }) {
 export default function AuListPage() {
   const [universes, setUniverses] = useState<Universe[] | null>(null);
   const [error, setError] = useState("");
+  const [addingSamples, setAddingSamples] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -41,6 +44,43 @@ export default function AuListPage() {
 
   const org = universes?.find((u) => u.type === "org");
   const aus = universes?.filter((u) => u.type === "au") ?? [];
+  const existingTitles = new Set(aus.map((u) => u.title));
+  const missingSamples = SAMPLE_AUS.filter((s) => !existingTitles.has(s.title));
+
+  async function handleAddSamples() {
+    setAddingSamples(true);
+    setError("");
+    try {
+      for (const sample of missingSamples) {
+        const now = Date.now();
+        const universe: Universe = {
+          id: crypto.randomUUID(),
+          type: "au",
+          title: sample.title,
+          tagline: sample.tagline,
+          tags: sample.tags,
+          worldSetting: sample.worldSetting,
+          faction: "",
+          relations: Array(RELATION_SLOT_COUNT).fill(""),
+          glossary: "",
+          summary: "",
+          image: moodPlaceholderImage(sample.moodColor, sample.moodEmoji),
+          createdAt: now,
+          updatedAt: now,
+        };
+        await saveUniverse(universe);
+      }
+      setUniverses(await getUniverses());
+    } catch (err) {
+      setError(
+        err instanceof StorageError
+          ? err.message
+          : "예시 AU를 추가하지 못했어요. 잠시 후 다시 시도해 주세요."
+      );
+    } finally {
+      setAddingSamples(false);
+    }
+  }
 
   return (
     <div className="flex flex-1 flex-col">
@@ -96,6 +136,19 @@ export default function AuListPage() {
               </li>
             ))}
           </ul>
+        )}
+
+        {missingSamples.length > 0 && (
+          <button
+            type="button"
+            onClick={handleAddSamples}
+            disabled={addingSamples}
+            className="mb-2 flex w-full items-center justify-center rounded-2xl border border-border bg-card py-3 text-sm font-medium disabled:opacity-60"
+          >
+            {addingSamples
+              ? "예시 AU 추가하는 중…"
+              : `✨ 예시 AU ${missingSamples.length}개 추가하기`}
+          </button>
         )}
 
         <Link

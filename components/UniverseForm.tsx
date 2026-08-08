@@ -48,6 +48,8 @@ export default function UniverseForm({ universe }: { universe?: Universe }) {
   const [summary, setSummary] = useState(base.summary);
   const [image, setImage] = useState<string | undefined>(base.image);
   const [imageLoading, setImageLoading] = useState(false);
+  const [roleA, setRoleA] = useState(base.roleA ?? "");
+  const [roleB, setRoleB] = useState(base.roleB ?? "");
   const [error, setError] = useState("");
 
   const [characters, setCharacters] = useState<Character[]>([]);
@@ -104,6 +106,8 @@ export default function UniverseForm({ universe }: { universe?: Universe }) {
       glossary,
       summary,
       image,
+      roleA: roleA || undefined,
+      roleB: roleB || undefined,
       createdAt: base.createdAt,
       updatedAt: Date.now(),
     };
@@ -212,6 +216,52 @@ export default function UniverseForm({ universe }: { universe?: Universe }) {
                 className="rounded-xl border border-border bg-card p-3 text-sm outline-none focus:border-foreground/30"
               />
             </label>
+
+            <div className="flex flex-col gap-2 rounded-2xl border border-border bg-card p-3">
+              <span className="text-sm font-medium">역할 배정</span>
+              <p className="text-xs text-muted">
+                세계관 설정 속 {"{{A}}"}, {"{{B}}"}가 실제로 누구인지
+                골라주세요. 대화·관찰을 시작하면 이름으로 바뀌어 들어가요.
+              </p>
+              {characters.length === 0 ? (
+                <p className="text-xs text-muted">
+                  아직 캐릭터가 없어요. 캐릭터 탭에서 먼저 추가해 주세요.
+                </p>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  <label className="flex items-center gap-2 text-sm">
+                    <span className="w-5 shrink-0 font-semibold">A</span>
+                    <select
+                      value={roleA}
+                      onChange={(e) => setRoleA(e.target.value)}
+                      className="flex-1 rounded-xl border border-border bg-background p-2.5 text-sm outline-none focus:border-foreground/30"
+                    >
+                      <option value="">선택 안 함</option>
+                      {characters.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <span className="w-5 shrink-0 font-semibold">B</span>
+                    <select
+                      value={roleB}
+                      onChange={(e) => setRoleB(e.target.value)}
+                      className="flex-1 rounded-xl border border-border bg-background p-2.5 text-sm outline-none focus:border-foreground/30"
+                    >
+                      <option value="">선택 안 함</option>
+                      {characters.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+              )}
+            </div>
           </>
         )}
 
@@ -302,35 +352,62 @@ export default function UniverseForm({ universe }: { universe?: Universe }) {
         {!isOrg && !isNew && (
           <div className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-4">
             <p className="text-sm font-semibold">이 AU로 즐기기</p>
-            <p className="text-xs text-muted">
-              기존 캐릭터를 골라 이 AU 설정으로 대화하거나, 관찰 모드로
-              장면을 볼 수 있어요.
-            </p>
 
             {characters.length === 0 ? (
               <p className="text-xs text-muted">
                 아직 캐릭터가 없어요. 캐릭터 탭에서 먼저 추가해 주세요.
               </p>
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                {characters.map((c) => (
+            ) : roleA && roleB ? (
+              <>
+                <p className="text-xs text-muted">
+                  역할 배정에 맞춰 바로 시작할 수 있어요.
+                </p>
+                <div className="flex flex-wrap gap-2">
                   <Link
-                    key={c.id}
-                    href={`/character/${c.id}/chat?universe=${base.id}`}
+                    href={`/character/${roleA}/chat?universe=${base.id}`}
                     className="rounded-full border border-border bg-background px-3 py-1.5 text-sm"
                   >
-                    {c.name}
+                    A · {characters.find((c) => c.id === roleA)?.name}로 대화하기
                   </Link>
-                ))}
-              </div>
+                  <Link
+                    href={`/character/${roleB}/chat?universe=${base.id}`}
+                    className="rounded-full border border-border bg-background px-3 py-1.5 text-sm"
+                  >
+                    B · {characters.find((c) => c.id === roleB)?.name}로 대화하기
+                  </Link>
+                </div>
+                <Link
+                  href={`/observe?universe=${base.id}`}
+                  className="rounded-xl border border-border py-2.5 text-center text-sm font-semibold"
+                >
+                  이 AU로 관찰 모드 시작하기
+                </Link>
+              </>
+            ) : (
+              <>
+                <p className="text-xs text-muted">
+                  역할을 배정하면 여기서 바로 시작할 수 있어요. 지금은
+                  캐릭터를 직접 골라 대화하거나, 관찰 모드에서 골라주세요.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {characters.map((c) => (
+                    <Link
+                      key={c.id}
+                      href={`/character/${c.id}/chat?universe=${base.id}`}
+                      className="rounded-full border border-border bg-background px-3 py-1.5 text-sm"
+                    >
+                      {c.name}
+                    </Link>
+                  ))}
+                </div>
+                <Link
+                  href={`/observe?universe=${base.id}`}
+                  className="rounded-xl border border-border py-2.5 text-center text-sm font-semibold"
+                >
+                  이 AU로 관찰 모드 시작하기
+                </Link>
+              </>
             )}
-
-            <Link
-              href={`/observe?universe=${base.id}`}
-              className="rounded-xl border border-border py-2.5 text-center text-sm font-semibold"
-            >
-              이 AU로 관찰 모드 시작하기
-            </Link>
           </div>
         )}
       </main>

@@ -11,6 +11,7 @@ import {
   saveObservationSession,
   clearObservationSession,
 } from "@/lib/storage";
+import { resolveUniverseTemplate } from "@/lib/template";
 import {
   ACCENT_COLORS,
   ORG_UNIVERSE_ID,
@@ -76,7 +77,19 @@ function ObservePageInner() {
         ]);
         setAllCharacters(characters);
         setSession(obsSession);
-        setUniverse(foundUniverse ?? createOrgUniverse());
+        const resolvedFoundUniverse = foundUniverse ?? createOrgUniverse();
+        setUniverse(resolvedFoundUniverse);
+        if (
+          !obsSession &&
+          resolvedFoundUniverse.type === "au" &&
+          resolvedFoundUniverse.roleA &&
+          resolvedFoundUniverse.roleB
+        ) {
+          setSelectedIds([
+            resolvedFoundUniverse.roleA,
+            resolvedFoundUniverse.roleB,
+          ]);
+        }
       } catch {
         setLoadError("불러오지 못했어요. 새로고침해 주세요.");
         setSession(null);
@@ -110,7 +123,7 @@ function ObservePageInner() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           characters: params.characters.map(toCharacterProfile),
-          universe,
+          universe: resolveUniverseTemplate(universe, allCharacters),
           topic: params.topic,
           previousItems: params.previousItems?.slice(-MAX_CONTEXT_ITEMS),
         }),
