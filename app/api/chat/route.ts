@@ -6,10 +6,11 @@ import {
   generateChatJson,
   worldBlock,
 } from "@/lib/gemini";
-import { parseSceneItems, serializeItems } from "@/lib/scene";
+import { hasContent, parseSceneItems, serializeItems } from "@/lib/scene";
 import type { ChatMessage, CharacterProfile, Universe } from "@/lib/types";
 
 export const runtime = "nodejs";
+// 대사 검증에 실패하면 재시도로 Gemini를 한 번 더 호출할 수 있어 여유를 둔다.
 export const maxDuration = 60;
 
 interface ChatRequestBody {
@@ -108,13 +109,32 @@ export async function POST(request: Request) {
       body.universe,
       body.playerName
     );
-    // 재시도는 실패 확률(특히 네트워크 타임아웃)을 두 배로 늘리기만 하고
-    // 더 이상 에러를 막아주지도 않으니, 한 번만 호출하고 받은 그대로
-    // 보여준다. 대화가 길어질수록 호출 하나가 오래 걸릴 수 있어 그 한
-    // 번에 시간을 넉넉히 준다.
-    const items = parseSceneItems(
+    const hasRealReply = (list: ReturnType<typeof parseSceneItems>) =>
+      list.some((it) => it.t === "d" && hasContent(it.say));
+
+    let items = parseSceneItems(
       await generateChatJson({ systemInstruction, contents })
     );
+    // 캐릭터 설정(특히 순종적·긴장 상태 같은 성격)에 끌려가서 대사 없이
+    // 지문만 쓸 때가 있어, 그럴 때만 한 번 더 시도한다. 그래도 안
+    // 나오면 에러로 막지 않고 받은 그대로 보여준다 — 막히는 것보다는
+    // 낫다.
+    if (!hasRealReply(items)) {
+      const retryContents: Content[] = [
+        ...contents,
+        {
+          role: "user",
+          parts: [
+            {
+              text: `(방금 응답에는 "${body.character.name}"의 실제 대사가 없었어요. 짧아도 좋으니, 이번엔 반드시 실제로 내는 말이나 소리를 대사로 써줘.)`,
+            },
+          ],
+        },
+      ];
+      items = parseSceneItems(
+        await generateChatJson({ systemInstruction, contents: retryContents })
+      );
+    }
     return NextResponse.json({ items, text: serializeItems(items) });
   } catch (err) {
     if (err instanceof GeminiRequestError) {
