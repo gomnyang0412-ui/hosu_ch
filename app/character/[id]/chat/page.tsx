@@ -81,22 +81,30 @@ function ChatPageInner() {
   const [menuOpen, setMenuOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const updateHeightRef = useRef<() => void>(() => {});
+  const [keyboardHeight, setKeyboardHeight] = useState<number | null>(null);
 
-  // 화면 높이는 CSS dvh 단위(아래 컨테이너의 h-dvh)에 맡긴다 — 모바일
-  // 브라우저가 키보드/주소창 표시에 맞춰 알아서 갱신해줘서, JS로 매번
-  // 높이를 계산하는 것보다 삼성 인터넷 같은 브라우저에서 더 안정적이다.
-  // 여기서는 키보드가 올라올 때 입력창이 보이도록 스크롤만 맞춰준다.
+  // 화면 높이는 기본적으로 CSS dvh 단위(아래 컨테이너의 h-dvh)에 맡긴다.
+  // 하지만 일부 모바일 브라우저(예: 특정 기기의 삼성 인터넷/크롬 조합)는
+  // 키보드가 올라와도 interactive-widget=resizes-content를 온전히
+  // 반영하지 않아 dvh가 줄어들지 않고, 그 결과 입력창~직전 대화가
+  // 키보드에 가려진다. 이를 보완하기 위해 visualViewport 높이가
+  // window.innerHeight보다 뚜렷하게 작아지면(=키보드가 떠 있으면) 그
+  // 실측 높이를 그대로 컨테이너 높이로 강제한다. 키보드가 닫히면 다시
+  // dvh 계산에 맡긴다(resize 이벤트에서만 갱신 — scroll 이벤트로 매번
+  // 다시 계산하면 스크롤 중 헤더가 사라지던 예전 버그가 재발한다).
   useEffect(() => {
     const vv = window.visualViewport;
-    const scrollToBottom = () => {
+    if (!vv) return;
+    const handleResize = () => {
+      const shrunk = vv.height < window.innerHeight - 40;
+      setKeyboardHeight(shrunk ? vv.height : null);
       bottomRef.current?.scrollIntoView({ block: "end" });
     };
-    updateHeightRef.current = scrollToBottom;
-    vv?.addEventListener("resize", scrollToBottom);
-    vv?.addEventListener("scroll", scrollToBottom);
+    updateHeightRef.current = handleResize;
+    vv.addEventListener("resize", handleResize);
+    handleResize();
     return () => {
-      vv?.removeEventListener("resize", scrollToBottom);
-      vv?.removeEventListener("scroll", scrollToBottom);
+      vv.removeEventListener("resize", handleResize);
     };
   }, []);
 
@@ -411,7 +419,10 @@ function ChatPageInner() {
   const isReversed = voiceCharacter.id !== character.id;
 
   return (
-    <div className="relative flex h-dvh flex-col overflow-hidden lg:h-auto lg:flex-1">
+    <div
+      className="relative flex h-dvh flex-col overflow-hidden lg:h-auto lg:flex-1"
+      style={keyboardHeight ? { height: keyboardHeight } : undefined}
+    >
       <TopBar
         title={
           character.name +
