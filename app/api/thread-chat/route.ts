@@ -6,12 +6,11 @@ import {
   generateThreadJson,
   worldBlock,
 } from "@/lib/gemini";
-import { hasContent, parseSceneItems } from "@/lib/scene";
+import { parseSceneItems } from "@/lib/scene";
 import { serializeThreadItems } from "@/lib/thread";
 import type { CharacterProfile, ThreadItem, Universe } from "@/lib/types";
 
 export const runtime = "nodejs";
-// 대사 검증에 실패하면 재시도로 Gemini를 한 번 더 호출할 수 있어 여유를 둔다.
 export const maxDuration = 60;
 
 interface ThreadChatRequestBody {
@@ -122,33 +121,12 @@ export async function POST(request: Request) {
       body.universe,
       targetName
     );
-    const targetReallySpoke = (list: ThreadItem[]) =>
-      list.some(
-        (it) => it.t === "d" && it.who === targetName && hasContent(it.say)
-      );
-
-    let items = parseSceneItems(
+    // 재시도는 실패 확률(특히 네트워크 타임아웃)을 두 배로 늘리기만 하고
+    // 더 이상 에러를 막아주지도 않으니, 한 번만 호출하고 받은 그대로
+    // 보여준다.
+    const items = parseSceneItems(
       await generateThreadJson({ systemInstruction, contents })
     );
-    // 프롬프트로 대사를 강제해도 가끔 안 지켜질 때가 있어, 그때만 한 번 더 시도한다.
-    if (!targetReallySpoke(items)) {
-      const retryContents: Content[] = [
-        ...contents,
-        {
-          role: "user",
-          parts: [
-            {
-              text: `(방금 응답에는 ${targetName}의 실제 대사가 없었어요. 짧아도 좋으니, 이번엔 반드시 ${targetName}이 실제로 내는 말이나 소리를 대사로 써줘.)`,
-            },
-          ],
-        },
-      ];
-      items = parseSceneItems(
-        await generateThreadJson({ systemInstruction, contents: retryContents })
-      );
-    }
-    // 재시도까지 대사가 부실해도, 사용자를 막다른 에러로 가로막는 대신
-    // 받은 그대로(지문만 있더라도) 보여준다. 대화가 끊기지 않는 게 우선이다.
     return NextResponse.json({ items });
   } catch (err) {
     if (err instanceof GeminiRequestError) {

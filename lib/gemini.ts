@@ -154,9 +154,9 @@ export function worldBlock(universe: Universe): string {
 
 // Gemini 호출 한 번이 이 시간을 넘기면 응답을 무한정 기다리지 않고
 // 바로 실패 처리해서, 사용자가 "입력 중…" 상태로 무한정 갇히지 않게 한다.
-// chat/thread-chat 라우트는 이 호출을 최대 2번(재시도 포함) 할 수 있으니,
-// 그 라우트들의 maxDuration(60초) 안에 여유 있게 들어가도록 잡는다.
-const CALL_TIMEOUT_MS = 28_000;
+// 요청당 호출이 한 번뿐이라, 라우트의 maxDuration(60초) 안에서
+// 여유 있게 기다려줄 수 있다.
+const CALL_TIMEOUT_MS = 50_000;
 
 async function generate(params: {
   systemInstruction: string;
