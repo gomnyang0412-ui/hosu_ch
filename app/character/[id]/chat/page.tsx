@@ -61,6 +61,13 @@ function ChatPageInner() {
   const [error, setError] = useState<ChatErrorState | null>(null);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editingText, setEditingText] = useState("");
+  const [splitMode, setSplitMode] = useState(false);
+  const [splitIndex, setSplitIndex] = useState<number | null>(null);
+  const [splitTargetId, setSplitTargetId] = useState("");
+  const [splitting, setSplitting] = useState(false);
+  const [splitDone, setSplitDone] = useState<{ name: string; targetId: string } | null>(
+    null
+  );
   const bottomRef = useRef<HTMLDivElement>(null);
   const [viewportHeight, setViewportHeight] = useState<number | null>(null);
   const updateHeightRef = useRef<() => void>(() => {});
@@ -296,6 +303,50 @@ function ChatPageInner() {
     }
   }
 
+  function toggleSplitMode() {
+    setSplitMode((v) => !v);
+    setSplitIndex(null);
+    setSplitTargetId("");
+    setSplitDone(null);
+  }
+
+  function pickSplitPoint(i: number) {
+    setSplitIndex(i);
+    setSplitTargetId("");
+  }
+
+  async function confirmSplit() {
+    if (splitIndex === null || !splitTargetId || splitting) return;
+    const target = allCharacters.find((c) => c.id === splitTargetId);
+    if (!target) return;
+    setSplitting(true);
+    setError(null);
+    try {
+      const head = messages.slice(0, splitIndex);
+      const tail = messages.slice(splitIndex);
+      const targetExisting = await getChatHistory(universeId, splitTargetId).catch(
+        () => []
+      );
+      await saveChatHistory(universeId, splitTargetId, [...targetExisting, ...tail]);
+      await saveChatHistory(universeId, id, head);
+      setMessages(head);
+      setSplitIndex(null);
+      setSplitTargetId("");
+      setSplitMode(false);
+      setSplitDone({ name: target.name, targetId: target.id });
+    } catch (err) {
+      setError({
+        message:
+          err instanceof StorageError
+            ? err.message
+            : "대화를 옮기지 못했어요.",
+        kind: "unknown",
+      });
+    } finally {
+      setSplitting(false);
+    }
+  }
+
   if (!character) {
     return loadError ? (
       <p className="p-4 text-sm text-red-600">{loadError}</p>
@@ -313,6 +364,16 @@ function ChatPageInner() {
         title={isAu ? `${character.name} · ${universe.title}` : character.name}
         right={
           <div className="flex shrink-0 items-center gap-1">
+            <button
+              type="button"
+              onClick={toggleSplitMode}
+              aria-label="대화 나누기"
+              className={`flex h-8 w-8 items-center justify-center rounded-full hover:bg-background ${
+                splitMode ? "text-foreground" : "text-muted"
+              }`}
+            >
+              ✂
+            </button>
             <button
               type="button"
               onClick={handleReset}
@@ -334,79 +395,149 @@ function ChatPageInner() {
 
       <main className="flex flex-1 flex-col gap-3 overflow-y-auto px-3 py-4">
         {loadError && <p className="text-sm text-red-600">{loadError}</p>}
-        {messages.map((m, i) =>
-          m.role === "model" ? (
-            <div key={`${m.ts}-${i}`} className="flex flex-col gap-2">
-              {modelItems(m, character.name).map((item, j) =>
-                item.t === "n" ? (
-                  <p
-                    key={j}
-                    className="border-l-2 border-border pl-3 text-[13px] italic leading-relaxed text-muted"
-                  >
-                    {item.text}
-                  </p>
-                ) : (
-                  <div key={j} className="flex items-end gap-2">
-                    <CharacterAvatar character={character} size="sm" />
-                    <div className="max-w-[75%] whitespace-pre-wrap rounded-2xl rounded-bl-sm bg-card border border-border px-3 py-2 text-sm leading-relaxed md:max-w-[420px]">
-                      {item.act && (
-                        <p className="mb-1 text-xs italic text-muted">
-                          {item.act}
-                        </p>
-                      )}
-                      {item.say}
+
+        {splitMode && (
+          <p className="rounded-xl border border-dashed border-border px-3 py-2 text-center text-xs text-muted">
+            나눌 지점의 &ldquo;여기서부터 나누기&rdquo;를 눌러주세요. 그
+            메시지부터 끝까지가 다른 캐릭터 방으로 옮겨져요.
+          </p>
+        )}
+        {splitDone && (
+          <p className="rounded-xl border border-border bg-card px-3 py-2 text-center text-xs text-muted">
+            {splitDone.name}와의 방으로 옮겼어요.{" "}
+            <Link
+              href={`/character/${splitDone.targetId}/chat?universe=${universeId}`}
+              className="font-medium text-foreground underline"
+            >
+              바로 가기
+            </Link>
+          </p>
+        )}
+
+        {messages.map((m, i) => (
+          <div key={`${m.ts}-${i}`} className="flex flex-col gap-1.5">
+            {m.role === "model" ? (
+              <div className="flex flex-col gap-2">
+                {modelItems(m, character.name).map((item, j) =>
+                  item.t === "n" ? (
+                    <p
+                      key={j}
+                      className="border-l-2 border-border pl-3 text-[13px] italic leading-relaxed text-muted"
+                    >
+                      {item.text}
+                    </p>
+                  ) : (
+                    <div key={j} className="flex items-end gap-2">
+                      <CharacterAvatar character={character} size="sm" />
+                      <div className="max-w-[75%] whitespace-pre-wrap rounded-2xl rounded-bl-sm bg-card border border-border px-3 py-2 text-sm leading-relaxed md:max-w-[420px]">
+                        {item.act && (
+                          <p className="mb-1 text-xs italic text-muted">
+                            {item.act}
+                          </p>
+                        )}
+                        {item.say}
+                      </div>
                     </div>
-                  </div>
-                )
-              )}
-            </div>
-          ) : editingIndex === i ? (
-            <div key={`${m.ts}-${i}`} className="flex flex-col items-end gap-1.5">
-              <textarea
-                value={editingText}
-                onChange={(e) => setEditingText(e.target.value)}
-                autoFocus
-                rows={2}
-                className="w-full max-w-[75%] resize-none rounded-2xl border border-foreground/30 bg-background px-3 py-2 text-sm leading-relaxed outline-none md:max-w-[420px]"
-              />
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={cancelEdit}
-                  className="rounded-full border border-border px-3 py-1 text-xs font-medium text-muted"
-                >
-                  취소
-                </button>
-                <button
-                  type="button"
-                  onClick={submitEdit}
-                  disabled={!editingText.trim()}
-                  className="rounded-full bg-foreground px-3 py-1 text-xs font-semibold text-background disabled:opacity-40"
-                >
-                  수정하고 다시 받기
-                </button>
+                  )
+                )}
               </div>
-            </div>
-          ) : (
-            <div key={`${m.ts}-${i}`} className="flex items-center justify-end gap-1.5">
+            ) : editingIndex === i ? (
+              <div className="flex flex-col items-end gap-1.5">
+                <textarea
+                  value={editingText}
+                  onChange={(e) => setEditingText(e.target.value)}
+                  autoFocus
+                  rows={2}
+                  className="w-full max-w-[75%] resize-none rounded-2xl border border-foreground/30 bg-background px-3 py-2 text-sm leading-relaxed outline-none md:max-w-[420px]"
+                />
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={cancelEdit}
+                    className="rounded-full border border-border px-3 py-1 text-xs font-medium text-muted"
+                  >
+                    취소
+                  </button>
+                  <button
+                    type="button"
+                    onClick={submitEdit}
+                    disabled={!editingText.trim()}
+                    className="rounded-full bg-foreground px-3 py-1 text-xs font-semibold text-background disabled:opacity-40"
+                  >
+                    수정하고 다시 받기
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center justify-end gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => startEdit(i)}
+                  disabled={loading}
+                  aria-label="메시지 수정"
+                  className="shrink-0 text-xs text-muted hover:text-foreground disabled:opacity-40"
+                >
+                  ✎
+                </button>
+                <div
+                  className="max-w-[75%] whitespace-pre-wrap rounded-2xl rounded-br-sm px-3 py-2 text-sm leading-relaxed text-white md:max-w-[420px]"
+                  style={{ backgroundColor: character.accentColor }}
+                >
+                  {m.text}
+                </div>
+              </div>
+            )}
+
+            {splitMode && splitIndex !== i && (
               <button
                 type="button"
-                onClick={() => startEdit(i)}
-                disabled={loading}
-                aria-label="메시지 수정"
-                className="shrink-0 text-xs text-muted hover:text-foreground disabled:opacity-40"
+                onClick={() => pickSplitPoint(i)}
+                className="self-center rounded-full border border-dashed border-border px-3 py-1 text-xs text-muted hover:text-foreground"
               >
-                ✎
+                ▸ 여기서부터 나누기
               </button>
-              <div
-                className="max-w-[75%] whitespace-pre-wrap rounded-2xl rounded-br-sm px-3 py-2 text-sm leading-relaxed text-white md:max-w-[420px]"
-                style={{ backgroundColor: character.accentColor }}
-              >
-                {m.text}
+            )}
+
+            {splitIndex === i && (
+              <div className="flex flex-col items-center gap-2 rounded-xl border border-border bg-card p-3">
+                <p className="text-xs text-muted">
+                  이 메시지부터 끝까지를 어느 캐릭터 방으로 옮길까요?
+                </p>
+                <select
+                  value={splitTargetId}
+                  onChange={(e) => setSplitTargetId(e.target.value)}
+                  className="w-full rounded-xl border border-border bg-background p-2 text-sm outline-none focus:border-foreground/30"
+                >
+                  <option value="">캐릭터 선택</option>
+                  {allCharacters
+                    .filter((c) => c.id !== id)
+                    .map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                </select>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSplitIndex(null)}
+                    className="rounded-full border border-border px-3 py-1 text-xs font-medium text-muted"
+                  >
+                    취소
+                  </button>
+                  <button
+                    type="button"
+                    onClick={confirmSplit}
+                    disabled={!splitTargetId || splitting}
+                    className="rounded-full bg-foreground px-3 py-1 text-xs font-semibold text-background disabled:opacity-40"
+                  >
+                    {splitting ? "옮기는 중…" : "이 지점부터 옮기기"}
+                  </button>
+                </div>
               </div>
-            </div>
-          )
-        )}
+            )}
+          </div>
+        ))}
 
         {loading && (
           <div className="flex items-end gap-2">
