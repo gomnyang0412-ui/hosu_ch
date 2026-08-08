@@ -59,6 +59,8 @@ function ChatPageInner() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<ChatErrorState | null>(null);
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [editingText, setEditingText] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const [viewportHeight, setViewportHeight] = useState<number | null>(null);
   const updateHeightRef = useRef<() => void>(() => {});
@@ -229,6 +231,41 @@ function ChatPageInner() {
     );
   }
 
+  function startEdit(i: number) {
+    if (loading) return;
+    setEditingIndex(i);
+    setEditingText(messages[i].text);
+  }
+
+  function cancelEdit() {
+    setEditingIndex(null);
+    setEditingText("");
+  }
+
+  async function submitEdit() {
+    const text = editingText.trim();
+    if (!text || editingIndex === null || !character || !universe) return;
+    const next: ChatMessage[] = [
+      ...messages.slice(0, editingIndex),
+      { role: "user", text, ts: Date.now() },
+    ];
+    setMessages(next);
+    setEditingIndex(null);
+    setEditingText("");
+    try {
+      await saveChatHistory(universeId, id, next);
+    } catch (err) {
+      setError({
+        message:
+          err instanceof StorageError
+            ? err.message
+            : "대화를 저장하지 못했어요.",
+        kind: "unknown",
+      });
+    }
+    sendToAI(character, resolveUniverseTemplate(universe, allCharacters), next);
+  }
+
   async function handleReset() {
     if (!character) return;
     if (!window.confirm("이 캐릭터와의 대화 기록을 모두 지울까요?")) return;
@@ -323,8 +360,44 @@ function ChatPageInner() {
                 )
               )}
             </div>
+          ) : editingIndex === i ? (
+            <div key={`${m.ts}-${i}`} className="flex flex-col items-end gap-1.5">
+              <textarea
+                value={editingText}
+                onChange={(e) => setEditingText(e.target.value)}
+                autoFocus
+                rows={2}
+                className="w-full max-w-[75%] resize-none rounded-2xl border border-foreground/30 bg-background px-3 py-2 text-sm leading-relaxed outline-none md:max-w-[420px]"
+              />
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={cancelEdit}
+                  className="rounded-full border border-border px-3 py-1 text-xs font-medium text-muted"
+                >
+                  취소
+                </button>
+                <button
+                  type="button"
+                  onClick={submitEdit}
+                  disabled={!editingText.trim()}
+                  className="rounded-full bg-foreground px-3 py-1 text-xs font-semibold text-background disabled:opacity-40"
+                >
+                  수정하고 다시 받기
+                </button>
+              </div>
+            </div>
           ) : (
-            <div key={`${m.ts}-${i}`} className="flex justify-end">
+            <div key={`${m.ts}-${i}`} className="flex items-center justify-end gap-1.5">
+              <button
+                type="button"
+                onClick={() => startEdit(i)}
+                disabled={loading}
+                aria-label="메시지 수정"
+                className="shrink-0 text-xs text-muted hover:text-foreground disabled:opacity-40"
+              >
+                ✎
+              </button>
               <div
                 className="max-w-[75%] whitespace-pre-wrap rounded-2xl rounded-br-sm px-3 py-2 text-sm leading-relaxed text-white md:max-w-[420px]"
                 style={{ backgroundColor: character.accentColor }}

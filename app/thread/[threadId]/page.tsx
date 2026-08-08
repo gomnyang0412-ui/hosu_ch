@@ -72,6 +72,8 @@ function ThreadPageInner() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<ThreadErrorState | null>(null);
   const [loadError, setLoadError] = useState("");
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [editingText, setEditingText] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const lastTargetIdRef = useRef("");
 
@@ -223,6 +225,49 @@ function ThreadPageInner() {
     requestReply(thread, targetChar);
   }
 
+  function startEdit(i: number) {
+    if (loading || !thread) return;
+    const item = thread.items[i];
+    if (item.t !== "u" && item.t !== "x") return;
+    setEditingIndex(i);
+    setEditingText(item.text);
+  }
+
+  function cancelEdit() {
+    setEditingIndex(null);
+    setEditingText("");
+  }
+
+  async function submitEdit() {
+    const text = editingText.trim();
+    if (!text || editingIndex === null || !thread) return;
+    const original = thread.items[editingIndex];
+    if (original.t !== "u" && original.t !== "x") return;
+    const editedItem: ThreadItem = { t: original.t, text };
+    const now = Date.now();
+    const updated: MultiThread = {
+      ...thread,
+      items: [...thread.items.slice(0, editingIndex), editedItem],
+      updatedAt: now,
+    };
+    setThread(updated);
+    setEditingIndex(null);
+    setEditingText("");
+    try {
+      await saveThread(updated);
+    } catch (err) {
+      setError({
+        message:
+          err instanceof StorageError
+            ? err.message
+            : "대화를 저장하지 못했어요.",
+        kind: "unknown",
+      });
+    }
+    const targetChar = participants.find((c) => c.id === targetId);
+    if (targetChar) requestReply(updated, targetChar);
+  }
+
   if (!thread) {
     return loadError ? (
       <p className="p-4 text-sm text-red-600">{loadError}</p>
@@ -275,9 +320,48 @@ function ThreadPageInner() {
         )}
 
         {thread.items.map((item, i) => {
+          if (editingIndex === i && (item.t === "u" || item.t === "x")) {
+            return (
+              <div key={i} className="flex flex-col items-end gap-1.5">
+                <textarea
+                  value={editingText}
+                  onChange={(e) => setEditingText(e.target.value)}
+                  autoFocus
+                  rows={item.t === "x" ? 1 : 2}
+                  className="w-full max-w-[75%] resize-none rounded-2xl border border-foreground/30 bg-background px-3 py-2 text-sm leading-relaxed outline-none md:max-w-[420px]"
+                />
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={cancelEdit}
+                    className="rounded-full border border-border px-3 py-1 text-xs font-medium text-muted"
+                  >
+                    취소
+                  </button>
+                  <button
+                    type="button"
+                    onClick={submitEdit}
+                    disabled={!editingText.trim()}
+                    className="rounded-full bg-foreground px-3 py-1 text-xs font-semibold text-background disabled:opacity-40"
+                  >
+                    수정하고 다시 받기
+                  </button>
+                </div>
+              </div>
+            );
+          }
           if (item.t === "u") {
             return (
-              <div key={i} className="flex justify-end">
+              <div key={i} className="flex items-center justify-end gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => startEdit(i)}
+                  disabled={loading}
+                  aria-label="메시지 수정"
+                  className="shrink-0 text-xs text-muted hover:text-foreground disabled:opacity-40"
+                >
+                  ✎
+                </button>
                 <div className="max-w-[75%] whitespace-pre-wrap rounded-2xl rounded-br-sm bg-foreground px-3 py-2 text-sm leading-relaxed text-background md:max-w-[420px]">
                   {item.text}
                 </div>
@@ -291,6 +375,15 @@ function ThreadPageInner() {
                 className="flex items-center gap-2 py-1 text-center text-xs text-muted"
               >
                 <span className="h-px flex-1 bg-border" />
+                <button
+                  type="button"
+                  onClick={() => startEdit(i)}
+                  disabled={loading}
+                  aria-label="지시문 수정"
+                  className="shrink-0 hover:text-foreground disabled:opacity-40"
+                >
+                  ✎
+                </button>
                 <span>🎬 {item.text}</span>
                 <span className="h-px flex-1 bg-border" />
               </div>
