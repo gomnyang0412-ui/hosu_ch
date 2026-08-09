@@ -55,6 +55,13 @@ export default function ChatsPage() {
     <div className="flex flex-1 flex-col">
       <header className="flex items-center justify-between px-4 pt-5 pb-3">
         <h1 className="text-xl font-bold">채팅</h1>
+        <Link
+          href="/chats/new"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-lg text-muted hover:bg-background"
+          aria-label="새 1:1 대화방"
+        >
+          +
+        </Link>
       </header>
 
       <main className="flex-1 px-4 pb-4">
