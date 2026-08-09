@@ -87,38 +87,21 @@ function ChatPageInner() {
   const [playerOverride, setPlayerOverride] = useState<string | null>(null);
   const [pickingVoice, setPickingVoice] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const updateHeightRef = useRef<() => void>(() => {});
-  const [keyboardHeight, setKeyboardHeight] = useState<number | null>(null);
 
-  // 화면 높이는 기본적으로 CSS dvh 단위(아래 컨테이너의 h-dvh)에 맡긴다.
-  // 하지만 일부 모바일 브라우저(예: 특정 기기의 삼성 인터넷/크롬 조합)는
-  // 키보드가 올라와도 interactive-widget=resizes-content를 온전히
-  // 반영하지 않아 dvh가 줄어들지 않고, 그 결과 입력창~직전 대화가
-  // 키보드에 가려진다. 이를 보완하기 위해 visualViewport 높이가
-  // window.innerHeight보다 뚜렷하게 작아지면(=키보드가 떠 있으면) 그
-  // 실측 높이를 그대로 컨테이너 높이로 강제한다. 키보드가 닫히면 다시
-  // dvh 계산에 맡긴다(resize 이벤트에서만 갱신 — scroll 이벤트로 매번
-  // 다시 계산하면 스크롤 중 헤더가 사라지던 예전 버그가 재발한다).
-  useEffect(() => {
-    const vv = window.visualViewport;
-    if (!vv) return;
-    const handleResize = () => {
-      const shrunk = vv.height < window.innerHeight - 40;
-      setKeyboardHeight(shrunk ? vv.height : null);
-      bottomRef.current?.scrollIntoView({ block: "end" });
-    };
-    updateHeightRef.current = handleResize;
-    vv.addEventListener("resize", handleResize);
-    handleResize();
-    return () => {
-      vv.removeEventListener("resize", handleResize);
-    };
-  }, []);
-
-  // 입력창을 눌러 키보드가 올라오는 시점에도, 애니메이션이 끝난 뒤
-  // 실제 보이는 높이를 다시 재본다 (resize 이벤트가 늦거나 안 오는 경우 대비).
+  // 키보드 높이를 CSS(dvh)나 JS API(visualViewport, VirtualKeyboard)로
+  // 알아내 컨테이너를 줄이거나 입력창을 띄우는 방법을 전부 시도해봤지만,
+  // 이 기기·브라우저 조합에서는 어떤 신호도 오지 않아 전부 실패했다.
+  // 그래서 이제 키보드를 감지하려는 시도 자체를 하지 않는다. 대신
+  // 컨테이너에 인위적인 높이 제한(h-dvh 등)을 아예 두지 않고 페이지가
+  // 원래 브라우저의 기본 스크롤을 그대로 쓰게 둔다 — 이건 어떤 실험적
+  // API에도 기대지 않는, 모든 모바일 브라우저가 예전부터 지원해온
+  // 가장 기본적인 동작이라 여기서마저 안 되지는 않을 것이다. 입력창도
+  // 화면에 떠 있게 만들지 않고 대화 목록의 마지막 항목으로 그냥 두어,
+  // 페이지를 끝까지 내리면 항상 보이게 한다.
   function handleInputFocus() {
-    setTimeout(() => updateHeightRef.current(), 350);
+    setTimeout(() => {
+      bottomRef.current?.scrollIntoView({ block: "end" });
+    }, 300);
   }
 
   useEffect(() => {
@@ -517,10 +500,7 @@ function ChatPageInner() {
     allCharacters.find((c) => c.name === name) ?? voiceCharacter;
 
   return (
-    <div
-      className="relative flex h-dvh flex-col overflow-hidden lg:h-auto lg:flex-1"
-      style={keyboardHeight ? { height: keyboardHeight } : undefined}
-    >
+    <div className="relative flex flex-col lg:flex-1">
       <TopBar
         title={
           character.name +
@@ -674,7 +654,7 @@ function ChatPageInner() {
         </div>
       )}
 
-      <main className="flex flex-1 flex-col gap-3 overflow-y-auto px-3 py-4">
+      <main className="flex flex-1 flex-col gap-3 px-3 py-4">
         {loadError && <p className="text-sm text-red-600">{loadError}</p>}
 
         {splitMode && (
@@ -842,33 +822,42 @@ function ChatPageInner() {
           </div>
         )}
 
+        {/*
+          입력창을 fixed나 sticky로 화면에 띄우려면 결국 "키보드가 얼마나
+          가리는지"를 알아야 하는데, 이 기기·브라우저에서는 그걸 알아낼
+          방법이 없었다(dvh, visualViewport, VirtualKeyboard API 전부
+          실패). 그래서 입력창을 아무 위치 지정 없이 대화 목록의 마지막
+          항목으로 그냥 둔다 — 페이지 자체의 기본 스크롤에 맡기면,
+          이 페이지가 얼마나 긴지와 무관하게 끝까지 스크롤했을 때 항상
+          화면에 나타난다.
+        */}
+        <div className="-mx-3 flex items-end gap-2 border-t border-border bg-card px-3 py-2">
+          <textarea
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onFocus={handleInputFocus}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                handleSend();
+              }
+            }}
+            placeholder="메시지를 입력하세요"
+            rows={1}
+            className="max-h-32 flex-1 resize-none rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary/50"
+          />
+          <button
+            type="button"
+            onClick={handleSend}
+            disabled={loading || !input.trim()}
+            className="shrink-0 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-40"
+          >
+            전송
+          </button>
+        </div>
+
         <div ref={bottomRef} />
       </main>
-
-      <footer className="sticky bottom-0 flex items-end gap-2 border-t border-border bg-card px-3 py-2">
-        <textarea
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onFocus={handleInputFocus}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              handleSend();
-            }
-          }}
-          placeholder="메시지를 입력하세요"
-          rows={1}
-          className="max-h-32 flex-1 resize-none rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary/50"
-        />
-        <button
-          type="button"
-          onClick={handleSend}
-          disabled={loading || !input.trim()}
-          className="shrink-0 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-40"
-        >
-          전송
-        </button>
-      </footer>
     </div>
   );
 }
