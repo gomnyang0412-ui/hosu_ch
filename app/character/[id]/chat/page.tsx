@@ -91,13 +91,38 @@ function ChatPageInner() {
   const [footerHeight, setFooterHeight] = useState(64);
   const [keyboardOffset, setKeyboardOffset] = useState(0);
 
-  // 입력창(footer)을 컨테이너 높이 계산에 끼워 넣는 대신 화면에 늘
-  // 떠 있게(position: fixed) 만들고, 키보드가 가린 만큼만 바닥에서
-  // 띄운다. visualViewport는 "지금 실제로 보이는 영역"을 dvh나
-  // interactive-widget 지원 여부와 무관하게 항상 정확히 알려주는
-  // 값이라, 전체 컨테이너 높이를 다시 계산하던 예전 방식보다
-  // 훨씬 단순하고 안정적이다.
+  // 입력창(footer)을 화면에 늘 떠 있게(position: fixed) 만들고, 키보드가
+  // 가린 만큼만 바닥에서 띄운다. 키보드 높이를 구하는 방법은 두 단계로
+  // 나뉜다:
+  // 1) VirtualKeyboard API(navigator.virtualKeyboard) — 크로미움 계열
+  //    (크롬, 삼성 인터넷 등) 브라우저가 지원하는, 키보드 전용으로 만든
+  //    API다. window.innerHeight와 visualViewport 크기 차이로 키보드
+  //    높이를 "추정"하는 게 아니라, 키보드가 차지하는 사각형(boundingRect)을
+  //    브라우저가 직접 알려준다 — 그래서 dvh나 interactive-widget 처리
+  //    방식이 기기/브라우저마다 달라서 생기던 오차가 아예 없다.
+  // 2) 이 API가 없는 브라우저(사파리 등)에서만 기존 visualViewport
+  //    실측 방식으로 보완한다.
   useEffect(() => {
+    const vk = (
+      navigator as Navigator & {
+        virtualKeyboard?: EventTarget & {
+          overlaysContent: boolean;
+          boundingRect: { height: number };
+        };
+      }
+    ).virtualKeyboard;
+
+    if (vk) {
+      vk.overlaysContent = true;
+      const onGeometryChange = () => {
+        setKeyboardOffset(vk.boundingRect.height);
+        bottomRef.current?.scrollIntoView({ block: "end" });
+      };
+      vk.addEventListener("geometrychange", onGeometryChange);
+      onGeometryChange();
+      return () => vk.removeEventListener("geometrychange", onGeometryChange);
+    }
+
     const vv = window.visualViewport;
     if (!vv) return;
     let raf = 0;
