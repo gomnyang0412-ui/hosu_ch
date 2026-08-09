@@ -24,12 +24,13 @@ import type {
   Universe,
 } from "./types";
 
+// items가 있으면(사용자/AI 메시지 둘 다) 그 시점에 실제로 누가 한 말인지가
+// 이미 기록돼 있어 그대로 쓴다 — 방 안에서 역할을 뒤바꾼 적이 있어도
+// 정확하다. items가 없는 예전 메시지만 방 단위 기본값으로 추정한다.
 function messageLine(m: ChatMessage, voiceCharacterName: string, userLabel: string): string {
+  if (m.items && m.items.length > 0) return serializeItems(m.items);
   if (m.role === "model") {
-    const items = m.items && m.items.length > 0
-      ? m.items
-      : [{ t: "d" as const, who: voiceCharacterName, say: m.text }];
-    return serializeItems(items);
+    return serializeItems([{ t: "d" as const, who: voiceCharacterName, say: m.text }]);
   }
   return `${userLabel}: ${m.text}`;
 }

@@ -9,13 +9,19 @@ import {
   getCharacter,
   getCharacters,
   getChatHistory,
+  getChatVoiceOverride,
   getUniverse,
   saveCharacter,
   saveChatHistory,
+  saveChatVoiceOverride,
   clearChatHistory,
   StorageError,
 } from "@/lib/storage";
-import { resolveVoiceCharacter } from "@/lib/character";
+import {
+  resolveActiveVoiceCharacter,
+  resolvePlayerCharacter,
+  resolveVoiceCharacter,
+} from "@/lib/character";
 import { serializeItems } from "@/lib/scene";
 import { resolveUniverseTemplate } from "@/lib/template";
 import {
@@ -74,6 +80,7 @@ function ChatPageInner() {
   const [renameText, setRenameText] = useState("");
   const [savingName, setSavingName] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [voiceOverride, setVoiceOverride] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const updateHeightRef = useRef<() => void>(() => {});
   const [keyboardHeight, setKeyboardHeight] = useState<number | null>(null);
@@ -127,6 +134,12 @@ function ChatPageInner() {
       setAllCharacters(characters);
       const voiceCharacter = resolveVoiceCharacter(found, characters);
 
+      getChatVoiceOverride(universeId, id)
+        .then(setVoiceOverride)
+        .catch(() => {
+          // 저장된 값을 못 불러오면 캐릭터의 기본 역할 반전 설정을 그대로 쓴다
+        });
+
       try {
         const history = await getChatHistory(universeId, id);
         if (history.length === 0 && voiceCharacter.firstMessage.trim()) {
@@ -165,9 +178,14 @@ function ChatPageInner() {
   ) {
     setLoading(true);
     setError(null);
-    const voiceCharacter = resolveVoiceCharacter(chatCharacter, allCharacters);
+    const voiceCharacter = resolveActiveVoiceCharacter(
+      chatCharacter,
+      allCharacters,
+      voiceOverride
+    );
     const playerName =
-      voiceCharacter.id !== chatCharacter.id ? chatCharacter.name : undefined;
+      resolvePlayerCharacter(chatCharacter, allCharacters, voiceCharacter)
+        ?.name ?? undefined;
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
@@ -220,12 +238,26 @@ function ChatPageInner() {
     }
   }
 
+  /** 지금 이 방에서 내가 입력하는 메시지가 실제로 누구의 말인지 (기억 정리 시 정확히 구분하기 위해 메시지에 같이 저장해둔다) */
+  function currentPlayerName(): string {
+    if (!character) return "나";
+    const voice = resolveActiveVoiceCharacter(character, allCharacters, voiceOverride);
+    return (
+      resolvePlayerCharacter(character, allCharacters, voice)?.name ?? "나"
+    );
+  }
+
   async function handleSend() {
     const text = input.trim();
     if (!text || !character || !universe || loading) return;
     const next: ChatMessage[] = [
       ...messages,
-      { role: "user", text, ts: Date.now() },
+      {
+        role: "user",
+        text,
+        items: [{ t: "d", who: currentPlayerName(), say: text }],
+        ts: Date.now(),
+      },
     ];
     setMessages(next);
     setInput("");
@@ -268,7 +300,12 @@ function ChatPageInner() {
     if (!text || editingIndex === null || !character || !universe) return;
     const next: ChatMessage[] = [
       ...messages.slice(0, editingIndex),
-      { role: "user", text, ts: Date.now() },
+      {
+        role: "user",
+        text,
+        items: [{ t: "d", who: currentPlayerName(), say: text }],
+        ts: Date.now(),
+      },
     ];
     setMessages(next);
     setEditingIndex(null);
@@ -292,7 +329,11 @@ function ChatPageInner() {
     if (!window.confirm("이 캐릭터와의 대화 기록을 모두 지울까요?")) return;
     try {
       await clearChatHistory(universeId, id);
-      const voiceCharacter = resolveVoiceCharacter(character, allCharacters);
+      const voiceCharacter = resolveActiveVoiceCharacter(
+        character,
+        allCharacters,
+        voiceOverride
+      );
       const firstText = voiceCharacter.firstMessage.trim();
       const seeded: ChatMessage[] = firstText
         ? [
@@ -404,6 +445,31 @@ function ChatPageInner() {
     }
   }
 
+  async function toggleVoice() {
+    if (!character?.aiVoiceCharacterId) return;
+    const currentVoiceId = resolveActiveVoiceCharacter(
+      character,
+      allCharacters,
+      voiceOverride
+    ).id;
+    const nextVoiceId =
+      currentVoiceId === character.id
+        ? character.aiVoiceCharacterId
+        : character.id;
+    setVoiceOverride(nextVoiceId);
+    try {
+      await saveChatVoiceOverride(universeId, id, nextVoiceId);
+    } catch (err) {
+      setError({
+        message:
+          err instanceof StorageError
+            ? err.message
+            : "역할 설정을 저장하지 못했어요.",
+        kind: "unknown",
+      });
+    }
+  }
+
   if (!character) {
     return loadError ? (
       <p className="p-4 text-sm text-red-600">{loadError}</p>
@@ -411,8 +477,19 @@ function ChatPageInner() {
   }
 
   const isAu = universe && universe.type === "au";
-  const voiceCharacter = resolveVoiceCharacter(character, allCharacters);
+  const voiceCharacter = resolveActiveVoiceCharacter(
+    character,
+    allCharacters,
+    voiceOverride
+  );
+  const playerCharacter = resolvePlayerCharacter(
+    character,
+    allCharacters,
+    voiceCharacter
+  );
   const isReversed = voiceCharacter.id !== character.id;
+  const speakerFor = (name: string) =>
+    allCharacters.find((c) => c.name === name) ?? voiceCharacter;
 
   return (
     <div
@@ -422,7 +499,11 @@ function ChatPageInner() {
       <TopBar
         title={
           character.name +
-          (isReversed ? ` · AI: ${voiceCharacter.name}` : "") +
+          (isReversed
+            ? ` · AI: ${voiceCharacter.name}`
+            : playerCharacter
+              ? ` · 나: ${playerCharacter.name}`
+              : "") +
           (isAu ? ` · ${universe.title}` : "")
         }
         right={
@@ -456,6 +537,20 @@ function ChatPageInner() {
             >
               ✎ 채팅방 이름 바꾸기
             </button>
+            {character.aiVoiceCharacterId && (
+              <button
+                type="button"
+                onClick={() => {
+                  toggleVoice();
+                  setMenuOpen(false);
+                }}
+                className="border-t border-border px-4 py-3 text-left text-sm hover:bg-background"
+              >
+                {isReversed
+                  ? `⇄ AI가 ${character.name} 연기하게 (내가 ${voiceCharacter.name})`
+                  : `⇄ AI가 ${resolveVoiceCharacter(character, allCharacters).name} 연기하게 (내가 ${character.name})`}
+              </button>
+            )}
             <button
               type="button"
               onClick={() => {
@@ -532,7 +627,7 @@ function ChatPageInner() {
           <div key={`${m.ts}-${i}`} className="flex flex-col gap-1.5">
             {m.role === "model" ? (
               <div className="flex flex-col gap-2">
-                {modelItems(m, voiceCharacter.name).map((item, j) =>
+                {modelItems(m, resolveVoiceCharacter(character, allCharacters).name).map((item, j) =>
                   item.t === "n" ? (
                     <p
                       key={j}
@@ -542,7 +637,7 @@ function ChatPageInner() {
                     </p>
                   ) : (
                     <div key={j} className="flex items-end gap-2">
-                      <CharacterAvatar character={voiceCharacter} size="sm" />
+                      <CharacterAvatar character={speakerFor(item.who)} size="sm" />
                       <div className="max-w-[75%] whitespace-pre-wrap rounded-2xl rounded-bl-sm bg-card border border-border px-3 py-2 text-sm leading-relaxed md:max-w-[420px]">
                         {item.act && (
                           <p className="mb-1 text-xs italic text-muted">

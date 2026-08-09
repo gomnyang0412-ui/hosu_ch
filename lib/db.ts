@@ -53,6 +53,7 @@ const KEYS = {
   observationPrefix: "cc:observation:",
   threadsPrefix: "cc:threads:",
   memoryPrefix: "cc:memory:",
+  chatVoicePrefix: "cc:chatvoice:",
 } as const;
 
 function chatKey(universeId: string, characterId: string) {
@@ -73,6 +74,10 @@ function threadsKey(universeId: string) {
 
 function memoryKey(characterId: string) {
   return `${KEYS.memoryPrefix}${characterId}`;
+}
+
+function chatVoiceKey(universeId: string, characterId: string) {
+  return `${KEYS.chatVoicePrefix}${universeId}:${characterId}`;
 }
 
 // ---------- 캐릭터 ----------
@@ -239,7 +244,32 @@ export async function clearChatHistoryEverywhere(
     getRedis().del(legacyChatKey(characterId)),
     ...universes.map((u) => removeCharacterFromThreads(u.id, characterId)),
     getRedis().del(memoryKey(characterId)),
+    ...universes.map((u) => getRedis().del(chatVoiceKey(u.id, characterId))),
   ]);
+}
+
+// ---------- 1:1 방 안에서 지금 AI가 누구를 연기 중인지(기본값 임시 덮어쓰기) ----------
+
+export async function getChatVoiceOverride(
+  universeId: string,
+  characterId: string
+): Promise<string | null> {
+  return (
+    (await getRedis().get<string>(chatVoiceKey(universeId, characterId))) ??
+    null
+  );
+}
+
+export async function saveChatVoiceOverride(
+  universeId: string,
+  characterId: string,
+  voiceCharacterId: string | null
+): Promise<void> {
+  if (voiceCharacterId) {
+    await getRedis().set(chatVoiceKey(universeId, characterId), voiceCharacterId);
+  } else {
+    await getRedis().del(chatVoiceKey(universeId, characterId));
+  }
 }
 
 // ---------- 캐릭터별 누적 기억 ----------
