@@ -87,42 +87,38 @@ function ChatPageInner() {
   const [playerOverride, setPlayerOverride] = useState<string | null>(null);
   const [pickingVoice, setPickingVoice] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const [keyboardOffset, setKeyboardOffset] = useState(0);
+  const updateHeightRef = useRef<() => void>(() => {});
+  const [keyboardHeight, setKeyboardHeight] = useState<number | null>(null);
 
-  // 화면 녹화로 확인해보니, 입력창과 키보드 사이 간격이 스크롤을 하든
-  // 시간이 지나든 단 1px도 안 바뀌었다 — 이건 visualViewport의
-  // resize/scroll 이벤트도, VirtualKeyboard의 geometrychange 이벤트도
-  // 이 브라우저에서 아예 발동하지 않는다는 뜻이다(둘 다 "이벤트가 오면
-  // 그때 값을 갱신"하는 방식이라, 이벤트 자체가 안 오면 아무 소용이
-  // 없다). 그래서 이번엔 이벤트를 기다리지 않고 0.15초마다 직접 값을
-  // 확인(폴링)한다 — 이벤트 지원 여부와 완전히 무관해서, 값 자체는
-  // 갱신되는데 이벤트만 안 오는 경우에도 잡아낼 수 있다.
+  // 화면 높이는 기본적으로 CSS dvh 단위(아래 컨테이너의 h-dvh)에 맡긴다.
+  // 하지만 일부 모바일 브라우저(예: 특정 기기의 삼성 인터넷/크롬 조합)는
+  // 키보드가 올라와도 interactive-widget=resizes-content를 온전히
+  // 반영하지 않아 dvh가 줄어들지 않고, 그 결과 입력창~직전 대화가
+  // 키보드에 가려진다. 이를 보완하기 위해 visualViewport 높이가
+  // window.innerHeight보다 뚜렷하게 작아지면(=키보드가 떠 있으면) 그
+  // 실측 높이를 그대로 컨테이너 높이로 강제한다. 키보드가 닫히면 다시
+  // dvh 계산에 맡긴다(resize 이벤트에서만 갱신 — scroll 이벤트로 매번
+  // 다시 계산하면 스크롤 중 헤더가 사라지던 예전 버그가 재발한다).
   useEffect(() => {
     const vv = window.visualViewport;
     if (!vv) return;
-    let lastOffset = -1;
-    const tick = () => {
-      const offset = Math.round(
-        Math.max(0, window.innerHeight - vv.height - vv.offsetTop)
-      );
-      if (Math.abs(offset - lastOffset) > 4) {
-        lastOffset = offset;
-        setKeyboardOffset(offset);
-        bottomRef.current?.scrollIntoView({ block: "end" });
-      }
+    const handleResize = () => {
+      const shrunk = vv.height < window.innerHeight - 40;
+      setKeyboardHeight(shrunk ? vv.height : null);
+      bottomRef.current?.scrollIntoView({ block: "end" });
     };
-    const interval = setInterval(tick, 150);
-    tick();
-    return () => clearInterval(interval);
+    updateHeightRef.current = handleResize;
+    vv.addEventListener("resize", handleResize);
+    handleResize();
+    return () => {
+      vv.removeEventListener("resize", handleResize);
+    };
   }, []);
 
+  // 입력창을 눌러 키보드가 올라오는 시점에도, 애니메이션이 끝난 뒤
+  // 실제 보이는 높이를 다시 재본다 (resize 이벤트가 늦거나 안 오는 경우 대비).
   function handleInputFocus() {
-    [0, 150, 400, 800].forEach((delay) => {
-      setTimeout(() => {
-        textareaRef.current?.scrollIntoView({ block: "end" });
-      }, delay);
-    });
+    setTimeout(() => updateHeightRef.current(), 350);
   }
 
   useEffect(() => {
@@ -521,7 +517,10 @@ function ChatPageInner() {
     allCharacters.find((c) => c.name === name) ?? voiceCharacter;
 
   return (
-    <div className="relative flex flex-col lg:flex-1">
+    <div
+      className="relative flex h-dvh flex-col overflow-hidden lg:h-auto lg:flex-1"
+      style={keyboardHeight ? { height: keyboardHeight } : undefined}
+    >
       <TopBar
         title={
           character.name +
@@ -675,10 +674,7 @@ function ChatPageInner() {
         </div>
       )}
 
-      <main
-        className="flex flex-1 flex-col gap-3 px-3 py-4"
-        style={{ paddingBottom: 76 + keyboardOffset }}
-      >
+      <main className="flex flex-1 flex-col gap-3 overflow-y-auto px-3 py-4">
         {loadError && <p className="text-sm text-red-600">{loadError}</p>}
 
         {splitMode && (
@@ -849,12 +845,8 @@ function ChatPageInner() {
         <div ref={bottomRef} />
       </main>
 
-      <footer
-        className="fixed inset-x-0 z-20 flex items-end gap-2 border-t border-border bg-card px-3 py-2 md:sticky md:bottom-0"
-        style={{ bottom: keyboardOffset }}
-      >
+      <footer className="sticky bottom-0 flex items-end gap-2 border-t border-border bg-card px-3 py-2">
         <textarea
-          ref={textareaRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onFocus={handleInputFocus}
