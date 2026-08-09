@@ -9,15 +9,16 @@ export function resolveVoiceCharacter(base: Character, all: Character[]): Charac
 /**
  * 방 안에서 "지금 AI가 누구를 연기 중인지" 임시로 뒤바꾼 값(overrideId)이
  * 있으면 그걸 우선 쓰고, 없으면 캐릭터의 기본 역할 반전 설정을 따른다.
- * override는 반드시 이 방의 두 당사자(캐릭터 본인 또는 그 반전 대상) 중
- * 하나여야 유효하다 — 그 외 값은 데이터가 꼬인 것으로 보고 기본값으로 되돌린다.
+ * override는 카드에 미리 등록된 반전 대상뿐 아니라 어떤 캐릭터든 될 수
+ * 있다(방 안에서 자유롭게 고를 수 있게). 존재하지 않는 id면 기본값으로
+ * 되돌린다.
  */
 export function resolveActiveVoiceCharacter(
   base: Character,
   all: Character[],
   overrideId: string | null
 ): Character {
-  if (overrideId && (overrideId === base.id || overrideId === base.aiVoiceCharacterId)) {
+  if (overrideId) {
     const found = all.find((c) => c.id === overrideId);
     if (found) return found;
   }

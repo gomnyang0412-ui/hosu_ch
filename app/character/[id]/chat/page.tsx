@@ -81,6 +81,7 @@ function ChatPageInner() {
   const [savingName, setSavingName] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [voiceOverride, setVoiceOverride] = useState<string | null>(null);
+  const [pickingVoice, setPickingVoice] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const updateHeightRef = useRef<() => void>(() => {});
   const [keyboardHeight, setKeyboardHeight] = useState<number | null>(null);
@@ -445,17 +446,8 @@ function ChatPageInner() {
     }
   }
 
-  async function toggleVoice() {
-    if (!character?.aiVoiceCharacterId) return;
-    const currentVoiceId = resolveActiveVoiceCharacter(
-      character,
-      allCharacters,
-      voiceOverride
-    ).id;
-    const nextVoiceId =
-      currentVoiceId === character.id
-        ? character.aiVoiceCharacterId
-        : character.id;
+  async function chooseVoice(nextVoiceId: string) {
+    if (!character || nextVoiceId === voiceCharacter.id) return;
     setVoiceOverride(nextVoiceId);
     try {
       await saveChatVoiceOverride(universeId, id, nextVoiceId);
@@ -537,18 +529,16 @@ function ChatPageInner() {
             >
               ✎ 채팅방 이름 바꾸기
             </button>
-            {character.aiVoiceCharacterId && (
+            {allCharacters.length > 1 && (
               <button
                 type="button"
                 onClick={() => {
-                  toggleVoice();
+                  setPickingVoice(true);
                   setMenuOpen(false);
                 }}
                 className="border-t border-border px-4 py-3 text-left text-sm hover:bg-background"
               >
-                {isReversed
-                  ? `⇄ AI가 ${character.name} 연기하게 (내가 ${voiceCharacter.name})`
-                  : `⇄ AI가 ${resolveVoiceCharacter(character, allCharacters).name} 연기하게 (내가 ${character.name})`}
+                🎭 AI가 연기할 캐릭터 바꾸기
               </button>
             )}
             <button
@@ -598,6 +588,31 @@ function ChatPageInner() {
             className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground disabled:opacity-40"
           >
             {savingName ? "저장 중…" : "저장"}
+          </button>
+        </div>
+      )}
+
+      {pickingVoice && (
+        <div className="flex items-center gap-2 border-b border-border bg-card px-3 py-2">
+          <select
+            value={voiceCharacter.id}
+            onChange={(e) => chooseVoice(e.target.value)}
+            className="min-w-0 flex-1 rounded-xl border border-border bg-background p-2 text-sm outline-none focus:border-primary/50"
+          >
+            {allCharacters.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.id === character.id
+                  ? `${c.name} (기본, AI가 본인 연기)`
+                  : `AI가 ${c.name} 연기`}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={() => setPickingVoice(false)}
+            className="rounded-full border border-border px-3 py-1.5 text-xs font-medium text-muted"
+          >
+            닫기
           </button>
         </div>
       )}
