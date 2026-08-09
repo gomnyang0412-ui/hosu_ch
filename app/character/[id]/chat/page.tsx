@@ -87,38 +87,55 @@ function ChatPageInner() {
   const [playerOverride, setPlayerOverride] = useState<string | null>(null);
   const [pickingVoice, setPickingVoice] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const updateHeightRef = useRef<() => void>(() => {});
-  const [keyboardHeight, setKeyboardHeight] = useState<number | null>(null);
+  const footerRef = useRef<HTMLDivElement>(null);
+  const [footerHeight, setFooterHeight] = useState(64);
+  const [keyboardOffset, setKeyboardOffset] = useState(0);
 
-  // 화면 높이는 기본적으로 CSS dvh 단위(아래 컨테이너의 h-dvh)에 맡긴다.
-  // 하지만 일부 모바일 브라우저(예: 특정 기기의 삼성 인터넷/크롬 조합)는
-  // 키보드가 올라와도 interactive-widget=resizes-content를 온전히
-  // 반영하지 않아 dvh가 줄어들지 않고, 그 결과 입력창~직전 대화가
-  // 키보드에 가려진다. 이를 보완하기 위해 visualViewport 높이가
-  // window.innerHeight보다 뚜렷하게 작아지면(=키보드가 떠 있으면) 그
-  // 실측 높이를 그대로 컨테이너 높이로 강제한다. 키보드가 닫히면 다시
-  // dvh 계산에 맡긴다(resize 이벤트에서만 갱신 — scroll 이벤트로 매번
-  // 다시 계산하면 스크롤 중 헤더가 사라지던 예전 버그가 재발한다).
+  // 입력창(footer)을 컨테이너 높이 계산에 끼워 넣는 대신 화면에 늘
+  // 떠 있게(position: fixed) 만들고, 키보드가 가린 만큼만 바닥에서
+  // 띄운다. visualViewport는 "지금 실제로 보이는 영역"을 dvh나
+  // interactive-widget 지원 여부와 무관하게 항상 정확히 알려주는
+  // 값이라, 전체 컨테이너 높이를 다시 계산하던 예전 방식보다
+  // 훨씬 단순하고 안정적이다.
   useEffect(() => {
     const vv = window.visualViewport;
     if (!vv) return;
-    const handleResize = () => {
-      const shrunk = vv.height < window.innerHeight - 40;
-      setKeyboardHeight(shrunk ? vv.height : null);
-      bottomRef.current?.scrollIntoView({ block: "end" });
+    let raf = 0;
+    const update = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        const offset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+        setKeyboardOffset(offset);
+        bottomRef.current?.scrollIntoView({ block: "end" });
+      });
     };
-    updateHeightRef.current = handleResize;
-    vv.addEventListener("resize", handleResize);
-    handleResize();
+    vv.addEventListener("resize", update);
+    vv.addEventListener("scroll", update);
+    update();
     return () => {
-      vv.removeEventListener("resize", handleResize);
+      cancelAnimationFrame(raf);
+      vv.removeEventListener("resize", update);
+      vv.removeEventListener("scroll", update);
     };
   }, []);
 
-  // 입력창을 눌러 키보드가 올라오는 시점에도, 애니메이션이 끝난 뒤
-  // 실제 보이는 높이를 다시 재본다 (resize 이벤트가 늦거나 안 오는 경우 대비).
+  // 입력창은 줄바꿈으로 키가 늘어날 수 있어, 실측해서 대화 목록 맨
+  // 아래 여백에 반영한다 — 마지막 메시지가 떠 있는 입력창에 가리지
+  // 않게 하기 위함이다.
+  useEffect(() => {
+    const el = footerRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver((entries) => {
+      setFooterHeight(entries[0].contentRect.height);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   function handleInputFocus() {
-    setTimeout(() => updateHeightRef.current(), 350);
+    requestAnimationFrame(() => {
+      bottomRef.current?.scrollIntoView({ block: "end" });
+    });
   }
 
   useEffect(() => {
@@ -517,10 +534,7 @@ function ChatPageInner() {
     allCharacters.find((c) => c.name === name) ?? voiceCharacter;
 
   return (
-    <div
-      className="relative flex h-dvh flex-col overflow-hidden lg:h-auto lg:flex-1"
-      style={keyboardHeight ? { height: keyboardHeight } : undefined}
-    >
+    <div className="relative flex flex-col lg:flex-1">
       <TopBar
         title={
           character.name +
@@ -674,7 +688,10 @@ function ChatPageInner() {
         </div>
       )}
 
-      <main className="flex flex-1 flex-col gap-3 overflow-y-auto px-3 py-4">
+      <main
+        className="flex flex-1 flex-col gap-3 px-3 py-4"
+        style={{ paddingBottom: footerHeight + keyboardOffset + 12 }}
+      >
         {loadError && <p className="text-sm text-red-600">{loadError}</p>}
 
         {splitMode && (
@@ -845,7 +862,11 @@ function ChatPageInner() {
         <div ref={bottomRef} />
       </main>
 
-      <footer className="sticky bottom-0 flex items-end gap-2 border-t border-border bg-card px-3 py-2">
+      <footer
+        ref={footerRef}
+        className="fixed inset-x-0 z-20 flex items-end gap-2 border-t border-border bg-card px-3 py-2 md:sticky md:bottom-0"
+        style={{ bottom: keyboardOffset }}
+      >
         <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
