@@ -1,17 +1,19 @@
 @import "tailwindcss";
 
 :root {
-  /* 메신저풍 민트 톤: 아주 옅은 민트빛 배경, 짙은 텍스트, 흰색 카드 */
-  --background: #eef6f1;
-  --foreground: #17211c;
+  /* ui-ux-pro-max 스킬의 "Couple & Relationship App" 팔레트 기반.
+     핵심 색은 딱 4개(배경/글자/포인트/보조 포인트)로 제한하고,
+     카드·보더·muted는 전부 그 4색에서 파생된 명도 차이일 뿐이다. */
+  --background: #fdf6f8;
+  --foreground: #241820;
   --card: #ffffff;
-  --border: #dbe8e0;
-  --muted: #79897f;
+  --border: #f3d9e4;
+  --muted: #8a6b76;
   /* 브랜드 포인트 컬러 (전송 버튼, 주요 액션, 활성 탭 등) */
-  --primary: #1f9d75;
-  --primary-strong: #16805f;
+  --primary: #be185d;
+  --primary-strong: #9d174d;
   --primary-foreground: #ffffff;
-  --primary-soft: #dcf3e7;
+  --primary-soft: #fbe4ed;
 }
 
 @theme inline {
