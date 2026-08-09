@@ -9,17 +9,20 @@ import {
   getCharacter,
   getCharacters,
   getChatHistory,
+  getChatPlayerOverride,
   getChatVoiceOverride,
   getUniverse,
   saveCharacter,
   saveChatHistory,
+  saveChatPlayerOverride,
   saveChatVoiceOverride,
   clearChatHistory,
   StorageError,
 } from "@/lib/storage";
 import {
+  PLAYER_ANONYMOUS,
+  resolveActivePlayerCharacter,
   resolveActiveVoiceCharacter,
-  resolvePlayerCharacter,
   resolveVoiceCharacter,
 } from "@/lib/character";
 import { serializeItems } from "@/lib/scene";
@@ -81,6 +84,7 @@ function ChatPageInner() {
   const [savingName, setSavingName] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [voiceOverride, setVoiceOverride] = useState<string | null>(null);
+  const [playerOverride, setPlayerOverride] = useState<string | null>(null);
   const [pickingVoice, setPickingVoice] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const updateHeightRef = useRef<() => void>(() => {});
@@ -140,6 +144,11 @@ function ChatPageInner() {
         .catch(() => {
           // 저장된 값을 못 불러오면 캐릭터의 기본 역할 반전 설정을 그대로 쓴다
         });
+      getChatPlayerOverride(universeId, id)
+        .then(setPlayerOverride)
+        .catch(() => {
+          // 저장된 값을 못 불러오면 기존 암묵적 기본값을 그대로 쓴다
+        });
 
       try {
         const history = await getChatHistory(universeId, id);
@@ -185,8 +194,12 @@ function ChatPageInner() {
       voiceOverride
     );
     const playerName =
-      resolvePlayerCharacter(chatCharacter, allCharacters, voiceCharacter)
-        ?.name ?? undefined;
+      resolveActivePlayerCharacter(
+        chatCharacter,
+        allCharacters,
+        voiceCharacter,
+        playerOverride
+      )?.name ?? undefined;
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
@@ -244,7 +257,8 @@ function ChatPageInner() {
     if (!character) return "나";
     const voice = resolveActiveVoiceCharacter(character, allCharacters, voiceOverride);
     return (
-      resolvePlayerCharacter(character, allCharacters, voice)?.name ?? "나"
+      resolveActivePlayerCharacter(character, allCharacters, voice, playerOverride)
+        ?.name ?? "나"
     );
   }
 
@@ -462,6 +476,24 @@ function ChatPageInner() {
     }
   }
 
+  async function choosePlayer(nextPlayerId: string) {
+    if (!character) return;
+    const current = playerCharacter?.id ?? PLAYER_ANONYMOUS;
+    if (nextPlayerId === current) return;
+    setPlayerOverride(nextPlayerId);
+    try {
+      await saveChatPlayerOverride(universeId, id, nextPlayerId);
+    } catch (err) {
+      setError({
+        message:
+          err instanceof StorageError
+            ? err.message
+            : "역할 설정을 저장하지 못했어요.",
+        kind: "unknown",
+      });
+    }
+  }
+
   if (!character) {
     return loadError ? (
       <p className="p-4 text-sm text-red-600">{loadError}</p>
@@ -474,10 +506,11 @@ function ChatPageInner() {
     allCharacters,
     voiceOverride
   );
-  const playerCharacter = resolvePlayerCharacter(
+  const playerCharacter = resolveActivePlayerCharacter(
     character,
     allCharacters,
-    voiceCharacter
+    voiceCharacter,
+    playerOverride
   );
   const isReversed = voiceCharacter.id !== character.id;
   const speakerFor = (name: string) =>
@@ -538,7 +571,7 @@ function ChatPageInner() {
                 }}
                 className="border-t border-border px-4 py-3 text-left text-sm hover:bg-background"
               >
-                🎭 AI가 연기할 캐릭터 바꾸기
+                🎭 역할 바꾸기 (AI / 나)
               </button>
             )}
             <button
@@ -593,24 +626,48 @@ function ChatPageInner() {
       )}
 
       {pickingVoice && (
-        <div className="flex items-center gap-2 border-b border-border bg-card px-3 py-2">
-          <select
-            value={voiceCharacter.id}
-            onChange={(e) => chooseVoice(e.target.value)}
-            className="min-w-0 flex-1 rounded-xl border border-border bg-background p-2 text-sm outline-none focus:border-primary/50"
-          >
-            {allCharacters.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.id === character.id
-                  ? `${c.name} (기본, AI가 본인 연기)`
-                  : `AI가 ${c.name} 연기`}
-              </option>
-            ))}
-          </select>
+        <div className="flex flex-col gap-2 border-b border-border bg-card px-3 py-3">
+          <label className="flex flex-col gap-1 text-xs text-muted">
+            AI가 연기
+            <select
+              value={voiceCharacter.id}
+              onChange={(e) => chooseVoice(e.target.value)}
+              className="rounded-xl border border-border bg-background p-2 text-sm text-foreground outline-none focus:border-primary/50"
+            >
+              {allCharacters.map((c) => (
+                <option
+                  key={c.id}
+                  value={c.id}
+                  disabled={playerCharacter?.id === c.id}
+                >
+                  {c.id === character.id ? `${c.name} (기본, 본인)` : c.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-muted">
+            나는
+            <select
+              value={playerCharacter?.id ?? PLAYER_ANONYMOUS}
+              onChange={(e) => choosePlayer(e.target.value)}
+              className="rounded-xl border border-border bg-background p-2 text-sm text-foreground outline-none focus:border-primary/50"
+            >
+              <option value={PLAYER_ANONYMOUS}>이름 없는 사용자 (기본)</option>
+              {allCharacters.map((c) => (
+                <option
+                  key={c.id}
+                  value={c.id}
+                  disabled={c.id === voiceCharacter.id}
+                >
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </label>
           <button
             type="button"
             onClick={() => setPickingVoice(false)}
-            className="rounded-full border border-border px-3 py-1.5 text-xs font-medium text-muted"
+            className="self-end rounded-full border border-border px-3 py-1.5 text-xs font-medium text-muted"
           >
             닫기
           </button>

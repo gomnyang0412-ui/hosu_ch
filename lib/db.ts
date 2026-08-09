@@ -54,6 +54,7 @@ const KEYS = {
   threadsPrefix: "cc:threads:",
   memoryPrefix: "cc:memory:",
   chatVoicePrefix: "cc:chatvoice:",
+  chatPlayerPrefix: "cc:chatplayer:",
 } as const;
 
 function chatKey(universeId: string, characterId: string) {
@@ -78,6 +79,10 @@ function memoryKey(characterId: string) {
 
 function chatVoiceKey(universeId: string, characterId: string) {
   return `${KEYS.chatVoicePrefix}${universeId}:${characterId}`;
+}
+
+function chatPlayerKey(universeId: string, characterId: string) {
+  return `${KEYS.chatPlayerPrefix}${universeId}:${characterId}`;
 }
 
 // ---------- 캐릭터 ----------
@@ -245,6 +250,7 @@ export async function clearChatHistoryEverywhere(
     ...universes.map((u) => removeCharacterFromThreads(u.id, characterId)),
     getRedis().del(memoryKey(characterId)),
     ...universes.map((u) => getRedis().del(chatVoiceKey(u.id, characterId))),
+    ...universes.map((u) => getRedis().del(chatPlayerKey(u.id, characterId))),
   ]);
 }
 
@@ -269,6 +275,30 @@ export async function saveChatVoiceOverride(
     await getRedis().set(chatVoiceKey(universeId, characterId), voiceCharacterId);
   } else {
     await getRedis().del(chatVoiceKey(universeId, characterId));
+  }
+}
+
+// ---------- 1:1 방 안에서 지금 내가 누구로 대화 중인지(AI 배역과 별개) ----------
+
+export async function getChatPlayerOverride(
+  universeId: string,
+  characterId: string
+): Promise<string | null> {
+  return (
+    (await getRedis().get<string>(chatPlayerKey(universeId, characterId))) ??
+    null
+  );
+}
+
+export async function saveChatPlayerOverride(
+  universeId: string,
+  characterId: string,
+  playerCharacterId: string | null
+): Promise<void> {
+  if (playerCharacterId) {
+    await getRedis().set(chatPlayerKey(universeId, characterId), playerCharacterId);
+  } else {
+    await getRedis().del(chatPlayerKey(universeId, characterId));
   }
 }
 

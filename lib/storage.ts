@@ -141,6 +141,28 @@ export async function saveChatVoiceOverride(
   });
 }
 
+/** 이 1:1 방에서 지금 내가 누구로 대화 중인지(AI 배역과 별개로 직접 고른 값) */
+export async function getChatPlayerOverride(
+  universeId: string,
+  characterId: string
+): Promise<string | null> {
+  const data = await request<{ playerCharacterId: string | null }>(
+    `/api/data/chat-player/${universeId}/${characterId}`
+  );
+  return data.playerCharacterId;
+}
+
+export async function saveChatPlayerOverride(
+  universeId: string,
+  characterId: string,
+  playerCharacterId: string | null
+): Promise<void> {
+  await request(`/api/data/chat-player/${universeId}/${characterId}`, {
+    method: "POST",
+    body: JSON.stringify({ playerCharacterId }),
+  });
+}
+
 // ---------- 관찰 모드 세션 ----------
 
 export async function getObservationSession(
