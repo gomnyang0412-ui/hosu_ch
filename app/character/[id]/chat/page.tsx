@@ -836,14 +836,8 @@ function ChatPageInner() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onFocus={handleInputFocus}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                handleSend();
-              }
-            }}
             placeholder="메시지를 입력하세요"
-            rows={1}
+            rows={Math.min(6, input.split("\n").length)}
             className="max-h-32 flex-1 resize-none rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary/50"
           />
           <button
