@@ -88,39 +88,41 @@ function ChatPageInner() {
   const [pickingVoice, setPickingVoice] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [keyboardOffset, setKeyboardOffset] = useState(0);
 
-  // dvh, visualViewport 실측, VirtualKeyboard API까지 — "키보드가 정확히
-  // 얼마나 가리는지" 알아내서 입력창 위치를 계산하는 세 가지 방법을
-  // 다 시도했지만 이 기기·브라우저 조합에서는 셋 다 똑같이 실패했다.
-  // 그래서 이번엔 정확한 키보드 높이를 구하는 걸 포기하고, 입력창을
-  // 다시 평범한 문서 흐름(sticky) 안에 두고 "포커스가 가면 잠깐 동안
-  // 여러 번 반복해서 그 입력창까지 스크롤한다"는 방식으로 바꿨다.
-  // 키보드 애니메이션이 정확히 언제 끝나는지 몰라도, 여러 타이밍에
-  // 걸쳐 반복하면 그중 하나는 애니메이션이 끝난 뒤의 최종 상태를
-  // 붙잡게 된다.
-  function scrollInputIntoView() {
-    [0, 50, 120, 250, 400, 650, 900, 1200].forEach((delay) => {
+  // 화면 녹화로 확인해보니, 입력창과 키보드 사이 간격이 스크롤을 하든
+  // 시간이 지나든 단 1px도 안 바뀌었다 — 이건 visualViewport의
+  // resize/scroll 이벤트도, VirtualKeyboard의 geometrychange 이벤트도
+  // 이 브라우저에서 아예 발동하지 않는다는 뜻이다(둘 다 "이벤트가 오면
+  // 그때 값을 갱신"하는 방식이라, 이벤트 자체가 안 오면 아무 소용이
+  // 없다). 그래서 이번엔 이벤트를 기다리지 않고 0.15초마다 직접 값을
+  // 확인(폴링)한다 — 이벤트 지원 여부와 완전히 무관해서, 값 자체는
+  // 갱신되는데 이벤트만 안 오는 경우에도 잡아낼 수 있다.
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    let lastOffset = -1;
+    const tick = () => {
+      const offset = Math.round(
+        Math.max(0, window.innerHeight - vv.height - vv.offsetTop)
+      );
+      if (Math.abs(offset - lastOffset) > 4) {
+        lastOffset = offset;
+        setKeyboardOffset(offset);
+        bottomRef.current?.scrollIntoView({ block: "end" });
+      }
+    };
+    const interval = setInterval(tick, 150);
+    tick();
+    return () => clearInterval(interval);
+  }, []);
+
+  function handleInputFocus() {
+    [0, 150, 400, 800].forEach((delay) => {
       setTimeout(() => {
         textareaRef.current?.scrollIntoView({ block: "end" });
       }, delay);
     });
-  }
-
-  useEffect(() => {
-    const vv = window.visualViewport;
-    const vk = (navigator as Navigator & { virtualKeyboard?: EventTarget })
-      .virtualKeyboard;
-    vv?.addEventListener("resize", scrollInputIntoView);
-    vk?.addEventListener("geometrychange", scrollInputIntoView);
-    return () => {
-      vv?.removeEventListener("resize", scrollInputIntoView);
-      vk?.removeEventListener("geometrychange", scrollInputIntoView);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  function handleInputFocus() {
-    scrollInputIntoView();
   }
 
   useEffect(() => {
@@ -673,7 +675,10 @@ function ChatPageInner() {
         </div>
       )}
 
-      <main className="flex flex-1 flex-col gap-3 px-3 py-4">
+      <main
+        className="flex flex-1 flex-col gap-3 px-3 py-4"
+        style={{ paddingBottom: 76 + keyboardOffset }}
+      >
         {loadError && <p className="text-sm text-red-600">{loadError}</p>}
 
         {splitMode && (
@@ -844,7 +849,10 @@ function ChatPageInner() {
         <div ref={bottomRef} />
       </main>
 
-      <footer className="sticky bottom-0 z-20 flex items-end gap-2 border-t border-border bg-card px-3 py-2">
+      <footer
+        className="fixed inset-x-0 z-20 flex items-end gap-2 border-t border-border bg-card px-3 py-2 md:sticky md:bottom-0"
+        style={{ bottom: keyboardOffset }}
+      >
         <textarea
           ref={textareaRef}
           value={input}
