@@ -87,80 +87,40 @@ function ChatPageInner() {
   const [playerOverride, setPlayerOverride] = useState<string | null>(null);
   const [pickingVoice, setPickingVoice] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const footerRef = useRef<HTMLDivElement>(null);
-  const [footerHeight, setFooterHeight] = useState(64);
-  const [keyboardOffset, setKeyboardOffset] = useState(0);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // 입력창(footer)을 화면에 늘 떠 있게(position: fixed) 만들고, 키보드가
-  // 가린 만큼만 바닥에서 띄운다. 키보드 높이를 구하는 방법은 두 단계로
-  // 나뉜다:
-  // 1) VirtualKeyboard API(navigator.virtualKeyboard) — 크로미움 계열
-  //    (크롬, 삼성 인터넷 등) 브라우저가 지원하는, 키보드 전용으로 만든
-  //    API다. window.innerHeight와 visualViewport 크기 차이로 키보드
-  //    높이를 "추정"하는 게 아니라, 키보드가 차지하는 사각형(boundingRect)을
-  //    브라우저가 직접 알려준다 — 그래서 dvh나 interactive-widget 처리
-  //    방식이 기기/브라우저마다 달라서 생기던 오차가 아예 없다.
-  // 2) 이 API가 없는 브라우저(사파리 등)에서만 기존 visualViewport
-  //    실측 방식으로 보완한다.
-  useEffect(() => {
-    const vk = (
-      navigator as Navigator & {
-        virtualKeyboard?: EventTarget & {
-          overlaysContent: boolean;
-          boundingRect: { height: number };
-        };
-      }
-    ).virtualKeyboard;
-
-    if (vk) {
-      vk.overlaysContent = true;
-      const onGeometryChange = () => {
-        setKeyboardOffset(vk.boundingRect.height);
-        bottomRef.current?.scrollIntoView({ block: "end" });
-      };
-      vk.addEventListener("geometrychange", onGeometryChange);
-      onGeometryChange();
-      return () => vk.removeEventListener("geometrychange", onGeometryChange);
-    }
-
-    const vv = window.visualViewport;
-    if (!vv) return;
-    let raf = 0;
-    const update = () => {
-      cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(() => {
-        const offset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
-        setKeyboardOffset(offset);
-        bottomRef.current?.scrollIntoView({ block: "end" });
-      });
-    };
-    vv.addEventListener("resize", update);
-    vv.addEventListener("scroll", update);
-    update();
-    return () => {
-      cancelAnimationFrame(raf);
-      vv.removeEventListener("resize", update);
-      vv.removeEventListener("scroll", update);
-    };
-  }, []);
-
-  // 입력창은 줄바꿈으로 키가 늘어날 수 있어, 실측해서 대화 목록 맨
-  // 아래 여백에 반영한다 — 마지막 메시지가 떠 있는 입력창에 가리지
-  // 않게 하기 위함이다.
-  useEffect(() => {
-    const el = footerRef.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver((entries) => {
-      setFooterHeight(entries[0].contentRect.height);
+  // dvh, visualViewport 실측, VirtualKeyboard API까지 — "키보드가 정확히
+  // 얼마나 가리는지" 알아내서 입력창 위치를 계산하는 세 가지 방법을
+  // 다 시도했지만 이 기기·브라우저 조합에서는 셋 다 똑같이 실패했다.
+  // 그래서 이번엔 정확한 키보드 높이를 구하는 걸 포기하고, 입력창을
+  // 다시 평범한 문서 흐름(sticky) 안에 두고 "포커스가 가면 잠깐 동안
+  // 여러 번 반복해서 그 입력창까지 스크롤한다"는 방식으로 바꿨다.
+  // 키보드 애니메이션이 정확히 언제 끝나는지 몰라도, 여러 타이밍에
+  // 걸쳐 반복하면 그중 하나는 애니메이션이 끝난 뒤의 최종 상태를
+  // 붙잡게 된다.
+  function scrollInputIntoView() {
+    [0, 50, 120, 250, 400, 650, 900, 1200].forEach((delay) => {
+      setTimeout(() => {
+        textareaRef.current?.scrollIntoView({ block: "end" });
+      }, delay);
     });
-    ro.observe(el);
-    return () => ro.disconnect();
+  }
+
+  useEffect(() => {
+    const vv = window.visualViewport;
+    const vk = (navigator as Navigator & { virtualKeyboard?: EventTarget })
+      .virtualKeyboard;
+    vv?.addEventListener("resize", scrollInputIntoView);
+    vk?.addEventListener("geometrychange", scrollInputIntoView);
+    return () => {
+      vv?.removeEventListener("resize", scrollInputIntoView);
+      vk?.removeEventListener("geometrychange", scrollInputIntoView);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function handleInputFocus() {
-    requestAnimationFrame(() => {
-      bottomRef.current?.scrollIntoView({ block: "end" });
-    });
+    scrollInputIntoView();
   }
 
   useEffect(() => {
@@ -713,10 +673,7 @@ function ChatPageInner() {
         </div>
       )}
 
-      <main
-        className="flex flex-1 flex-col gap-3 px-3 py-4"
-        style={{ paddingBottom: footerHeight + keyboardOffset + 12 }}
-      >
+      <main className="flex flex-1 flex-col gap-3 px-3 py-4">
         {loadError && <p className="text-sm text-red-600">{loadError}</p>}
 
         {splitMode && (
@@ -887,12 +844,9 @@ function ChatPageInner() {
         <div ref={bottomRef} />
       </main>
 
-      <footer
-        ref={footerRef}
-        className="fixed inset-x-0 z-20 flex items-end gap-2 border-t border-border bg-card px-3 py-2 md:sticky md:bottom-0"
-        style={{ bottom: keyboardOffset }}
-      >
+      <footer className="sticky bottom-0 z-20 flex items-end gap-2 border-t border-border bg-card px-3 py-2">
         <textarea
+          ref={textareaRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onFocus={handleInputFocus}
