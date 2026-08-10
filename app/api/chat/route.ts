@@ -128,13 +128,16 @@ export async function POST(request: Request) {
     // 파싱 자체가 실패하는 경우만 null로 받아서 재시도 대상으로 삼는다.
     async function attempt(
       useContents: Content[]
-    ): Promise<{ items: ReturnType<typeof parseChatReply>; model: string } | null> {
-      const { text: raw, model } = await generateChatReply({
+    ): Promise<
+      | { items: ReturnType<typeof parseChatReply>; model: string; keyIndex: number }
+      | null
+    > {
+      const { text: raw, model, keyIndex } = await generateChatReply({
         systemInstruction,
         contents: useContents,
       });
       try {
-        return { items: parseChatReply(raw, body.character.name), model };
+        return { items: parseChatReply(raw, body.character.name), model, keyIndex };
       } catch {
         return null;
       }
@@ -163,10 +166,12 @@ export async function POST(request: Request) {
     if (!result) {
       throw new Error("캐릭터가 대답하지 않았어요. 다시 시도해 주세요.");
     }
-    // 화면에 "이 대사는 어떤 모델이 만들었는지" 작게 표시해줄 수 있도록,
-    // 실제로 응답을 만든 모델을 대사 항목에 함께 남긴다.
+    // 화면에 "이 대사는 어떤 모델·키가 만들었는지" 작게 표시해줄 수 있도록,
+    // 실제로 응답을 만든 모델/키를 대사 항목에 함께 남긴다.
     const items = result.items.map((it) =>
-      it.t === "d" ? { ...it, model: result!.model } : it
+      it.t === "d"
+        ? { ...it, model: result!.model, keyIndex: result!.keyIndex }
+        : it
     );
     return NextResponse.json({ items, text: serializeItems(items) });
   } catch (err) {

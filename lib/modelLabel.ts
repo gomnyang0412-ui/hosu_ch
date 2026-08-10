@@ -13,3 +13,10 @@ export function modelLabel(id?: string): string | null {
   if (!id) return null;
   return MODEL_LABELS[id] ?? id;
 }
+
+/** "Gemini 3.6 Flash · 키1"처럼 모델 이름 뒤에 사용된 API 키 번호까지 붙인다 */
+export function sourceLabel(id?: string, keyIndex?: number): string | null {
+  const label = modelLabel(id);
+  if (!label) return null;
+  return keyIndex ? `${label} · 키${keyIndex}` : label;
+}

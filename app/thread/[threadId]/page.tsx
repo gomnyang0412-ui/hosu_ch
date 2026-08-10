@@ -5,7 +5,7 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import CharacterAvatar from "@/components/CharacterAvatar";
 import ChatListPane from "@/components/ChatListPane";
 import TopBar from "@/components/TopBar";
-import { modelLabel } from "@/lib/modelLabel";
+import { sourceLabel } from "@/lib/modelLabel";
 import {
   getCharacters,
   getThread,
@@ -425,9 +425,9 @@ function ThreadPageInner() {
                   )}
                   {item.say}
                 </div>
-                {modelLabel(item.model) && (
+                {sourceLabel(item.model, item.keyIndex) && (
                   <span className="pl-1 text-[10px] text-muted/70">
-                    {modelLabel(item.model)}
+                    {sourceLabel(item.model, item.keyIndex)}
                   </span>
                 )}
               </div>
