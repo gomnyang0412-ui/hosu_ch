@@ -94,6 +94,15 @@ function getClients(): GoogleGenAI[] {
   return clients;
 }
 
+// 모델 이름 자체가 이 계정/리전에서 아직 제공되지 않을 때 API가 돌려주는
+// 상태코드. quota 초과와는 다른 이유지만, 마찬가지로 "이 모델은 포기하고
+// 다음 모델로 넘어가면 되는" 상황이라 quota와 똑같이 취급한다 — 그래야
+// 존재하지 않는 모델 이름 하나 때문에 체인 전체(결국 항상 되는 Lite까지)가
+// 끊기지 않는다.
+function isModelUnavailable(err: unknown): boolean {
+  return err instanceof ApiError && err.status === 404;
+}
+
 function toGeminiError(err: unknown): GeminiRequestError {
   if (err instanceof GeminiRequestError) return err;
   if (err instanceof ApiError) {
@@ -259,6 +268,7 @@ async function generate(params: {
         }
         return text;
       } catch (err) {
+        if (isModelUnavailable(err)) break; // 이 모델 자체가 없음 → 바로 다음 모델로
         const mapped = toGeminiError(err);
         // 사용량 초과가 아닌 오류는 다른 키/모델로 시도해도 똑같이 실패할
         // 가능성이 높으니 바로 실패 처리한다. 사용량 초과일 때만 다음
