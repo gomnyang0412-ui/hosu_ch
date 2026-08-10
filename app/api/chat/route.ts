@@ -31,7 +31,7 @@ interface ChatRequestBody {
 // RPD/RPM은 히스토리 크기와 무관(요청 횟수 기준)하고, TPM도 지금
 // 사용량 대비 여유가 커서 늘려도 안전하다 — 다만 너무 커지면 응답
 // 속도가 느려지니 무한정 올리지는 않는다.
-const MAX_HISTORY = 50;
+const MAX_HISTORY = 100;
 
 function buildSystemInstruction(
   character: ChatRequestBody["character"],
