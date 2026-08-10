@@ -39,6 +39,15 @@
     "Noto Sans KR", "Malgun Gothic", sans-serif;
 }
 
+html {
+  /* 대화가 길어져 세로 스크롤바가 나타나면 그만큼 레이아웃 폭이 줄어드는데,
+     그 줄어든 폭이 하필 lg(1024px) 경계 바로 아래로 떨어지면 3단 레이아웃이
+     타이핑 중에 갑자기 2단으로 붕괴한다. 스크롤바 자리를 항상 미리
+     확보해서, 스크롤바가 생기고 사라지는 것만으로는 레이아웃 폭이
+     달라지지 않게 한다. */
+  scrollbar-gutter: stable;
+}
+
 body {
   background: var(--background);
   color: var(--foreground);
