@@ -26,6 +26,7 @@ import {
   resolveActivePlayerCharacter,
   resolveActiveVoiceCharacter,
   resolveVoiceCharacter,
+  siblingVoiceRooms,
 } from "@/lib/character";
 import { serializeItems } from "@/lib/scene";
 import { resolveUniverseTemplate } from "@/lib/template";
@@ -88,6 +89,7 @@ function ChatPageInner() {
   const [voiceOverride, setVoiceOverride] = useState<string | null>(null);
   const [playerOverride, setPlayerOverride] = useState<string | null>(null);
   const [pickingVoice, setPickingVoice] = useState(false);
+  const [bridging, setBridging] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   // 키보드 높이를 CSS(dvh)나 JS API(visualViewport, VirtualKeyboard)로
@@ -479,6 +481,93 @@ function ChatPageInner() {
     }
   }
 
+  /**
+   * 같은 캐릭터가 AI로 연기 중인 이 세계관 안의 다른 방들에서 "오늘"
+   * 나눈 대화만 모아 짧게 요약한 뒤, 이 방의 대화에 지문으로 끼워
+   * 넣는다. 평소엔 방마다 완전히 분리돼 있는 즉시 문맥·장기 기억을
+   * 사용자가 원할 때만 수동으로 이어붙이는 용도.
+   */
+  async function bridgeOtherRooms() {
+    if (!character || !universe || bridging) return;
+    setMenuOpen(false);
+    setBridging(true);
+    setError(null);
+    try {
+      const siblings = siblingVoiceRooms(voiceCharacter, id, allCharacters);
+      const today = new Date().toLocaleDateString("sv-SE", {
+        timeZone: "Asia/Seoul",
+      });
+      const transcripts: { withWhom: string; text: string }[] = [];
+      for (const sib of siblings) {
+        const hist = await getChatHistory(universeId, sib.id).catch(() => []);
+        const todays = hist.filter(
+          (m) =>
+            new Date(m.ts).toLocaleDateString("sv-SE", {
+              timeZone: "Asia/Seoul",
+            }) === today
+        );
+        if (todays.length === 0) continue;
+        const text = todays
+          .map((m) => (m.items && m.items.length > 0 ? serializeItems(m.items) : m.text))
+          .join("\n");
+        transcripts.push({ withWhom: sib.name, text });
+      }
+      if (transcripts.length === 0) {
+        setError({
+          message: "오늘 이 세계관의 다른 방에서 나눈 대화가 없어요.",
+          kind: "unknown",
+        });
+        return;
+      }
+      const res = await fetch("/api/room-bridge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          character: toCharacterProfile(voiceCharacter),
+          universe,
+          transcripts,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError({
+          message: data.error ?? "다른 대화를 가져오지 못했어요.",
+          kind: data.kind ?? "unknown",
+        });
+        return;
+      }
+      const note: string = data.summary;
+      const next: ChatMessage[] = [
+        ...messages,
+        {
+          role: "model",
+          text: note,
+          items: [{ t: "n", text: note }],
+          ts: Date.now(),
+        },
+      ];
+      setMessages(next);
+      try {
+        await saveChatHistory(universeId, id, next);
+      } catch (err) {
+        setError({
+          message:
+            err instanceof StorageError
+              ? err.message
+              : "대화를 저장하지 못했어요.",
+          kind: "unknown",
+        });
+      }
+    } catch {
+      setError({
+        message: "네트워크 문제로 다른 대화를 가져오지 못했어요.",
+        kind: "network",
+      });
+    } finally {
+      setBridging(false);
+    }
+  }
+
   if (!character) {
     return loadError ? (
       <p className="p-4 text-sm text-red-600">{loadError}</p>
@@ -562,6 +651,14 @@ function ChatPageInner() {
                 🎭 역할 바꾸기 (AI / 나)
               </button>
             )}
+            <button
+              type="button"
+              onClick={bridgeOtherRooms}
+              disabled={bridging}
+              className="border-t border-border px-4 py-3 text-left text-sm hover:bg-background disabled:opacity-40"
+            >
+              🔗 {bridging ? "가져오는 중…" : "오늘 다른 대화 반영하기"}
+            </button>
             <button
               type="button"
               onClick={() => {

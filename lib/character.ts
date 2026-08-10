@@ -41,6 +41,23 @@ export function resolvePlayerCharacter(
   return all.find((c) => c.id === base.aiVoiceCharacterId) ?? null;
 }
 
+/**
+ * 같은 캐릭터를 AI가 연기 중인 다른 방들의 "방 주인" 캐릭터 목록을
+ * 돌려준다 (기본 역할 반전 설정 기준으로만 판단 — 방 안 임시 override는
+ * 반영하지 않는다. 기억 정리 로직과 동일한 단순화다).
+ */
+export function siblingVoiceRooms(
+  voiceCharacter: Character,
+  currentRoomCharacterId: string,
+  all: Character[]
+): Character[] {
+  return all.filter(
+    (c) =>
+      c.id !== currentRoomCharacterId &&
+      resolveVoiceCharacter(c, all).id === voiceCharacter.id
+  );
+}
+
 /** "나는 아무도 아닌 사용자다"를 명시적으로 고른 상태를 나타내는 값 */
 export const PLAYER_ANONYMOUS = "__anon__";
 
