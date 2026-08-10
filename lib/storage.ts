@@ -119,6 +119,30 @@ export async function clearChatHistory(
   });
 }
 
+/** 이 1:1 방의 최근 저장 이력(최대 5개, 최신순) */
+export async function getChatHistoryBackups(
+  universeId: string,
+  characterId: string
+): Promise<{ value: ChatMessage[]; ts: number }[]> {
+  const data = await request<{ backups: { value: ChatMessage[]; ts: number }[] }>(
+    `/api/data/chat-backup/${universeId}/${characterId}`
+  );
+  return data.backups;
+}
+
+/** 이 1:1 방을 이력 중 하나로 되돌린다 */
+export async function restoreChatHistoryBackup(
+  universeId: string,
+  characterId: string,
+  index: number
+): Promise<ChatMessage[]> {
+  const data = await request<{ messages: ChatMessage[] }>(
+    `/api/data/chat-backup/${universeId}/${characterId}`,
+    { method: "POST", body: JSON.stringify({ index }) }
+  );
+  return data.messages;
+}
+
 /** 이 1:1 방에서 지금 AI가 누구를 연기 중인지(기본값을 임시로 뒤바꾼 값) */
 export async function getChatVoiceOverride(
   universeId: string,

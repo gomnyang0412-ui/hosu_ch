@@ -55,7 +55,32 @@ const KEYS = {
   memoryPrefix: "cc:memory:",
   chatVoicePrefix: "cc:chatvoice:",
   chatPlayerPrefix: "cc:chatplayer:",
+  backupPrefix: "cc:backup:",
 } as const;
+
+// 대화 기록처럼 "통째로 덮어쓰는" 저장은 실수(버그·오조작)로 기존 내용을
+// 날려버릴 위험이 있다. 덮어쓰기 직전 값을 키별로 최근 몇 개만 남겨두면,
+// 사고가 나도 직전 상태로 되돌릴 수 있다.
+const BACKUP_KEEP = 5;
+
+async function pushBackup(key: string, previousValue: unknown): Promise<void> {
+  // 저장된 적이 없던 키(최초 저장)는 되돌릴 "이전 상태" 자체가 없다.
+  if (previousValue === null || previousValue === undefined) return;
+  const backupKey = `${KEYS.backupPrefix}${key}`;
+  await getRedis().lpush(backupKey, { value: previousValue, ts: Date.now() });
+  await getRedis().ltrim(backupKey, 0, BACKUP_KEEP - 1);
+}
+
+async function listBackups<T>(
+  key: string
+): Promise<{ value: T; ts: number }[]> {
+  const raw = await getRedis().lrange<{ value: T; ts: number }>(
+    `${KEYS.backupPrefix}${key}`,
+    0,
+    BACKUP_KEEP - 1
+  );
+  return raw ?? [];
+}
 
 function chatKey(universeId: string, characterId: string) {
   return `${KEYS.chatPrefix}${universeId}:${characterId}`;
@@ -226,7 +251,34 @@ export async function saveChatHistory(
   characterId: string,
   messages: ChatMessage[]
 ): Promise<void> {
-  await getRedis().set(chatKey(universeId, characterId), messages);
+  const key = chatKey(universeId, characterId);
+  const previous = await getRedis().get<ChatMessage[]>(key);
+  await pushBackup(key, previous);
+  await getRedis().set(key, messages);
+}
+
+/** 이 1:1 방의 최근 저장 이력(최대 5개, 최신순)을 돌려준다 */
+export async function listChatHistoryBackups(
+  universeId: string,
+  characterId: string
+): Promise<{ value: ChatMessage[]; ts: number }[]> {
+  return listBackups<ChatMessage[]>(chatKey(universeId, characterId));
+}
+
+/** 이 1:1 방을 이력 중 하나로 되돌린다. 되돌리기 직전 상태도 이력에 남긴다 */
+export async function restoreChatHistoryBackup(
+  universeId: string,
+  characterId: string,
+  index: number
+): Promise<ChatMessage[] | null> {
+  const backups = await listChatHistoryBackups(universeId, characterId);
+  const target = backups[index];
+  if (!target) return null;
+  const key = chatKey(universeId, characterId);
+  const current = await getRedis().get<ChatMessage[]>(key);
+  await pushBackup(key, current);
+  await getRedis().set(key, target.value);
+  return target.value;
 }
 
 export async function clearChatHistory(
@@ -367,13 +419,15 @@ export async function getThread(
 /** 대화방 하나를 만들거나 덮어쓴다 (id가 같으면 수정) */
 export async function saveThread(thread: MultiThread): Promise<void> {
   const threads = await getThreads(thread.universeId);
+  const key = threadsKey(thread.universeId);
+  await pushBackup(key, threads);
   const idx = threads.findIndex((t) => t.id === thread.id);
   if (idx >= 0) {
     threads[idx] = thread;
   } else {
     threads.push(thread);
   }
-  await getRedis().set(threadsKey(thread.universeId), threads);
+  await getRedis().set(key, threads);
 }
 
 export async function deleteThread(

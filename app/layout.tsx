@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import MemorySync from "@/components/MemorySync";
+import PageShell from "@/components/PageShell";
 import Sidebar from "@/components/Sidebar";
 import "./globals.css";
 
@@ -31,11 +32,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       <body className="min-h-full flex flex-col bg-background text-foreground lg:flex-row">
         <MemorySync />
         <Sidebar />
-        <div className="flex w-full flex-1 justify-center">
-          <div className="flex w-full max-w-[480px] flex-1 flex-col md:max-w-[720px] md:px-6 lg:max-w-[1100px] lg:px-8 lg:py-6">
-            {children}
-          </div>
-        </div>
+        <PageShell>{children}</PageShell>
       </body>
     </html>
   );

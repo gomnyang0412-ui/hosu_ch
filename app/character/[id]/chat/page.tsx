@@ -11,9 +11,11 @@ import {
   getCharacter,
   getCharacters,
   getChatHistory,
+  getChatHistoryBackups,
   getChatPlayerOverride,
   getChatVoiceOverride,
   getUniverse,
+  restoreChatHistoryBackup,
   saveCharacter,
   saveChatHistory,
   saveChatPlayerOverride,
@@ -88,6 +90,10 @@ function ChatPageInner() {
   const [voiceOverride, setVoiceOverride] = useState<string | null>(null);
   const [playerOverride, setPlayerOverride] = useState<string | null>(null);
   const [pickingVoice, setPickingVoice] = useState(false);
+  const [backups, setBackups] = useState<
+    { value: ChatMessage[]; ts: number }[] | null
+  >(null);
+  const [restoring, setRestoring] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   // 키보드 높이를 CSS(dvh)나 JS API(visualViewport, VirtualKeyboard)로
@@ -479,6 +485,44 @@ function ChatPageInner() {
     }
   }
 
+  async function openBackups() {
+    setMenuOpen(false);
+    setError(null);
+    try {
+      const list = await getChatHistoryBackups(universeId, id);
+      setBackups(list);
+    } catch (err) {
+      setError({
+        message:
+          err instanceof StorageError
+            ? err.message
+            : "이전 기록을 불러오지 못했어요.",
+        kind: "unknown",
+      });
+    }
+  }
+
+  async function restoreBackup(index: number) {
+    if (restoring) return;
+    setRestoring(true);
+    setError(null);
+    try {
+      const restored = await restoreChatHistoryBackup(universeId, id, index);
+      setMessages(restored);
+      setBackups(null);
+    } catch (err) {
+      setError({
+        message:
+          err instanceof StorageError
+            ? err.message
+            : "이전 기록으로 되돌리지 못했어요.",
+        kind: "unknown",
+      });
+    } finally {
+      setRestoring(false);
+    }
+  }
+
   if (!character) {
     return loadError ? (
       <p className="p-4 text-sm text-red-600">{loadError}</p>
@@ -574,6 +618,13 @@ function ChatPageInner() {
             </button>
             <button
               type="button"
+              onClick={openBackups}
+              className="border-t border-border px-4 py-3 text-left text-sm hover:bg-background"
+            >
+              🕐 이전 기록으로 되돌리기
+            </button>
+            <button
+              type="button"
               onClick={() => {
                 setMenuOpen(false);
                 handleReset();
@@ -655,6 +706,48 @@ function ChatPageInner() {
           <button
             type="button"
             onClick={() => setPickingVoice(false)}
+            className="self-end rounded-full border border-border px-3 py-1.5 text-xs font-medium text-muted"
+          >
+            닫기
+          </button>
+        </div>
+      )}
+
+      {backups && (
+        <div className="flex flex-col gap-2 border-b border-border bg-card px-3 py-3">
+          <p className="text-xs text-muted">
+            저장될 때마다 직전 상태가 최근 5개까지 남아요. 되돌리고 싶은
+            시점을 골라주세요.
+          </p>
+          {backups.length === 0 ? (
+            <p className="text-sm text-muted">되돌릴 수 있는 이전 기록이 없어요.</p>
+          ) : (
+            <ul className="flex flex-col gap-1.5">
+              {backups.map((b, i) => (
+                <li key={b.ts}>
+                  <button
+                    type="button"
+                    onClick={() => restoreBackup(i)}
+                    disabled={restoring}
+                    className="card-shadow flex w-full items-center justify-between rounded-xl bg-background px-3 py-2 text-left text-sm disabled:opacity-40"
+                  >
+                    <span>
+                      {new Date(b.ts).toLocaleString("ko-KR", {
+                        dateStyle: "medium",
+                        timeStyle: "short",
+                      })}
+                    </span>
+                    <span className="text-xs text-muted">
+                      메시지 {b.value.length}개 · 되돌리기
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <button
+            type="button"
+            onClick={() => setBackups(null)}
             className="self-end rounded-full border border-border px-3 py-1.5 text-xs font-medium text-muted"
           >
             닫기
