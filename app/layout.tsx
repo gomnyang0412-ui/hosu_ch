@@ -32,7 +32,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <MemorySync />
         <Sidebar />
         <div className="flex w-full flex-1 justify-center">
-          <div className="flex w-full max-w-[480px] flex-1 flex-col md:max-w-[720px] md:px-6 lg:px-10 lg:py-8">
+          <div className="flex w-full max-w-[480px] flex-1 flex-col md:max-w-[720px] md:px-6 lg:max-w-[1100px] lg:px-8 lg:py-6">
             {children}
           </div>
         </div>

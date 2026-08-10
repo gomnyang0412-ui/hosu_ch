@@ -55,7 +55,7 @@ export default function CharacterListPage() {
                   onKeyDown={(e) => {
                     if (e.key === "Enter") router.push(`/character/${c.id}/chat`);
                   }}
-                  className="flex cursor-pointer items-center gap-3 rounded-2xl border border-border bg-card p-3"
+                  className="card-shadow flex cursor-pointer items-center gap-3 rounded-2xl bg-card p-3"
                 >
                   <CharacterAvatar character={c} size="md" />
                   <div className="min-w-0 flex-1">

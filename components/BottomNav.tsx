@@ -14,7 +14,7 @@ export default function BottomNav() {
   const pathname = usePathname();
 
   return (
-    <nav className="sticky bottom-0 z-10 flex border-t border-border bg-card lg:hidden">
+    <nav className="card-shadow sticky bottom-0 z-10 flex bg-card lg:hidden">
       {TABS.map((tab) => {
         const active =
           tab.href === "/" ? pathname === "/" : pathname.startsWith(tab.href);
@@ -22,14 +22,19 @@ export default function BottomNav() {
           <Link
             key={tab.href}
             href={tab.href}
-            className={`flex flex-1 flex-col items-center gap-0.5 py-2.5 text-xs transition-colors ${
-              active ? "text-primary font-medium" : "text-muted"
-            }`}
+            className="flex flex-1 flex-col items-center gap-1 py-2.5 text-xs"
           >
-            <span aria-hidden className="text-lg leading-none">
+            <span
+              aria-hidden
+              className={`flex h-7 w-10 items-center justify-center rounded-full text-lg leading-none transition-colors ${
+                active ? "gradient-primary text-primary-foreground" : ""
+              }`}
+            >
               {tab.icon}
             </span>
-            {tab.label}
+            <span className={active ? "font-medium text-primary" : "text-muted"}>
+              {tab.label}
+            </span>
           </Link>
         );
       })}

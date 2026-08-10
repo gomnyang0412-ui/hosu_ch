@@ -16,7 +16,7 @@ export default function TopBar({
   const router = useRouter();
 
   return (
-    <header className="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-card px-3 py-3">
+    <header className="card-shadow sticky top-0 z-10 flex items-center gap-2 bg-card px-3 py-3">
       <button
         type="button"
         onClick={() => (onBack ? onBack() : router.back())}

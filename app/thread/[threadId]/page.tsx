@@ -3,6 +3,7 @@
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
 import CharacterAvatar from "@/components/CharacterAvatar";
+import ChatListPane from "@/components/ChatListPane";
 import TopBar from "@/components/TopBar";
 import {
   getCharacters,
@@ -280,8 +281,14 @@ function ThreadPageInner() {
     (thread.title?.trim() || participants.map((c) => c.name).join(" · ")) +
     (isAu ? ` · ${universe.title}` : "");
 
+  const roomHref = `/thread/${threadId}?universe=${universeId}`;
+
   return (
-    <div className="flex flex-1 flex-col overflow-hidden">
+    <div className="flex flex-1 lg:gap-6">
+      <aside className="hidden w-72 shrink-0 overflow-y-auto lg:block">
+        <ChatListPane activeHref={roomHref} />
+      </aside>
+      <div className="flex flex-1 flex-col overflow-hidden">
       <TopBar title={title || "대화방"} />
 
       {participants.length >= 2 && (
@@ -329,7 +336,7 @@ function ThreadPageInner() {
                   onChange={(e) => setEditingText(e.target.value)}
                   autoFocus
                   rows={item.t === "x" ? 1 : 2}
-                  className="w-full max-w-[75%] resize-none rounded-2xl border border-foreground/30 bg-background px-3 py-2 text-sm leading-relaxed outline-none md:max-w-[420px]"
+                  className="w-full max-w-[75%] resize-none rounded-3xl border border-foreground/30 bg-background px-3 py-2 text-sm leading-relaxed outline-none md:max-w-[420px]"
                 />
                 <div className="flex gap-2">
                   <button
@@ -343,7 +350,7 @@ function ThreadPageInner() {
                     type="button"
                     onClick={submitEdit}
                     disabled={!editingText.trim()}
-                    className="rounded-full bg-primary px-3 py-1 text-xs font-semibold text-primary-foreground disabled:opacity-40"
+                    className="gradient-primary rounded-full px-3 py-1 text-xs font-semibold text-primary-foreground disabled:opacity-40"
                   >
                     수정하고 다시 받기
                   </button>
@@ -363,7 +370,7 @@ function ThreadPageInner() {
                 >
                   ✎
                 </button>
-                <div className="max-w-[75%] whitespace-pre-wrap rounded-2xl rounded-br-sm bg-primary px-3 py-2 text-sm leading-relaxed text-primary-foreground md:max-w-[420px]">
+                <div className="gradient-primary max-w-[75%] whitespace-pre-wrap rounded-2xl rounded-br-sm px-3 py-2 text-sm leading-relaxed text-primary-foreground md:max-w-[420px]">
                   {item.text}
                 </div>
               </div>
@@ -404,7 +411,7 @@ function ThreadPageInner() {
           return (
             <div key={i} className="flex items-end gap-2">
               <CharacterAvatar character={c} size="sm" />
-              <div className="max-w-[75%] whitespace-pre-wrap rounded-2xl rounded-bl-sm border border-border bg-card px-3 py-2 text-sm leading-relaxed md:max-w-[420px]">
+              <div className="card-shadow max-w-[75%] whitespace-pre-wrap rounded-2xl rounded-bl-sm bg-card px-3 py-2 text-sm leading-relaxed md:max-w-[420px]">
                 <p
                   className="mb-0.5 text-xs font-semibold"
                   style={{ color: c.accentColor }}
@@ -448,13 +455,13 @@ function ThreadPageInner() {
               onChange={(e) => setDirectiveText(e.target.value)}
               placeholder="예: 몇 시간 후, 미하일을 만난다"
               rows={1}
-              className="max-h-24 flex-1 resize-none rounded-xl border border-dashed border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary/50"
+              className="max-h-24 flex-1 resize-none rounded-3xl border border-dashed border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary/50"
             />
             <button
               type="button"
               onClick={handleDirectiveSubmit}
               disabled={loading || !directiveText.trim()}
-              className="shrink-0 rounded-xl border border-border px-3 py-2 text-sm font-medium disabled:opacity-40"
+              className="shrink-0 rounded-full border border-border px-3 py-2 text-sm font-medium disabled:opacity-40"
             >
               적용
             </button>
@@ -483,18 +490,19 @@ function ThreadPageInner() {
             }
             enterKeyHint="enter"
             rows={Math.min(6, input.split("\n").length)}
-            className="max-h-32 flex-1 resize-none rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary/50"
+            className="max-h-32 flex-1 resize-none rounded-3xl border border-border bg-background px-4 py-2 text-sm outline-none focus:border-primary/50"
           />
           <button
             type="button"
             onClick={handleSend}
             disabled={loading || !input.trim() || participants.length < 2}
-            className="shrink-0 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-40"
+            className="gradient-primary shrink-0 rounded-full px-5 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-40"
           >
             전송
           </button>
         </div>
       </footer>
+      </div>
     </div>
   );
 }

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
 import CharacterAvatar from "@/components/CharacterAvatar";
+import ChatListPane from "@/components/ChatListPane";
 import TopBar from "@/components/TopBar";
 import {
   getCharacter,
@@ -499,8 +500,14 @@ function ChatPageInner() {
   const speakerFor = (name: string) =>
     allCharacters.find((c) => c.name === name) ?? voiceCharacter;
 
+  const roomHref = `/character/${id}/chat?universe=${universeId}`;
+
   return (
-    <div className="relative flex flex-col lg:flex-1">
+    <div className="flex flex-1 lg:gap-6">
+      <aside className="hidden w-72 shrink-0 overflow-y-auto lg:block">
+        <ChatListPane activeHref={roomHref} />
+      </aside>
+      <div className="relative flex flex-1 flex-col">
       <TopBar
         title={
           character.name +
@@ -531,7 +538,7 @@ function ChatPageInner() {
             onClick={() => setMenuOpen(false)}
             className="fixed inset-0 z-10 cursor-default"
           />
-          <div className="absolute right-3 top-14 z-20 flex w-56 flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-lg">
+          <div className="card-shadow absolute right-3 top-14 z-20 flex w-56 flex-col overflow-hidden rounded-2xl bg-card">
             <button
               type="button"
               onClick={() => {
@@ -598,7 +605,7 @@ function ChatPageInner() {
             type="button"
             onClick={confirmRename}
             disabled={!renameText.trim() || savingName}
-            className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground disabled:opacity-40"
+            className="gradient-primary rounded-full px-3 py-1.5 text-xs font-semibold text-primary-foreground disabled:opacity-40"
           >
             {savingName ? "저장 중…" : "저장"}
           </button>
@@ -664,7 +671,7 @@ function ChatPageInner() {
           </p>
         )}
         {splitDone && (
-          <p className="rounded-xl border border-border bg-card px-3 py-2 text-center text-xs text-muted">
+          <p className="card-shadow rounded-xl bg-card px-3 py-2 text-center text-xs text-muted">
             {splitDone.name}와의 방으로 옮겼어요.{" "}
             <Link
               href={`/character/${splitDone.targetId}/chat?universe=${universeId}`}
@@ -690,7 +697,7 @@ function ChatPageInner() {
                   ) : (
                     <div key={j} className="flex items-end gap-2">
                       <CharacterAvatar character={speakerFor(item.who)} size="sm" />
-                      <div className="max-w-[75%] whitespace-pre-wrap rounded-2xl rounded-bl-sm bg-card border border-border px-3 py-2 text-sm leading-relaxed md:max-w-[420px]">
+                      <div className="card-shadow max-w-[75%] whitespace-pre-wrap rounded-2xl rounded-bl-sm bg-card px-3 py-2 text-sm leading-relaxed md:max-w-[420px]">
                         {item.act && (
                           <p className="mb-1 text-xs italic text-muted">
                             {item.act}
@@ -723,7 +730,7 @@ function ChatPageInner() {
                     type="button"
                     onClick={submitEdit}
                     disabled={!editingText.trim()}
-                    className="rounded-full bg-primary px-3 py-1 text-xs font-semibold text-primary-foreground disabled:opacity-40"
+                    className="gradient-primary rounded-full px-3 py-1 text-xs font-semibold text-primary-foreground disabled:opacity-40"
                   >
                     수정하고 다시 받기
                   </button>
@@ -760,7 +767,7 @@ function ChatPageInner() {
             )}
 
             {splitIndex === i && (
-              <div className="flex flex-col items-center gap-2 rounded-xl border border-border bg-card p-3">
+              <div className="card-shadow flex flex-col items-center gap-2 rounded-xl bg-card p-3">
                 <p className="text-xs text-muted">
                   이 메시지부터 끝까지를 어느 캐릭터 방으로 옮길까요?
                 </p>
@@ -790,7 +797,7 @@ function ChatPageInner() {
                     type="button"
                     onClick={confirmSplit}
                     disabled={!splitTargetId || splitting}
-                    className="rounded-full bg-primary px-3 py-1 text-xs font-semibold text-primary-foreground disabled:opacity-40"
+                    className="gradient-primary rounded-full px-3 py-1 text-xs font-semibold text-primary-foreground disabled:opacity-40"
                   >
                     {splitting ? "옮기는 중…" : "이 지점부터 옮기기"}
                   </button>
@@ -803,7 +810,7 @@ function ChatPageInner() {
         {loading && (
           <div className="flex items-end gap-2">
             <CharacterAvatar character={voiceCharacter} size="sm" />
-            <div className="rounded-2xl rounded-bl-sm border border-border bg-card px-3 py-2 text-sm text-muted">
+            <div className="card-shadow rounded-2xl rounded-bl-sm bg-card px-3 py-2 text-sm text-muted">
               입력 중…
             </div>
           </div>
@@ -839,13 +846,13 @@ function ChatPageInner() {
             placeholder="메시지를 입력하세요"
             enterKeyHint="enter"
             rows={Math.min(6, input.split("\n").length)}
-            className="max-h-32 flex-1 resize-none rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary/50"
+            className="max-h-32 flex-1 resize-none rounded-3xl border border-border bg-background px-4 py-2 text-sm outline-none focus:border-primary/50"
           />
           <button
             type="button"
             onClick={handleSend}
             disabled={loading || !input.trim()}
-            className="shrink-0 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-40"
+            className="gradient-primary shrink-0 rounded-full px-5 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-40"
           >
             전송
           </button>
@@ -853,6 +860,7 @@ function ChatPageInner() {
 
         <div ref={bottomRef} />
       </main>
+      </div>
     </div>
   );
 }

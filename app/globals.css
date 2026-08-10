@@ -14,6 +14,14 @@
   --primary-strong: #9d174d;
   --primary-foreground: #ffffff;
   --primary-soft: #fbe4ed;
+  /* 참고 레퍼런스(Dribbble 챗 UI들)의 그라디언트 포인트 + 그림자 기반 카드
+     스타일을 이 팔레트 위에 얹기 위한 보조 토큰. 기존 4색 원칙은 유지하고,
+     primary 계열 안에서만 밝은 쪽 끝(gradient-from)을 하나 더 둔다. */
+  --primary-gradient-from: #f472b6;
+  --card-shadow: 0 1px 2px rgba(36, 24, 32, 0.04),
+    0 10px 24px -12px rgba(36, 24, 32, 0.16);
+  --card-shadow-sm: 0 1px 2px rgba(36, 24, 32, 0.05),
+    0 4px 10px -4px rgba(36, 24, 32, 0.12);
 }
 
 @theme inline {
@@ -35,6 +43,20 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans);
+}
+
+/* 카드형 표면: 딱딱한 테두리선 대신 은은한 그림자로 경계를 표현한다 */
+.card-shadow {
+  box-shadow: var(--card-shadow-sm);
+}
+
+/* primary 버튼/포인트 요소에 쓰는 그라디언트 */
+.gradient-primary {
+  background-image: linear-gradient(
+    135deg,
+    var(--primary-gradient-from),
+    var(--primary-strong)
+  );
 }
 
 @media (prefers-reduced-motion: reduce) {
