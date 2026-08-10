@@ -285,7 +285,7 @@ function ThreadPageInner() {
 
   return (
     <div className="flex flex-1 lg:gap-6">
-      <aside className="hidden w-72 shrink-0 overflow-y-auto lg:block">
+      <aside className="hidden w-72 shrink-0 lg:sticky lg:top-6 lg:block lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto">
         <ChatListPane activeHref={roomHref} />
       </aside>
       <div className="flex flex-1 flex-col overflow-hidden">
