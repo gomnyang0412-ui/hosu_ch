@@ -40,9 +40,13 @@ const BLOCKED_FINISH_REASONS = new Set<string>([
   FinishReason.SPII,
 ]);
 
-// "-latest" 별칭을 쓰면 Google이 모델을 교체해도(2주 전 안내) 여기를 계속
-// 고칠 필요가 없다. 특정 모델명을 고정하면 그 모델이 만료됐을 때 404가 난다.
-export const GEMINI_MODEL = "gemini-flash-latest";
+// "-latest" 별칭은 구글이 뒤에서 가리키는 실제 모델을 바꿀 수 있는데,
+// 그러면서 무료 등급 하루 요청 한도(RPD)가 우리도 모르는 새 확 줄어드는
+// 일이 실제로 있었다(3.6 Flash로 넘어가며 RPD가 20까지 떨어짐). 그래서
+// 별칭 대신 RPD가 넉넉한(500) 특정 모델에 고정한다 — 품질 체감 테스트용.
+// 나중에 문제가 있으면 이 상수를 바꾸거나, 호출부별로 다른 모델을
+// 쓰도록 분리하면 된다.
+export const GEMINI_MODEL = "gemini-3.5-flash-lite";
 
 export type GeminiErrorKind = "quota" | "network" | "unknown";
 
