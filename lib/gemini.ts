@@ -43,10 +43,23 @@ const BLOCKED_FINISH_REASONS = new Set<string>([
 // "-latest" 별칭은 구글이 뒤에서 가리키는 실제 모델을 바꿀 수 있는데,
 // 그러면서 무료 등급 하루 요청 한도(RPD)가 우리도 모르는 새 확 줄어드는
 // 일이 실제로 있었다(3.6 Flash로 넘어가며 RPD가 20까지 떨어짐). 그래서
-// 별칭 대신 RPD가 넉넉한(500) 특정 모델에 고정한다 — 품질 체감 테스트용.
-// 나중에 문제가 있으면 이 상수를 바꾸거나, 호출부별로 다른 모델을
-// 쓰도록 분리하면 된다.
-export const GEMINI_MODEL = "gemini-3.5-flash-lite";
+// 항상 구체적인 모델 이름에 고정한다.
+//
+// 대사 생성(1:1/관찰/멀티방)은 캐릭터 일관성·자연스러움이 중요해서
+// Flash 계열을 우선 시도한다. 한 Flash 모델의 하루 요청 한도(RPD)가
+// 다 떨어지면(전체 키에서 전부 quota 에러) 다음 Flash 모델로 넘어가고,
+// Flash를 전부 소진하면 마지막으로 Flash-Lite까지 내려가 대화가 완전히
+// 끊기지는 않게 한다.
+const DIALOGUE_MODELS = [
+  "gemini-3.6-flash",
+  "gemini-2.5-flash",
+  "gemini-3-flash",
+  "gemini-3.5-flash",
+];
+// 요약(기억 정리)은 뉘앙스보다 사실 정리가 중요해 처음부터 가볍고 RPD가
+// 넉넉한 Lite만 쓴다 — Flash 한도를 대사 생성 쪽에 아껴두는 목적도 있다.
+const LITE_MODEL = "gemini-3.5-flash-lite";
+const DIALOGUE_MODEL_CHAIN = [...DIALOGUE_MODELS, LITE_MODEL];
 
 export type GeminiErrorKind = "quota" | "network" | "unknown";
 
@@ -184,6 +197,9 @@ async function generate(params: {
   json?: boolean;
   itemRange?: { min: number; max: number };
   singleReply?: boolean;
+  /** 시도할 모델을 우선순위 순서대로. 앞 모델이 전체 키에서 quota로
+   *  실패하면 다음 모델로 넘어간다. */
+  models: string[];
 }): Promise<string> {
   const clients = getClients();
   let lastError: GeminiRequestError | null = null;
@@ -192,61 +208,64 @@ async function generate(params: {
     max: 14,
   };
 
-  for (const ai of clients) {
-    try {
-      const response = await ai.models.generateContent({
-        model: GEMINI_MODEL,
-        contents: params.contents,
-        config: {
-          abortSignal: AbortSignal.timeout(CALL_TIMEOUT_MS),
-          systemInstruction: params.systemInstruction,
-          safetySettings: SAFETY_SETTINGS,
-          ...(params.json
-            ? {
-                responseMimeType: "application/json",
-                responseSchema: params.singleReply
-                  ? SINGLE_REPLY_SCHEMA
-                  : {
-                      type: Type.ARRAY,
-                      items: {
-                        type: Type.OBJECT,
-                        properties: {
-                          t: { type: Type.STRING, enum: ["n", "d"] },
-                          text: { type: Type.STRING },
-                          who: { type: Type.STRING },
-                          act: { type: Type.STRING },
-                          say: { type: Type.STRING },
+  for (const model of params.models) {
+    for (const ai of clients) {
+      try {
+        const response = await ai.models.generateContent({
+          model,
+          contents: params.contents,
+          config: {
+            abortSignal: AbortSignal.timeout(CALL_TIMEOUT_MS),
+            systemInstruction: params.systemInstruction,
+            safetySettings: SAFETY_SETTINGS,
+            ...(params.json
+              ? {
+                  responseMimeType: "application/json",
+                  responseSchema: params.singleReply
+                    ? SINGLE_REPLY_SCHEMA
+                    : {
+                        type: Type.ARRAY,
+                        items: {
+                          type: Type.OBJECT,
+                          properties: {
+                            t: { type: Type.STRING, enum: ["n", "d"] },
+                            text: { type: Type.STRING },
+                            who: { type: Type.STRING },
+                            act: { type: Type.STRING },
+                            say: { type: Type.STRING },
+                          },
+                          required: ["t"],
                         },
-                        required: ["t"],
+                        minItems: String(minItems),
+                        maxItems: String(maxItems),
                       },
-                      minItems: String(minItems),
-                      maxItems: String(maxItems),
-                    },
-              }
-            : {}),
-        },
-      });
-      const finishReason = response.candidates?.[0]?.finishReason;
-      if (finishReason && BLOCKED_FINISH_REASONS.has(finishReason)) {
-        throw new GeminiRequestError(
-          "AI 안전 정책에 걸려 이 내용을 만들지 못했어요. 표현을 조금 바꿔서 다시 시도해 주세요.",
-          "unknown"
-        );
+                }
+              : {}),
+          },
+        });
+        const finishReason = response.candidates?.[0]?.finishReason;
+        if (finishReason && BLOCKED_FINISH_REASONS.has(finishReason)) {
+          throw new GeminiRequestError(
+            "AI 안전 정책에 걸려 이 내용을 만들지 못했어요. 표현을 조금 바꿔서 다시 시도해 주세요.",
+            "unknown"
+          );
+        }
+        const text = response.text;
+        if (!text) {
+          throw new GeminiRequestError(
+            "AI가 빈 응답을 보냈어요. 다시 시도해 주세요.",
+            "unknown"
+          );
+        }
+        return text;
+      } catch (err) {
+        const mapped = toGeminiError(err);
+        // 사용량 초과가 아닌 오류는 다른 키/모델로 시도해도 똑같이 실패할
+        // 가능성이 높으니 바로 실패 처리한다. 사용량 초과일 때만 다음
+        // 키로, 그것도 다 떨어지면 다음 모델로 넘어간다.
+        if (mapped.kind !== "quota") throw mapped;
+        lastError = mapped;
       }
-      const text = response.text;
-      if (!text) {
-        throw new GeminiRequestError(
-          "AI가 빈 응답을 보냈어요. 다시 시도해 주세요.",
-          "unknown"
-        );
-      }
-      return text;
-    } catch (err) {
-      const mapped = toGeminiError(err);
-      // 사용량 초과가 아닌 오류는 다른 키로 시도해도 똑같이 실패할 가능성이
-      // 높으니 바로 실패 처리한다. 사용량 초과일 때만 다음 키로 넘어간다.
-      if (mapped.kind !== "quota") throw mapped;
-      lastError = mapped;
     }
   }
 
@@ -264,7 +283,12 @@ export async function generateChatReply(params: {
   systemInstruction: string;
   contents: Content[];
 }): Promise<string> {
-  return generate({ ...params, json: true, singleReply: true });
+  return generate({
+    ...params,
+    json: true,
+    singleReply: true,
+    models: DIALOGUE_MODEL_CHAIN,
+  });
 }
 
 /** 관찰 모드 장면 (지문+대사, 10~14개 항목) */
@@ -272,7 +296,12 @@ export async function generateSceneJson(params: {
   systemInstruction: string;
   contents: Content[];
 }): Promise<string> {
-  return generate({ ...params, json: true, itemRange: { min: 10, max: 14 } });
+  return generate({
+    ...params,
+    json: true,
+    itemRange: { min: 10, max: 14 },
+    models: DIALOGUE_MODEL_CHAIN,
+  });
 }
 
 /** 멀티 대화방 응답 (지문+대사, 보통 1~6개 항목) */
@@ -280,7 +309,12 @@ export async function generateThreadJson(params: {
   systemInstruction: string;
   contents: Content[];
 }): Promise<string> {
-  return generate({ ...params, json: true, itemRange: { min: 1, max: 6 } });
+  return generate({
+    ...params,
+    json: true,
+    itemRange: { min: 1, max: 6 },
+    models: DIALOGUE_MODEL_CHAIN,
+  });
 }
 
 /** 1:1 대화 기록을 짧은 지문으로 요약하는 평문 응답 (JSON 아님) */
@@ -288,5 +322,5 @@ export async function generateSummaryText(params: {
   systemInstruction: string;
   contents: Content[];
 }): Promise<string> {
-  return generate({ ...params, json: false });
+  return generate({ ...params, json: false, models: [LITE_MODEL] });
 }
