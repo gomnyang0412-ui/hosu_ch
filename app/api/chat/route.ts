@@ -128,13 +128,13 @@ export async function POST(request: Request) {
     // 파싱 자체가 실패하는 경우만 null로 받아서 재시도 대상으로 삼는다.
     async function attempt(
       useContents: Content[]
-    ): Promise<ReturnType<typeof parseChatReply> | null> {
-      const raw = await generateChatReply({
+    ): Promise<{ items: ReturnType<typeof parseChatReply>; model: string } | null> {
+      const { text: raw, model } = await generateChatReply({
         systemInstruction,
         contents: useContents,
       });
       try {
-        return parseChatReply(raw, body.character.name);
+        return { items: parseChatReply(raw, body.character.name), model };
       } catch {
         return null;
       }
@@ -145,8 +145,8 @@ export async function POST(request: Request) {
 
     // say는 스키마상 필수라 대사 자체가 아예 없는 응답은 거의 안 나오지만,
     // "..."처럼 내용 없는 대사로 때울 때는 있어 그럴 때만 한 번 더 시도한다.
-    let items = await attempt(contents);
-    if (!items || !hasRealReply(items)) {
+    let result = await attempt(contents);
+    if (!result || !hasRealReply(result.items)) {
       const retryContents: Content[] = [
         ...contents,
         {
@@ -158,11 +158,16 @@ export async function POST(request: Request) {
           ],
         },
       ];
-      items = await attempt(retryContents);
+      result = await attempt(retryContents);
     }
-    if (!items) {
+    if (!result) {
       throw new Error("캐릭터가 대답하지 않았어요. 다시 시도해 주세요.");
     }
+    // 화면에 "이 대사는 어떤 모델이 만들었는지" 작게 표시해줄 수 있도록,
+    // 실제로 응답을 만든 모델을 대사 항목에 함께 남긴다.
+    const items = result.items.map((it) =>
+      it.t === "d" ? { ...it, model: result!.model } : it
+    );
     return NextResponse.json({ items, text: serializeItems(items) });
   } catch (err) {
     if (err instanceof GeminiRequestError) {

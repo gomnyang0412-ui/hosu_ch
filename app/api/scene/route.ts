@@ -114,7 +114,7 @@ export async function POST(request: Request) {
   const contents: Content[] = [{ role: "user", parts: [{ text: userText }] }];
 
   try {
-    const raw = await generateSceneJson({
+    const { text: raw } = await generateSceneJson({
       systemInstruction: buildSystemInstruction(body.characters, body.universe),
       contents,
     });

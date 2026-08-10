@@ -136,8 +136,14 @@ export async function POST(request: Request) {
     // 재시도는 실패 확률(특히 네트워크 타임아웃)을 두 배로 늘리기만 하고
     // 더 이상 에러를 막아주지도 않으니, 한 번만 호출하고 받은 그대로
     // 보여준다.
-    const items = parseSceneItems(
-      await generateThreadJson({ systemInstruction, contents })
+    const { text: raw, model } = await generateThreadJson({
+      systemInstruction,
+      contents,
+    });
+    // 화면에 "이 대사는 어떤 모델이 만들었는지" 작게 표시해줄 수 있도록,
+    // 실제로 응답을 만든 모델을 대사 항목에 함께 남긴다.
+    const items = parseSceneItems(raw).map((it) =>
+      it.t === "d" ? { ...it, model } : it
     );
     return NextResponse.json({ items });
   } catch (err) {

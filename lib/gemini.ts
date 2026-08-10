@@ -209,7 +209,7 @@ async function generate(params: {
   /** 시도할 모델을 우선순위 순서대로. 앞 모델이 전체 키에서 quota로
    *  실패하면 다음 모델로 넘어간다. */
   models: string[];
-}): Promise<string> {
+}): Promise<{ text: string; model: string }> {
   const clients = getClients();
   let lastError: GeminiRequestError | null = null;
   const { min: minItems, max: maxItems } = params.itemRange ?? {
@@ -266,7 +266,7 @@ async function generate(params: {
             "unknown"
           );
         }
-        return text;
+        return { text, model };
       } catch (err) {
         if (isModelUnavailable(err)) break; // 이 모델 자체가 없음 → 바로 다음 모델로
         const mapped = toGeminiError(err);
@@ -292,7 +292,7 @@ async function generate(params: {
 export async function generateChatReply(params: {
   systemInstruction: string;
   contents: Content[];
-}): Promise<string> {
+}): Promise<{ text: string; model: string }> {
   return generate({
     ...params,
     json: true,
@@ -305,7 +305,7 @@ export async function generateChatReply(params: {
 export async function generateSceneJson(params: {
   systemInstruction: string;
   contents: Content[];
-}): Promise<string> {
+}): Promise<{ text: string; model: string }> {
   return generate({
     ...params,
     json: true,
@@ -318,7 +318,7 @@ export async function generateSceneJson(params: {
 export async function generateThreadJson(params: {
   systemInstruction: string;
   contents: Content[];
-}): Promise<string> {
+}): Promise<{ text: string; model: string }> {
   return generate({
     ...params,
     json: true,
@@ -332,5 +332,6 @@ export async function generateSummaryText(params: {
   systemInstruction: string;
   contents: Content[];
 }): Promise<string> {
-  return generate({ ...params, json: false, models: [LITE_MODEL] });
+  const { text } = await generate({ ...params, json: false, models: [LITE_MODEL] });
+  return text;
 }

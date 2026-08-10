@@ -5,6 +5,7 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import CharacterAvatar from "@/components/CharacterAvatar";
 import ChatListPane from "@/components/ChatListPane";
 import TopBar from "@/components/TopBar";
+import { modelLabel } from "@/lib/modelLabel";
 import {
   getCharacters,
   getThread,
@@ -411,17 +412,24 @@ function ThreadPageInner() {
           return (
             <div key={i} className="flex items-end gap-2">
               <CharacterAvatar character={c} size="sm" />
-              <div className="card-shadow max-w-[75%] whitespace-pre-wrap rounded-2xl rounded-bl-sm bg-card px-3 py-2 text-sm leading-relaxed md:max-w-[420px]">
-                <p
-                  className="mb-0.5 text-xs font-semibold"
-                  style={{ color: c.accentColor }}
-                >
-                  {item.who}
-                </p>
-                {item.act && (
-                  <p className="mb-1 text-xs italic text-muted">{item.act}</p>
+              <div className="flex max-w-[75%] flex-col gap-0.5 md:max-w-[420px]">
+                <div className="card-shadow whitespace-pre-wrap rounded-2xl rounded-bl-sm bg-card px-3 py-2 text-sm leading-relaxed">
+                  <p
+                    className="mb-0.5 text-xs font-semibold"
+                    style={{ color: c.accentColor }}
+                  >
+                    {item.who}
+                  </p>
+                  {item.act && (
+                    <p className="mb-1 text-xs italic text-muted">{item.act}</p>
+                  )}
+                  {item.say}
+                </div>
+                {modelLabel(item.model) && (
+                  <span className="pl-1 text-[10px] text-muted/70">
+                    {modelLabel(item.model)}
+                  </span>
                 )}
-                {item.say}
               </div>
             </div>
           );

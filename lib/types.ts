@@ -171,6 +171,8 @@ export interface DialogueItem {
   who: string;
   act?: string;
   say: string;
+  /** 이 대사를 생성한 실제 Gemini 모델 ID (하이브리드 폴백 중 어떤 모델이 응답했는지 표시용) */
+  model?: string;
 }
 
 /** 지문 + 대사. 관찰 모드 장면과 1:1 대화의 캐릭터 응답에 공통으로 쓴다 */
