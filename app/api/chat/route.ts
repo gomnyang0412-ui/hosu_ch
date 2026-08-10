@@ -28,8 +28,10 @@ interface ChatRequestBody {
   playerName?: string;
 }
 
-// 너무 크면 매 요청마다 처리할 토큰이 늘어나 응답이 느려진다.
-const MAX_HISTORY = 16;
+// RPD/RPM은 히스토리 크기와 무관(요청 횟수 기준)하고, TPM도 지금
+// 사용량 대비 여유가 커서 늘려도 안전하다 — 다만 너무 커지면 응답
+// 속도가 느려지니 무한정 올리지는 않는다.
+const MAX_HISTORY = 50;
 
 function buildSystemInstruction(
   character: ChatRequestBody["character"],
