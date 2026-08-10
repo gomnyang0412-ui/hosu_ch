@@ -15,7 +15,10 @@ import type { CharacterProfile, Universe } from "./types";
 // 많은데, 기본 안전 설정은 그런 장면에서 실제 폭력·성적 콘텐츠가 전혀
 // 없어도 모델이 과도하게 몸을 사려서 대사 없이 지문만 내놓거나 아예
 // 응답을 끊어버릴 때가 있다. 개인용 캐릭터 롤플레이 앱이라는 용도에
-// 맞게, 이 카테고리들은 걸러내지 않도록 최대한 완화한다.
+// 맞게, 이 카테고리들은 필터 자체를 끈다. BLOCK_NONE은 "필터는 돌리되
+// 절대 막지는 않음", OFF는 "필터 자체를 실행하지 않음"이라 한 단계 더
+// 느슨하다 — 실제로 위험해서라기보다 토큰이 꼬여 필터가 오작동(환각)해
+// 막히는 경우가 많아, API가 제공하는 가장 낮은 단계까지 낮춘다.
 const SAFETY_SETTINGS: SafetySetting[] = [
   HarmCategory.HARM_CATEGORY_HARASSMENT,
   HarmCategory.HARM_CATEGORY_HATE_SPEECH,
@@ -23,7 +26,7 @@ const SAFETY_SETTINGS: SafetySetting[] = [
   HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
 ].map((category) => ({
   category,
-  threshold: HarmBlockThreshold.BLOCK_NONE,
+  threshold: HarmBlockThreshold.OFF,
 }));
 
 // 안전 필터 등으로 생성이 중간에 막혔을 때 붙는 finishReason들.
