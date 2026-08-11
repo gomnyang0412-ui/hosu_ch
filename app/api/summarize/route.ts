@@ -1,11 +1,13 @@
 import type { Content } from "@google/genai";
 import { NextResponse } from "next/server";
+import { getCharacterMemory } from "@/lib/db";
 import {
   GeminiRequestError,
   characterLines,
   generateSummaryText,
   worldBlock,
 } from "@/lib/gemini";
+import { memoryOneLiners } from "@/lib/memory";
 import type { ChatMessage, CharacterProfile, Universe } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -13,13 +15,15 @@ export const maxDuration = 60;
 
 interface SummarizeRequestBody {
   character: CharacterProfile;
+  /** 캐릭터의 누적 기억(장기 기억)을 같이 붙이고 싶을 때 넘기는 id */
+  characterId?: string;
   universe: Universe;
   history: ChatMessage[];
 }
 
 // 멀티 대화방 생성 시 한 번만 호출되는 요약이라(매 턴 반복되는 비용이
 // 아님), 조금 더 넉넉하게 원본을 보고 자세한 요약을 뽑아도 부담이 적다.
-const MAX_HISTORY = 60;
+const MAX_HISTORY = 100;
 
 function buildSystemInstruction(
   character: CharacterProfile,
@@ -81,7 +85,18 @@ export async function POST(request: Request) {
       systemInstruction: buildSystemInstruction(body.character, body.universe),
       contents,
     });
-    return NextResponse.json({ summary: summary.trim() });
+    // 방금 만든 상세 요약은 최근 대화(최대 100개)까지만 다루니, 그보다
+    // 오래된 기억(하루/주/달 단위로 이미 압축된 것)은 한 줄씩이라도
+    // 덧붙여서 아예 누락되지 않게 한다.
+    const memory = body.characterId
+      ? await getCharacterMemory(body.characterId).catch(() => null)
+      : null;
+    const olderLines = memoryOneLiners(memory);
+    const combined =
+      olderLines.length > 0
+        ? [summary.trim(), `[그 이전 기억]`, ...olderLines].join("\n")
+        : summary.trim();
+    return NextResponse.json({ summary: combined });
   } catch (err) {
     if (err instanceof GeminiRequestError) {
       const status = err.kind === "quota" ? 429 : 502;

@@ -100,6 +100,7 @@ function NewThreadPageInner() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             character: toCharacterProfile(character),
+            characterId: character.id,
             universe: resolvedUniverse,
             history,
           }),

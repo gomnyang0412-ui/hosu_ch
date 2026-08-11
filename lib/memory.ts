@@ -83,16 +83,22 @@ const SCOPE_PREFIX: Record<MemoryEntry["scope"], string> = {
   month: "그 달(",
 };
 
+/** 누적 기억 항목을 "- 2026-08-01: ..." 같은 한 줄씩으로 펼친다. 기억이 없으면 빈 배열 */
+export function memoryOneLiners(memory: CharacterMemory | null): string[] {
+  if (!memory || memory.entries.length === 0) return [];
+  return sortMemoryEntries(memory.entries).map((e) => {
+    if (e.scope === "day") return `- ${e.label}: ${e.summary}`;
+    return `- ${SCOPE_PREFIX[e.scope]}${e.label}) 있었던 일들: ${e.summary}`;
+  });
+}
+
 /** 시스템 프롬프트에 그대로 넣을 "[기억]" 블록 텍스트를 만든다. 기억이 없으면 빈 문자열 */
 export function buildMemoryBlock(
   characterName: string,
   memory: CharacterMemory | null
 ): string {
-  if (!memory || memory.entries.length === 0) return "";
-  const lines = sortMemoryEntries(memory.entries).map((e) => {
-    if (e.scope === "day") return `- ${e.label}: ${e.summary}`;
-    return `- ${SCOPE_PREFIX[e.scope]}${e.label}) 있었던 일들: ${e.summary}`;
-  });
+  const lines = memoryOneLiners(memory);
+  if (lines.length === 0) return "";
   return [
     `[기억]`,
     `오늘은 ${todayKST()}이다. "${characterName}"은(는) 지금 대화 상대가 누구든 상관없이 아래 기억을 전부 자기 경험으로 알고 있다 (다른 방/다른 상대와 있었던 일도 포함).`,
