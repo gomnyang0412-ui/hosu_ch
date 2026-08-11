@@ -318,12 +318,10 @@ export async function generateSceneJson(params: {
 }
 
 /**
- * 멀티 대화방에서, 지정한 대상 말고 다른 등장인물들이 상황을 보고
- * 추가로 반응하는 부분(0개도 가능). 지정 대상의 대답 자체는 훨씬 더
+ * 멀티 대화방에서, 지정한 대상 말고 다른 등장인물 중 최소 한 명이
+ * 상황을 보고 추가로 반응하는 부분. 지정 대상의 대답 자체는 훨씬 더
  * 간단하고 안정적인 generateChatReply(1:1과 같은 방식)로 이미 끝낸
- * 뒤에, 이건 있으면 좋고 없어도 그만인 보너스라서 가볍고 빠른 Lite만
- * 쓴다 — 여기서 시간이 걸리거나 실패해도 지정 대상의 대답 자체는
- * 이미 화면에 나온 뒤라 대화가 끊기지 않는다.
+ * 뒤에 부르는 단계라서, 가볍고 빠른 Lite만 쓴다.
  */
 export async function generateThreadReactions(params: {
   systemInstruction: string;
@@ -332,7 +330,7 @@ export async function generateThreadReactions(params: {
   return generate({
     ...params,
     json: true,
-    itemRange: { min: 0, max: 3 },
+    itemRange: { min: 1, max: 3 },
     models: [LITE_MODEL],
     timeoutMs: 12_000,
   });

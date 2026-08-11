@@ -14,9 +14,9 @@ import { serializeThreadItems } from "@/lib/thread";
 import type { CharacterProfile, ThreadItem, Universe } from "@/lib/types";
 
 export const runtime = "nodejs";
-// 지정 대상의 대답(+재시도 1회) 다음에 다른 인물들의 반응까지 순서대로
-// 부르니 넉넉히 잡는다. 두 번째 단계는 자체적으로 더 짧은 타임아웃을 쓴다.
-export const maxDuration = 75;
+// 지정 대상의 대답(+재시도 1회) 다음에 다른 인물들의 반응(+재시도 1회)까지
+// 순서대로 부르니 넉넉히 잡는다. 각 단계는 자체 타임아웃으로 더 일찍 끊긴다.
+export const maxDuration = 90;
 
 interface ThreadChatRequestBody {
   /** AI가 연기하는 캐릭터들 (사용자가 자처한 캐릭터는 제외된 목록) */
@@ -110,9 +110,10 @@ function buildTargetSystemInstruction(
 }
 
 /**
- * 지정 대상 말고 다른 인물들이 방금 상황을 보고 추가로 낄지 말지를
- * 정하는 부분. 있으면 좋고 없어도 그만인 보너스라 실패해도 조용히
- * 건너뛴다 — 지정 대상의 대답 자체는 이미 끝난 뒤라 대화가 끊기지 않는다.
+ * 지정 대상 말고 다른 인물 중 최소 한 명이 방금 상황을 보고 반응하게
+ * 만드는 부분. "낄 이유가 없으면 아무도 반응 안 해도 된다"는 여지를
+ * 없애고, 누구든 한 명은 반드시 짧게라도 반응하게 한다 — 남는 캐릭터가
+ * 매번 완전히 무반응인 문제를 막기 위해서다.
  */
 function buildReactionSystemInstruction(
   others: CharacterProfile[],
@@ -143,8 +144,9 @@ function buildReactionSystemInstruction(
   blocks.push(
     [
       `[역할]`,
-      `너는 각본가다. 위 인물 중 지금 상황에 자연스럽게 낄 이유가 있는 사람만 짧게 반응하게 한다.`,
-      `낄 이유가 없으면 아무도 반응시키지 않는다 — 전원이 매번 말할 필요는 없다.`,
+      `너는 각본가다. 위 인물 중 최소 한 명은 지금 상황을 보고 반드시 짧게라도 반응한다 — 완전히 무시하고 지나가는 인물만 있는 건 안 된다.`,
+      `그 자리에 있을 자연스러운 이유가 있는 인물부터 우선 반응시키되, 정 반응할 이유가 마땅치 않다면 가장 그 상황에 관심을 가질 법한 인물이라도 짧은 한마디로 반응한다.`,
+      `전원이 다 말할 필요는 없다 — 최소 한 명이면 충분하다.`,
       `인물마다 말투를 뚜렷이 구분해서 쓴다.`,
       `각 인물의 대사를 정할 때는 위 [등장 인물] 항목의 성격·말투를 기준으로 삼는다.`,
     ].join("\n")
@@ -153,7 +155,7 @@ function buildReactionSystemInstruction(
   blocks.push(
     [
       `[출력 형식]`,
-      `아래 형식의 JSON 배열만 출력한다. 반응할 사람이 없으면 빈 배열 []을 낸다.`,
+      `아래 형식의 JSON 배열만 출력한다. 최소 1개, 최대 3개의 항목을 담는다.`,
       `대사 항목: {"t": "d", "who": "인물 이름", "act": "행동(생략 가능)", "say": "대사"}`,
       `설명이나 코드블록 표시 없이 JSON 배열 자체만 출력한다.`,
     ].join("\n")
@@ -254,38 +256,60 @@ export async function POST(request: Request) {
         : it
     );
 
-    // 다른 인물들의 반응은 있으면 좋고 없어도 그만인 보너스라, 실패해도
-    // 조용히 건너뛴다 — 지정 대상의 대답은 이미 확보된 뒤다.
+    // 지정 대상의 대답은 이미 확보된 뒤라, 다른 인물들의 반응 단계가
+    // 전부 실패해도 대화 자체는 끊기지 않는다 — 다만 "남는 캐릭터가
+    // 매번 전혀 반응하지 않는" 문제를 막기 위해 최소 한 명은 반드시
+    // 반응하도록 한 번 재시도까지는 시도한다.
     let reactionItems: ThreadItem[] = [];
     if (others.length > 0) {
-      try {
-        const targetReplyText = targetItems
-          .filter((it) => it.t === "d")
-          .map((it) => (it as { say: string }).say)
-          .join(" ");
+      const targetReplyText = targetItems
+        .filter((it) => it.t === "d")
+        .map((it) => (it as { say: string }).say)
+        .join(" ");
+      const reactionSystemInstruction = buildReactionSystemInstruction(
+        others,
+        body.universe,
+        targetName,
+        targetReplyText
+      );
+
+      async function attemptReactions(extra?: string): Promise<ThreadItem[]> {
         const { text: raw, model, keyIndex } = await generateThreadReactions({
-          systemInstruction: buildReactionSystemInstruction(
-            others,
-            body.universe,
-            targetName,
-            targetReplyText
-          ),
+          systemInstruction: reactionSystemInstruction,
           contents: [
             {
               role: "user",
               parts: [
                 {
-                  text: `지금까지의 이야기:\n${historyText}\n\n위 상황과 방금 "${targetName}"의 반응을 보고, 다른 인물 중 반응할 사람이 있다면 짧게 반응해줘.`,
+                  text: [
+                    `지금까지의 이야기:`,
+                    historyText,
+                    ``,
+                    `위 상황과 방금 "${targetName}"의 반응을 보고, 다른 인물 중 최소 한 명이 반응해줘.`,
+                    extra ?? "",
+                  ]
+                    .filter(Boolean)
+                    .join("\n"),
                 },
               ],
             },
           ],
         });
-        reactionItems = parseSceneItems(raw).map((it) =>
+        return parseSceneItems(raw).map((it) =>
           it.t === "d" ? { ...it, model, keyIndex } : it
         );
+      }
+
+      try {
+        reactionItems = await attemptReactions();
       } catch {
-        reactionItems = [];
+        try {
+          reactionItems = await attemptReactions(
+            `(방금 응답에는 아무도 반응하지 않았어요. 누구든 좋으니 최소 한 명은 짧게라도 반드시 반응하는 대사를 넣어줘.)`
+          );
+        } catch {
+          reactionItems = [];
+        }
       }
     }
 
