@@ -194,6 +194,12 @@ export interface ObservationSession {
   characterIds: string[];
   topic: string;
   episodes: StoryEpisode[];
+  /**
+   * 시작할 때 한 번 가져온 등장인물들의 1:1 대화 요약. 캐릭터가 실제로
+   * 어떻게 말하고 행동하는지 붕괴 없이 참고할 수 있도록 매 화 생성에
+   * 계속 같이 보낸다.
+   */
+  characterContext?: string;
   createdAt: number;
   updatedAt: number;
 }

@@ -6,6 +6,7 @@ import BottomNav from "@/components/BottomNav";
 import CharacterAvatar from "@/components/CharacterAvatar";
 import {
   getCharacters,
+  getChatHistory,
   getObservationSession,
   getUniverse,
   saveObservationSession,
@@ -55,6 +56,8 @@ function ObservePageInner() {
     undefined
   );
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [hasHistoryIds, setHasHistoryIds] = useState<Set<string>>(new Set());
+  const [importIds, setImportIds] = useState<string[]>([]);
   const [topic, setTopic] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<SceneErrorState | null>(null);
@@ -64,6 +67,7 @@ function ObservePageInner() {
   useEffect(() => {
     setSession(undefined);
     setSelectedIds([]);
+    setImportIds([]);
     setTopic("");
     setError(null);
     (async () => {
@@ -88,6 +92,17 @@ function ObservePageInner() {
             resolvedFoundUniverse.roleB,
           ]);
         }
+        const withHistory = await Promise.all(
+          characters.map(async (c) => {
+            const history = await getChatHistory(universeId, c.id).catch(
+              () => []
+            );
+            return history.length > 0 ? c.id : null;
+          })
+        );
+        setHasHistoryIds(
+          new Set(withHistory.filter((id): id is string => !!id))
+        );
       } catch {
         setLoadError("불러오지 못했어요. 새로고침해 주세요.");
         setSession(null);
@@ -107,10 +122,49 @@ function ObservePageInner() {
     );
   }
 
+  function toggleImport(id: string) {
+    setImportIds((prev) =>
+      prev.includes(id) ? prev.filter((v) => v !== id) : [...prev, id]
+    );
+  }
+
+  /** 체크한 캐릭터들의 1:1 대화를 요약해 하나의 맥락 블록으로 합친다 */
+  async function buildCharacterContext(
+    characters: Character[],
+    resolvedUniverse: Universe
+  ): Promise<string> {
+    const parts: string[] = [];
+    for (const c of characters) {
+      if (!importIds.includes(c.id)) continue;
+      const history = await getChatHistory(universeId, c.id).catch(() => []);
+      if (history.length === 0) continue;
+      try {
+        const res = await fetch("/api/summarize", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            character: toCharacterProfile(c),
+            characterId: c.id,
+            universe: resolvedUniverse,
+            history,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && typeof data.summary === "string" && data.summary.trim()) {
+          parts.push(`- ${c.name}:\n${data.summary.trim()}`);
+        }
+      } catch {
+        // 한 명 요약이 실패해도 나머지는 계속 시도한다
+      }
+    }
+    return parts.join("\n\n");
+  }
+
   async function requestEpisode(params: {
     characters: Character[];
     topic: string;
     previousEpisodes?: StoryEpisode[];
+    characterContext?: string;
   }) {
     if (!universe) return null;
     setLoading(true);
@@ -124,6 +178,7 @@ function ObservePageInner() {
           universe: resolveUniverseTemplate(universe, allCharacters),
           topic: params.topic,
           previousEpisodes: params.previousEpisodes,
+          characterContext: params.characterContext,
         }),
       });
       const data = await res.json();
@@ -147,15 +202,29 @@ function ObservePageInner() {
   }
 
   async function handleStart() {
-    if (selectedIds.length < 2 || !topic.trim()) return;
+    if (selectedIds.length < 2 || !topic.trim() || !universe) return;
     const characters = allCharacters.filter((c) => selectedIds.includes(c.id));
-    const episode = await requestEpisode({ characters, topic: topic.trim() });
+    setLoading(true);
+    const characterContext =
+      importIds.length > 0
+        ? await buildCharacterContext(
+            characters,
+            resolveUniverseTemplate(universe, allCharacters)
+          )
+        : "";
+    setLoading(false);
+    const episode = await requestEpisode({
+      characters,
+      topic: topic.trim(),
+      characterContext,
+    });
     if (!episode) return;
     const newSession: ObservationSession = {
       universeId,
       characterIds: selectedIds,
       topic: topic.trim(),
       episodes: [episode],
+      characterContext: characterContext || undefined,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -173,6 +242,7 @@ function ObservePageInner() {
       characters: sceneCharacters,
       topic: session.topic,
       previousEpisodes: session.episodes,
+      characterContext: session.characterContext,
     });
     if (!episode) return;
     const updated: ObservationSession = {
@@ -276,9 +346,35 @@ function ObservePageInner() {
                   />
                 </label>
                 <p className="-mt-3 text-xs text-muted">
-                  한 화당 5000자 안팎의 단편소설로 이어져요. 안정성을 위해 가벼운
-                  모델(Lite)을 써요.
+                  한 화당 5000자 안팎의 단편소설로 이어져요.
                 </p>
+
+                {selectedIds.some((id) => hasHistoryIds.has(id)) && (
+                  <div className="flex flex-col gap-2 rounded-2xl border border-border bg-card p-3">
+                    <p className="text-sm font-medium">이전 1:1 대화 가져오기</p>
+                    <p className="text-xs text-muted">
+                      체크하면 그 캐릭터와 나눈 1:1 대화를 요약해서 이야기
+                      내내 캐릭터가 실제 말투·성격에서 벗어나지 않게 참고해요.
+                    </p>
+                    <div className="flex flex-col gap-1.5">
+                      {allCharacters
+                        .filter(
+                          (c) => selectedIds.includes(c.id) && hasHistoryIds.has(c.id)
+                        )
+                        .map((c) => (
+                          <label key={c.id} className="flex items-center gap-2 text-sm">
+                            <input
+                              type="checkbox"
+                              checked={importIds.includes(c.id)}
+                              onChange={() => toggleImport(c.id)}
+                              className="h-4 w-4"
+                            />
+                            {c.name}와의 1:1 대화 가져오기
+                          </label>
+                        ))}
+                    </div>
+                  </div>
+                )}
 
                 {error && (
                   <div className="flex flex-col items-start gap-2 rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -299,7 +395,11 @@ function ObservePageInner() {
                   disabled={selectedIds.length < 2 || !topic.trim() || loading}
                   className="rounded-xl bg-primary py-3 text-sm font-semibold text-primary-foreground disabled:opacity-40"
                 >
-                  {loading ? "1화를 쓰는 중…" : "이야기 시작"}
+                  {loading
+                    ? importIds.length > 0
+                      ? "이전 대화 요약하는 중…"
+                      : "1화를 쓰는 중…"
+                    : "이야기 시작"}
                 </button>
               </>
             )}

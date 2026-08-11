@@ -9,14 +9,16 @@ import {
 import type { CharacterProfile, StoryEpisode, Universe } from "@/lib/types";
 
 export const runtime = "nodejs";
-// 5000자 안팎의 화 한 편을 통째로 받아야 해서 대사 한 줄보다 오래 걸린다.
-export const maxDuration = 60;
+// 5000자 안팎의 화 한 편을 통째로 Flash 모델로 받아야 해서 여유를 둔다.
+export const maxDuration = 65;
 
 interface SceneRequestBody {
   characters: CharacterProfile[];
   universe: Universe;
   topic: string;
   previousEpisodes?: StoryEpisode[];
+  /** 시작할 때 한 번 가져온 등장인물들의 1:1 대화 요약 (있으면 매 화 계속 같이 보냄) */
+  characterContext?: string;
 }
 
 /** 앞선 화들을 매번 전문으로 다시 보내면 갈수록 느려지니, 바로 직전 화만
@@ -25,7 +27,8 @@ const RECAP_PREVIEW_CHARS = 80;
 
 function buildSystemInstruction(
   characters: CharacterProfile[],
-  universe: Universe
+  universe: Universe,
+  characterContext?: string
 ): string {
   const blocks: string[] = [];
 
@@ -45,12 +48,21 @@ function buildSystemInstruction(
         .join("\n")
   );
 
+  if (characterContext?.trim()) {
+    blocks.push(`[등장인물의 1:1 대화 기록]\n${characterContext.trim()}`);
+  }
+
   blocks.push(
     [
       `[역할]`,
       `너는 단편소설 작가다. 위 인물들이 등장하는 연작 단편소설을 한 화씩 이어 쓴다.`,
       `사용자는 이 이야기의 독자일 뿐, 이야기에 등장하는 인물이 아니다.`,
-    ].join("\n")
+      characterContext?.trim()
+        ? `[등장인물의 1:1 대화 기록]은 각 인물이 실제로 어떻게 말하고 행동했는지 보여주는 자료다. 인물의 성격·말투가 거기서 드러난 모습과 어긋나지 않게 쓴다.`
+        : "",
+    ]
+      .filter(Boolean)
+      .join("\n")
   );
 
   blocks.push(
@@ -149,7 +161,11 @@ export async function POST(request: Request) {
 
   try {
     const { text } = await generateStoryEpisode({
-      systemInstruction: buildSystemInstruction(body.characters, body.universe),
+      systemInstruction: buildSystemInstruction(
+        body.characters,
+        body.universe,
+        body.characterContext
+      ),
       contents,
     });
     const trimmed = text.trim();

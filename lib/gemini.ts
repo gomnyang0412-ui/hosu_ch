@@ -348,10 +348,9 @@ export async function generateSummaryText(params: {
 }
 
 /**
- * 관찰 모드 단편소설 한 화 (평문, JSON 아님). 5000자 안팎의 긴 글을 매번
- * 새로 써야 해서 네트워크 문제가 생기기 쉬운데, 여기서는 캐릭터 롤플레이의
- * 뉘앙스보다 안정적으로 끝까지 받는 게 더 중요해 처음부터 가볍고 빠른
- * Lite만 쓴다.
+ * 관찰 모드 단편소설 한 화 (평문, JSON 아님). Lite로는 5000자 분량에서
+ * 캐릭터가 무너지는 문제가 있어, 다른 롤플레이 생성과 똑같이 Flash
+ * 체인을 우선 쓰고 전부 소진됐을 때만 Lite로 내려간다.
  */
 export async function generateStoryEpisode(params: {
   systemInstruction: string;
@@ -360,8 +359,8 @@ export async function generateStoryEpisode(params: {
   return generate({
     ...params,
     json: false,
-    models: [LITE_MODEL],
+    models: DIALOGUE_MODEL_CHAIN,
     // 5000자 안팎을 한 번에 쓰려면 대사 한 줄보다 시간이 걸릴 수 있어 여유를 둔다.
-    timeoutMs: 50_000,
+    timeoutMs: 55_000,
   });
 }
