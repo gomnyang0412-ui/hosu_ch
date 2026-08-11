@@ -209,6 +209,8 @@ async function generate(params: {
   /** 시도할 모델을 우선순위 순서대로. 앞 모델이 전체 키에서 quota로
    *  실패하면 다음 모델로 넘어간다. */
   models: string[];
+  /** 기본 CALL_TIMEOUT_MS보다 더 오래 걸리는 호출(예: 5000자짜리 소설 한 화)을 위한 개별 타임아웃 */
+  timeoutMs?: number;
 }): Promise<{ text: string; model: string; keyIndex: number }> {
   const clients = getClients();
   let lastError: GeminiRequestError | null = null;
@@ -225,7 +227,7 @@ async function generate(params: {
           model,
           contents: params.contents,
           config: {
-            abortSignal: AbortSignal.timeout(CALL_TIMEOUT_MS),
+            abortSignal: AbortSignal.timeout(params.timeoutMs ?? CALL_TIMEOUT_MS),
             systemInstruction: params.systemInstruction,
             safetySettings: SAFETY_SETTINGS,
             ...(params.json
@@ -335,4 +337,23 @@ export async function generateSummaryText(params: {
 }): Promise<string> {
   const { text } = await generate({ ...params, json: false, models: [LITE_MODEL] });
   return text;
+}
+
+/**
+ * 관찰 모드 단편소설 한 화 (평문, JSON 아님). 5000자 안팎의 긴 글을 매번
+ * 새로 써야 해서 네트워크 문제가 생기기 쉬운데, 여기서는 캐릭터 롤플레이의
+ * 뉘앙스보다 안정적으로 끝까지 받는 게 더 중요해 처음부터 가볍고 빠른
+ * Lite만 쓴다.
+ */
+export async function generateStoryEpisode(params: {
+  systemInstruction: string;
+  contents: Content[];
+}): Promise<{ text: string; model: string; keyIndex: number }> {
+  return generate({
+    ...params,
+    json: false,
+    models: [LITE_MODEL],
+    // 5000자 안팎을 한 번에 쓰려면 대사 한 줄보다 시간이 걸릴 수 있어 여유를 둔다.
+    timeoutMs: 50_000,
+  });
 }

@@ -177,15 +177,23 @@ export interface DialogueItem {
   keyIndex?: number;
 }
 
-/** 지문 + 대사. 관찰 모드 장면과 1:1 대화의 캐릭터 응답에 공통으로 쓴다 */
+/** 지문 + 대사. 1:1 대화와 멀티 대화방의 캐릭터 응답에 공통으로 쓴다 */
 export type SceneItem = NarrationItem | DialogueItem;
 
-/** 진행 중인 관찰 모드 세션 (캐릭터 선택 + 주제 + 지금까지의 장면) */
+/** 관찰 모드 단편소설의 한 화 */
+export interface StoryEpisode {
+  /** 1부터 시작하는 화 번호 */
+  index: number;
+  /** 완성된 본문 (평문, 대사는 큰따옴표로 문단 안에 녹아 있음) */
+  text: string;
+}
+
+/** 진행 중인 관찰 모드 세션 (캐릭터 선택 + 주제 + 지금까지 이어 쓴 화들) */
 export interface ObservationSession {
   universeId: string;
   characterIds: string[];
   topic: string;
-  items: SceneItem[];
+  episodes: StoryEpisode[];
   createdAt: number;
   updatedAt: number;
 }

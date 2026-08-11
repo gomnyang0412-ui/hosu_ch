@@ -19,24 +19,22 @@ import {
   toCharacterProfile,
   type Character,
   type ObservationSession,
-  type SceneItem,
+  type StoryEpisode,
   type Universe,
 } from "@/lib/types";
-
-const MAX_CONTEXT_ITEMS = 30;
 
 interface SceneErrorState {
   message: string;
   kind: "quota" | "network" | "unknown" | "parse";
 }
 
-function findCharacter(
-  characters: Character[],
-  name: string
-): Pick<Character, "name" | "image" | "accentColor"> {
-  const found = characters.find((c) => c.name === name);
-  if (found) return found;
-  return { name, image: undefined, accentColor: ACCENT_COLORS[0] };
+/** 옛 버전(장면 항목 배열 형식)의 세션은 새 화 형식으로 표시할 수 없어
+ *  없는 세션과 동일하게 취급하고 새로 시작하게 한다 */
+function normalizeSession(
+  session: ObservationSession | null
+): ObservationSession | null {
+  if (session && Array.isArray(session.episodes)) return session;
+  return null;
 }
 
 export default function ObservePage() {
@@ -76,7 +74,7 @@ function ObservePageInner() {
           getUniverse(universeId).catch(() => undefined),
         ]);
         setAllCharacters(characters);
-        setSession(obsSession);
+        setSession(normalizeSession(obsSession));
         const resolvedFoundUniverse = foundUniverse ?? createOrgUniverse();
         setUniverse(resolvedFoundUniverse);
         if (
@@ -109,10 +107,10 @@ function ObservePageInner() {
     );
   }
 
-  async function requestScene(params: {
+  async function requestEpisode(params: {
     characters: Character[];
     topic: string;
-    previousItems?: SceneItem[];
+    previousEpisodes?: StoryEpisode[];
   }) {
     if (!universe) return null;
     setLoading(true);
@@ -125,21 +123,21 @@ function ObservePageInner() {
           characters: params.characters.map(toCharacterProfile),
           universe: resolveUniverseTemplate(universe, allCharacters),
           topic: params.topic,
-          previousItems: params.previousItems?.slice(-MAX_CONTEXT_ITEMS),
+          previousEpisodes: params.previousEpisodes,
         }),
       });
       const data = await res.json();
       if (!res.ok) {
         setError({
-          message: data.error ?? "장면을 만들지 못했어요.",
+          message: data.error ?? "이번 화를 만들지 못했어요.",
           kind: data.kind ?? "unknown",
         });
         return null;
       }
-      return data.items as SceneItem[];
+      return data.episode as StoryEpisode;
     } catch {
       setError({
-        message: "네트워크 문제로 장면을 만들지 못했어요.",
+        message: "네트워크 문제로 이번 화를 만들지 못했어요.",
         kind: "network",
       });
       return null;
@@ -151,13 +149,13 @@ function ObservePageInner() {
   async function handleStart() {
     if (selectedIds.length < 2 || !topic.trim()) return;
     const characters = allCharacters.filter((c) => selectedIds.includes(c.id));
-    const items = await requestScene({ characters, topic: topic.trim() });
-    if (!items) return;
+    const episode = await requestEpisode({ characters, topic: topic.trim() });
+    if (!episode) return;
     const newSession: ObservationSession = {
       universeId,
       characterIds: selectedIds,
       topic: topic.trim(),
-      items,
+      episodes: [episode],
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -165,33 +163,33 @@ function ObservePageInner() {
     try {
       await saveObservationSession(newSession);
     } catch {
-      setError({ message: "장면을 저장하지 못했어요.", kind: "unknown" });
+      setError({ message: "이번 화를 저장하지 못했어요.", kind: "unknown" });
     }
   }
 
   async function handleContinue() {
     if (!session) return;
-    const items = await requestScene({
+    const episode = await requestEpisode({
       characters: sceneCharacters,
       topic: session.topic,
-      previousItems: session.items,
+      previousEpisodes: session.episodes,
     });
-    if (!items) return;
+    if (!episode) return;
     const updated: ObservationSession = {
       ...session,
-      items: [...session.items, ...items],
+      episodes: [...session.episodes, episode],
       updatedAt: Date.now(),
     };
     setSession(updated);
     try {
       await saveObservationSession(updated);
     } catch {
-      setError({ message: "장면을 저장하지 못했어요.", kind: "unknown" });
+      setError({ message: "이번 화를 저장하지 못했어요.", kind: "unknown" });
     }
   }
 
   async function handleRestart() {
-    if (!window.confirm("지금 장면을 지우고 새로 시작할까요?")) return;
+    if (!window.confirm("지금 이야기를 지우고 새로 시작할까요?")) return;
     try {
       await clearObservationSession(universeId);
     } catch {
@@ -277,6 +275,10 @@ function ObservePageInner() {
                     className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-primary/50"
                   />
                 </label>
+                <p className="-mt-3 text-xs text-muted">
+                  한 화당 5000자 안팎의 단편소설로 이어져요. 안정성을 위해 가벼운
+                  모델(Lite)을 써요.
+                </p>
 
                 {error && (
                   <div className="flex flex-col items-start gap-2 rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -297,58 +299,56 @@ function ObservePageInner() {
                   disabled={selectedIds.length < 2 || !topic.trim() || loading}
                   className="rounded-xl bg-primary py-3 text-sm font-semibold text-primary-foreground disabled:opacity-40"
                 >
-                  {loading ? "장면을 만드는 중…" : "장면 시작"}
+                  {loading ? "1화를 쓰는 중…" : "이야기 시작"}
                 </button>
               </>
             )}
           </div>
         ) : (
           <div className="flex flex-col gap-6">
-            <p className="text-xs text-muted">주제: {session.topic}</p>
-
-            <div className="flex flex-col gap-4">
-              {session.items.map((item, i) =>
-                item.t === "n" ? (
-                  <p
-                    key={i}
-                    className="border-l-2 border-border pl-3 text-[13px] italic leading-relaxed text-muted"
+            <div className="flex flex-col gap-2">
+              <p className="text-xs text-muted">주제: {session.topic}</p>
+              <div className="flex flex-wrap gap-2">
+                {sceneCharacters.map((c) => (
+                  <span
+                    key={c.id}
+                    className="flex items-center gap-1.5 rounded-full border px-2 py-1 text-xs"
+                    style={{ borderColor: c.accentColor, color: c.accentColor }}
                   >
-                    {item.text}
-                  </p>
-                ) : (
-                  <div key={i} className="flex flex-col gap-1">
-                    {(() => {
-                      const c = findCharacter(sceneCharacters, item.who);
-                      return (
-                        <>
-                          <div className="flex items-center gap-2">
-                            <CharacterAvatar character={c} size="sm" />
-                            <span
-                              className="text-sm font-semibold"
-                              style={{ color: c.accentColor }}
-                            >
-                              {item.who}
-                            </span>
-                          </div>
-                          {item.act && (
-                            <p className="pl-9 text-[13px] italic text-muted">
-                              {item.act}
-                            </p>
-                          )}
-                          <p className="pl-9 text-[15px] leading-relaxed">
-                            {item.say}
-                          </p>
-                        </>
-                      );
-                    })()}
+                    <CharacterAvatar character={c} size="sm" />
+                    {c.name}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-8">
+              {session.episodes.map((ep) => (
+                <article key={ep.index} className="flex flex-col gap-3">
+                  <h2 className="text-sm font-semibold text-muted">
+                    {ep.index}화
+                  </h2>
+                  <div className="flex flex-col gap-4">
+                    {ep.text
+                      .split(/\n+/)
+                      .map((p) => p.trim())
+                      .filter(Boolean)
+                      .map((paragraph, i) => (
+                        <p
+                          key={i}
+                          className="text-[15px] leading-[1.9] tracking-[0.01em] text-foreground"
+                        >
+                          {paragraph}
+                        </p>
+                      ))}
                   </div>
-                )
-              )}
+                </article>
+              ))}
             </div>
 
             {loading && (
               <p className="text-center text-sm text-muted">
-                다음 장면을 만드는 중…
+                다음 화를 쓰는 중…
               </p>
             )}
 
@@ -371,7 +371,7 @@ function ObservePageInner() {
                 onClick={handleContinue}
                 className="rounded-xl border border-border bg-card py-3 text-sm font-semibold"
               >
-                더 이어보기
+                {session.episodes.length + 1}화 이어쓰기
               </button>
             )}
           </div>
