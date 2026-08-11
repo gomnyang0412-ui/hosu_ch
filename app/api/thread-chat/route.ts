@@ -8,7 +8,7 @@ import {
   worldBlock,
 } from "@/lib/gemini";
 import { buildMemoryBlock } from "@/lib/memory";
-import { parseSceneItems } from "@/lib/scene";
+import { hasContent, parseSceneItems } from "@/lib/scene";
 import { serializeThreadItems } from "@/lib/thread";
 import type { CharacterProfile, ThreadItem, Universe } from "@/lib/types";
 
@@ -81,10 +81,10 @@ function buildSystemInstruction(
   blocks.push(
     [
       `[규칙]`,
-      `지금 사용자가 말을 거는 대상은 "${targetName}"이다. ${targetName}은 반드시 대사(t: "d", who: "${targetName}")로 최소 한 번 응답하고, 그 대사에는 실제로 내는 소리나 말이 담겨야 한다.`,
-      `"...", "음..." 같은 마침표·말줄임표뿐인 대사는 안 되지만, 짧은 감탄사나 더듬는 말(예: "어...", "그, 그게")은 괜찮다. ${targetName}이 말을 잃거나 얼어붙는 순간이라도 완전한 무음으로 두지 않고, 그 상태에 맞는 짧은 소리라도 반드시 낸다.`,
-      `다른 등장인물은 그 자리에 있을 자연스러운 이유가 있고 끼어들 상황일 때만 등장시킨다. 매번 전원이 반응할 필요는 없지만, ${targetName}만은 예외 없이 실제 대사로 응답한다.`,
-      `대화 기록 마지막에 "(상황 전환)"으로 표시된 지시문이 있다면, 그 지시에 맞게 시간·장소·상황이 바뀐 새 장면을 지문으로 자연스럽게 열고, ${targetName}의 대사로 이어간다.`,
+      `지금 사용자가 말을 거는 대상은 "${targetName}"이다. 응답 배열의 첫 번째 항목은 반드시 ${targetName}의 대사(t: "d", who: "${targetName}")여야 한다 — 지문으로 장면을 먼저 열지 말고 ${targetName}의 반응(대사)부터 곧바로 시작한다. 장면을 보강하는 지문은 그 첫 대사 다음에 이어 써도 된다.`,
+      `${targetName}의 그 첫 대사에는 실제로 내는 소리나 말이 담겨야 한다. "...", "음..." 같은 마침표·말줄임표뿐인 대사는 안 되지만, 짧은 감탄사나 더듬는 말(예: "어...", "그, 그게")은 괜찮다. ${targetName}이 말을 잃거나 얼어붙는 순간이라도 완전한 무음으로 두지 않고, 그 상태에 맞는 짧은 소리라도 반드시 낸다.`,
+      `다른 등장인물들도 지금 상황과 대화 흐름에 자연스럽게 낄 수 있다면 적극적으로 대사로 반응한다. 매번 전원이 말할 필요는 없지만, 낄 만한 이유가 있는 인물까지 전부 침묵시키고 지문으로만 넘어가는 건 피한다.`,
+      `대화 기록 마지막에 "(상황 전환)"으로 표시된 지시문이 있다면, 그 지시에 맞게 시간·장소·상황이 바뀐 새 장면을 열되, 순서 규칙은 그대로 지켜 ${targetName}의 대사로 배열을 시작한다.`,
       `인물마다 말투를 뚜렷이 구분해서 쓴다.`,
       `지문은 꼭 필요할 때만 짧게 넣는다. 대사만으로 끝나는 응답이 더 많아야 한다.`,
       `각 인물의 대사·행동을 정할 때는 직전 흐름의 관성보다 위 [등장 인물] 항목의 성격·말투를 매번 다시 기준으로 삼는다.`,
@@ -150,17 +150,68 @@ export async function POST(request: Request) {
       buildMemoryBlock(targetName, memory),
       body.playerCharacter
     );
-    // 재시도는 실패 확률(특히 네트워크 타임아웃)을 두 배로 늘리기만 하고
-    // 더 이상 에러를 막아주지도 않으니, 한 번만 호출하고 받은 그대로
-    // 보여준다.
-    const { text: raw, model, keyIndex } = await generateThreadJson({
-      systemInstruction,
-      contents,
-    });
+
+    async function attempt(
+      useContents: Content[]
+    ): Promise<
+      | { items: ReturnType<typeof parseSceneItems>; model: string; keyIndex: number }
+      | null
+    > {
+      const { text: raw, model, keyIndex } = await generateThreadJson({
+        systemInstruction,
+        contents: useContents,
+      });
+      try {
+        return { items: parseSceneItems(raw), model, keyIndex };
+      } catch {
+        return null;
+      }
+    }
+
+    // targetName이 실제 대사로 응답했는지만 확인한다. 배열 맨 앞에 오는지는
+    // 프롬프트로 유도하되, 모델이 안 지켜도 아래에서 코드로 순서를 바로잡는다.
+    const hasTargetReply = (list: ReturnType<typeof parseSceneItems>) =>
+      list.some(
+        (it) => it.t === "d" && it.who === targetName && hasContent(it.say)
+      );
+
+    let result = await attempt(contents);
+    if (!result || !hasTargetReply(result.items)) {
+      const retryContents: Content[] = [
+        ...contents,
+        {
+          role: "user",
+          parts: [
+            {
+              text: `(방금 응답에는 "${targetName}"의 실제 대사가 없었어요. 짧아도 좋으니, 이번엔 배열 맨 앞에 "${targetName}"의 실제 대사를 반드시 넣어줘.)`,
+            },
+          ],
+        },
+      ];
+      result = await attempt(retryContents);
+    }
+    if (!result) {
+      throw new Error("등장인물들이 대답하지 않았어요. 다시 시도해 주세요.");
+    }
+
+    // 모델이 순서 지시를 안 지켰을 때를 위한 마지막 안전장치: targetName의
+    // 첫 실제 대사를 배열 맨 앞으로 옮긴다 (다른 항목들의 상대 순서는 유지).
+    const targetIndex = result.items.findIndex(
+      (it) => it.t === "d" && it.who === targetName && hasContent(it.say)
+    );
+    const ordered =
+      targetIndex > 0
+        ? [
+            result.items[targetIndex],
+            ...result.items.slice(0, targetIndex),
+            ...result.items.slice(targetIndex + 1),
+          ]
+        : result.items;
+
     // 화면에 "이 대사는 어떤 모델·키가 만들었는지" 작게 표시해줄 수 있도록,
     // 실제로 응답을 만든 모델/키를 대사 항목에 함께 남긴다.
-    const items = parseSceneItems(raw).map((it) =>
-      it.t === "d" ? { ...it, model, keyIndex } : it
+    const items = ordered.map((it) =>
+      it.t === "d" ? { ...it, model: result!.model, keyIndex: result!.keyIndex } : it
     );
     return NextResponse.json({ items });
   } catch (err) {
