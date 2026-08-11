@@ -7,6 +7,7 @@ import CharacterAvatar from "@/components/CharacterAvatar";
 import ChatListPane from "@/components/ChatListPane";
 import TopBar from "@/components/TopBar";
 import { sourceLabel } from "@/lib/modelLabel";
+import { kstDateString } from "@/lib/memory";
 import {
   getCharacter,
   getCharacters,
@@ -52,6 +53,41 @@ function modelItems(m: ChatMessage, characterName: string): SceneItem[] {
   return [{ t: "d", who: characterName, say: m.text }];
 }
 
+function dateAnchorId(date: string): string {
+  return `date-${date}`;
+}
+
+/** "2026-08-09" → "8월 9일 (일)" */
+function formatDateLabel(date: string): string {
+  const d = new Date(`${date}T00:00:00+09:00`);
+  return d.toLocaleDateString("ko-KR", {
+    month: "long",
+    day: "numeric",
+    weekday: "short",
+  });
+}
+
+interface DateGroup {
+  date: string;
+  count: number;
+  preview: string;
+}
+
+/** 대화 기록을 KST 날짜별로 묶어, 날짜 이동 패널에 보여줄 요약을 만든다 */
+function groupMessagesByDate(messages: ChatMessage[]): DateGroup[] {
+  const groups: DateGroup[] = [];
+  for (const m of messages) {
+    const date = kstDateString(m.ts);
+    const last = groups[groups.length - 1];
+    if (last && last.date === date) {
+      last.count++;
+    } else {
+      groups.push({ date, count: 1, preview: m.text.slice(0, 40) });
+    }
+  }
+  return groups;
+}
+
 export default function ChatPage() {
   return (
     <Suspense fallback={null}>
@@ -90,6 +126,7 @@ function ChatPageInner() {
   const [voiceOverride, setVoiceOverride] = useState<string | null>(null);
   const [playerOverride, setPlayerOverride] = useState<string | null>(null);
   const [pickingVoice, setPickingVoice] = useState(false);
+  const [showTimeline, setShowTimeline] = useState(false);
   const [backups, setBackups] = useState<
     { value: ChatMessage[]; ts: number }[] | null
   >(null);
@@ -418,6 +455,16 @@ function ChatPageInner() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
+  function jumpToDate(date: string) {
+    setShowTimeline(false);
+    // 패널 닫힘 애니메이션/리렌더와 겹치지 않게 한 틱 뒤에 스크롤한다.
+    setTimeout(() => {
+      document
+        .getElementById(dateAnchorId(date))
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 50);
+  }
+
   function openRename() {
     if (!character) return;
     setRenameText(character.name);
@@ -621,6 +668,16 @@ function ChatPageInner() {
             <button
               type="button"
               onClick={() => {
+                setShowTimeline(true);
+                setMenuOpen(false);
+              }}
+              className="border-t border-border px-4 py-3 text-left text-sm hover:bg-background"
+            >
+              📅 날짜별로 이동
+            </button>
+            <button
+              type="button"
+              onClick={() => {
                 toggleSplitMode();
                 setMenuOpen(false);
               }}
@@ -767,6 +824,47 @@ function ChatPageInner() {
         </div>
       )}
 
+      {showTimeline && (
+        <>
+          <button
+            type="button"
+            aria-label="닫기"
+            onClick={() => setShowTimeline(false)}
+            className="fixed inset-0 z-30 bg-black/30"
+          />
+          <div className="card-shadow fixed inset-x-3 top-16 bottom-16 z-40 flex flex-col overflow-hidden rounded-2xl bg-card lg:inset-x-auto lg:left-1/2 lg:w-96 lg:-translate-x-1/2">
+            <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
+              <p className="text-sm font-semibold">날짜별로 이동</p>
+              <button
+                type="button"
+                onClick={() => setShowTimeline(false)}
+                className="text-sm text-muted"
+              >
+                닫기
+              </button>
+            </div>
+            <ul className="flex-1 overflow-y-auto p-2">
+              {[...groupMessagesByDate(messages)].reverse().map((g) => (
+                <li key={g.date}>
+                  <button
+                    type="button"
+                    onClick={() => jumpToDate(g.date)}
+                    className="flex w-full flex-col items-start gap-0.5 rounded-xl px-3 py-2.5 text-left hover:bg-background"
+                  >
+                    <span className="text-sm font-medium">
+                      {formatDateLabel(g.date)}
+                    </span>
+                    <span className="w-full truncate text-xs text-muted">
+                      {g.preview || "…"} · {g.count}개
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </>
+      )}
+
       <main className="flex flex-1 flex-col gap-3 px-3 py-4">
         {loadError && <p className="text-sm text-red-600">{loadError}</p>}
 
@@ -788,8 +886,22 @@ function ChatPageInner() {
           </p>
         )}
 
-        {messages.map((m, i) => (
+        {messages.map((m, i) => {
+          const date = kstDateString(m.ts);
+          const showDateDivider =
+            i === 0 || kstDateString(messages[i - 1].ts) !== date;
+          return (
           <div key={`${m.ts}-${i}`} className="flex flex-col gap-1.5">
+            {showDateDivider && (
+              <div
+                id={dateAnchorId(date)}
+                className="my-1 flex items-center justify-center scroll-mt-20"
+              >
+                <span className="rounded-full bg-card px-3 py-1 text-[11px] font-medium text-muted">
+                  {formatDateLabel(date)}
+                </span>
+              </div>
+            )}
             {m.role === "model" ? (
               <div className="flex flex-col gap-2">
                 {modelItems(m, resolveVoiceCharacter(character, allCharacters).name).map((item, j) =>
@@ -918,7 +1030,8 @@ function ChatPageInner() {
               </div>
             )}
           </div>
-        ))}
+          );
+        })}
 
         {loading && (
           <div className="flex items-end gap-2">
