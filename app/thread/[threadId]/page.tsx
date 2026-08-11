@@ -419,34 +419,6 @@ function ThreadPageInner() {
         </div>
       )}
 
-      {aiParticipants.length >= 1 && (
-        <div className="flex shrink-0 gap-2 overflow-x-auto border-b border-border bg-card px-3 py-2">
-          {aiParticipants.map((c) => {
-            const active = targetId === c.id;
-            return (
-              <button
-                key={c.id}
-                type="button"
-                onClick={() => setTargetId(c.id)}
-                className="flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-sm transition-colors"
-                style={
-                  active
-                    ? {
-                        borderColor: c.accentColor,
-                        backgroundColor: `${c.accentColor}1A`,
-                        color: c.accentColor,
-                      }
-                    : { borderColor: "var(--border)" }
-                }
-              >
-                <CharacterAvatar character={c} size="sm" />
-                {c.name}
-              </button>
-            );
-          })}
-        </div>
-      )}
-
       <main className="flex flex-1 flex-col gap-3 px-3 py-4">
         {loadError && <p className="text-sm text-red-600">{loadError}</p>}
         {participants.length < 2 ? (
@@ -595,6 +567,33 @@ function ThreadPageInner() {
           스크롤했을 때 항상 화면에 나타난다.
         */}
         <div className="-mx-3 flex flex-col gap-2 border-t border-border bg-card px-3 py-2">
+          {aiParticipants.length >= 1 && (
+            <div className="flex gap-2 overflow-x-auto pb-1">
+              {aiParticipants.map((c) => {
+                const active = targetId === c.id;
+                return (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => setTargetId(c.id)}
+                    className="flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-sm transition-colors"
+                    style={
+                      active
+                        ? {
+                            borderColor: c.accentColor,
+                            backgroundColor: `${c.accentColor}1A`,
+                            color: c.accentColor,
+                          }
+                        : { borderColor: "var(--border)" }
+                    }
+                  >
+                    <CharacterAvatar character={c} size="sm" />
+                    {c.name}
+                  </button>
+                );
+              })}
+            </div>
+          )}
           {showDirective && (
             <div className="flex items-end gap-2">
               <AutoGrowTextarea
