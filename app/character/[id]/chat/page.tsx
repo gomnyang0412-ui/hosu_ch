@@ -7,7 +7,7 @@ import CharacterAvatar from "@/components/CharacterAvatar";
 import ChatListPane from "@/components/ChatListPane";
 import TopBar from "@/components/TopBar";
 import { sourceLabel } from "@/lib/modelLabel";
-import { kstDateString } from "@/lib/memory";
+import { kstDateString, todayKST } from "@/lib/memory";
 import {
   getCharacter,
   getCharacters,
@@ -198,6 +198,44 @@ function ChatPageInner() {
           }
         } else {
           setMessages(history);
+          // 날짜가 넘어간(KST 자정 기준) 뒤 이 방에 처음 들어온 거라면,
+          // 지금까지의 대화를 "가져오기"와 같은 방식(최근 100개 상세 +
+          // 그 이전 기억 한 줄씩)으로 자동 요약해서 지문으로 남겨둔다.
+          const lastMsg = history[history.length - 1];
+          if (lastMsg && kstDateString(lastMsg.ts) !== todayKST()) {
+            try {
+              const res = await fetch("/api/summarize", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  character: toCharacterProfile(voiceCharacter),
+                  characterId: voiceCharacter.id,
+                  universe: resolveUniverseTemplate(
+                    foundUniverse ?? createOrgUniverse(),
+                    characters
+                  ),
+                  history,
+                }),
+              });
+              const data = await res.json().catch(() => ({}));
+              if (res.ok && typeof data.summary === "string" && data.summary.trim()) {
+                const recapText = data.summary.trim();
+                const withRecap: ChatMessage[] = [
+                  ...history,
+                  {
+                    role: "model",
+                    text: recapText,
+                    items: [{ t: "n", text: recapText }],
+                    ts: Date.now(),
+                  },
+                ];
+                setMessages(withRecap);
+                await saveChatHistory(universeId, id, withRecap).catch(() => {});
+              }
+            } catch {
+              // 자동 요약은 부가 기능이라 실패해도 방 진입 자체는 막지 않는다
+            }
+          }
         }
       } catch {
         setLoadError("대화 기록을 불러오지 못했어요. 새로고침해 주세요.");
