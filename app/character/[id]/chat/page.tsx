@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
+import AutoGrowTextarea from "@/components/AutoGrowTextarea";
 import CharacterAvatar from "@/components/CharacterAvatar";
 import ChatListPane from "@/components/ChatListPane";
 import TopBar from "@/components/TopBar";
@@ -921,14 +922,13 @@ function ChatPageInner() {
           화면에 나타난다.
         */}
         <div className="-mx-3 flex items-end gap-2 border-t border-border bg-card px-3 py-2">
-          <textarea
+          <AutoGrowTextarea
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={setInput}
             onFocus={handleInputFocus}
             placeholder="메시지를 입력하세요"
             enterKeyHint="enter"
-            rows={Math.min(6, input.split("\n").length)}
-            className="max-h-32 flex-1 resize-none rounded-3xl border border-border bg-background px-4 py-2 text-sm outline-none focus:border-primary/50"
+            className="flex-1 resize-none rounded-3xl border border-border bg-background px-4 py-2 text-sm outline-none focus:border-primary/50"
           />
           <button
             type="button"

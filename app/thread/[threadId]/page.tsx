@@ -2,6 +2,7 @@
 
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
+import AutoGrowTextarea from "@/components/AutoGrowTextarea";
 import CharacterAvatar from "@/components/CharacterAvatar";
 import ChatListPane from "@/components/ChatListPane";
 import TopBar from "@/components/TopBar";
@@ -596,13 +597,13 @@ function ThreadPageInner() {
         <div className="-mx-3 flex flex-col gap-2 border-t border-border bg-card px-3 py-2">
           {showDirective && (
             <div className="flex items-end gap-2">
-              <textarea
+              <AutoGrowTextarea
                 value={directiveText}
-                onChange={(e) => setDirectiveText(e.target.value)}
+                onChange={setDirectiveText}
                 onFocus={handleInputFocus}
                 placeholder="예: 몇 시간 후, 미하일을 만난다"
-                rows={1}
-                className="max-h-24 flex-1 resize-none rounded-3xl border border-dashed border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary/50"
+                maxHeightPx={96}
+                className="flex-1 resize-none rounded-3xl border border-dashed border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary/50"
               />
               <button
                 type="button"
@@ -627,9 +628,9 @@ function ThreadPageInner() {
             >
               🎬
             </button>
-            <textarea
+            <AutoGrowTextarea
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={setInput}
               onFocus={handleInputFocus}
               placeholder={
                 aiParticipants.find((c) => c.id === targetId)
@@ -637,8 +638,7 @@ function ThreadPageInner() {
                   : "메시지를 입력하세요"
               }
               enterKeyHint="enter"
-              rows={Math.min(6, input.split("\n").length)}
-              className="max-h-32 flex-1 resize-none rounded-3xl border border-border bg-background px-4 py-2 text-sm outline-none focus:border-primary/50"
+              className="flex-1 resize-none rounded-3xl border border-border bg-background px-4 py-2 text-sm outline-none focus:border-primary/50"
             />
             <button
               type="button"
