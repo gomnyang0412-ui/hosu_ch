@@ -39,6 +39,9 @@ function findParticipant(
   return { name, image: undefined, accentColor: ACCENT_COLORS[0] };
 }
 
+/** "나"로 고를 수 있는 값. 빈 문자열 = 이름 없는 참가자(기본) */
+const NO_PLAYER = "";
+
 function initialTargetId(items: ThreadItem[], participants: Character[]): string {
   for (let i = items.length - 1; i >= 0; i--) {
     const item = items[i];
@@ -76,6 +79,7 @@ function ThreadPageInner() {
   const [loadError, setLoadError] = useState("");
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editingText, setEditingText] = useState("");
+  const [pickingPlayer, setPickingPlayer] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const lastTargetIdRef = useRef("");
 
@@ -97,7 +101,10 @@ function ThreadPageInner() {
         const participants = foundThread.characterIds
           .map((id) => characters.find((c) => c.id === id))
           .filter((c): c is Character => !!c);
-        setTargetId(initialTargetId(foundThread.items, participants));
+        const aiParticipants = participants.filter(
+          (c) => c.id !== foundThread.playerCharacterId
+        );
+        setTargetId(initialTargetId(foundThread.items, aiParticipants));
       } catch {
         setLoadError("대화방을 불러오지 못했어요. 새로고침해 주세요.");
       }
@@ -113,6 +120,12 @@ function ThreadPageInner() {
         .map((id) => allCharacters.find((c) => c.id === id))
         .filter((c): c is Character => !!c)
     : [];
+  const playerCharacter = participants.find(
+    (c) => c.id === thread?.playerCharacterId
+  );
+  const aiParticipants = participants.filter(
+    (c) => c.id !== thread?.playerCharacterId
+  );
 
   async function requestReply(base: MultiThread, targetChar: Character) {
     if (!universe) return;
@@ -124,10 +137,13 @@ function ThreadPageInner() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          characters: participants.map(toCharacterProfile),
+          characters: aiParticipants.map(toCharacterProfile),
           universe: resolveUniverseTemplate(universe, allCharacters),
           targetName: targetChar.name,
           targetId: targetChar.id,
+          playerCharacter: playerCharacter
+            ? toCharacterProfile(playerCharacter)
+            : undefined,
           items: base.items,
         }),
       });
@@ -169,7 +185,7 @@ function ThreadPageInner() {
 
   async function handleSend() {
     const text = input.trim();
-    const targetChar = participants.find((c) => c.id === targetId);
+    const targetChar = aiParticipants.find((c) => c.id === targetId);
     if (!text || !thread || !targetChar || loading) return;
     const item: ThreadItem = { t: "u", text };
     const now = Date.now();
@@ -196,7 +212,7 @@ function ThreadPageInner() {
 
   async function handleDirectiveSubmit() {
     const text = directiveText.trim();
-    const targetChar = participants.find((c) => c.id === targetId);
+    const targetChar = aiParticipants.find((c) => c.id === targetId);
     if (!text || !thread || !targetChar || loading) return;
     const item: ThreadItem = { t: "x", text };
     const now = Date.now();
@@ -223,7 +239,7 @@ function ThreadPageInner() {
   }
 
   function handleRetry() {
-    const targetChar = participants.find((c) => c.id === lastTargetIdRef.current);
+    const targetChar = aiParticipants.find((c) => c.id === lastTargetIdRef.current);
     if (!thread || !targetChar) return;
     requestReply(thread, targetChar);
   }
@@ -267,8 +283,33 @@ function ThreadPageInner() {
         kind: "unknown",
       });
     }
-    const targetChar = participants.find((c) => c.id === targetId);
+    const targetChar = aiParticipants.find((c) => c.id === targetId);
     if (targetChar) requestReply(updated, targetChar);
+  }
+
+  async function choosePlayerCharacter(nextId: string) {
+    if (!thread) return;
+    const nextPlayerId = nextId || undefined;
+    if (nextPlayerId === thread.playerCharacterId) return;
+    const updated: MultiThread = { ...thread, playerCharacterId: nextPlayerId };
+    setThread(updated);
+    // 방금 나로 고른 캐릭터가 지금 말 걸던 대상이었다면, 대상을 남은
+    // AI 참가자 중 하나로 다시 잡아준다.
+    if (targetId === nextPlayerId) {
+      const fallback = participants.find((c) => c.id !== nextPlayerId);
+      setTargetId(fallback?.id ?? "");
+    }
+    try {
+      await saveThread(updated);
+    } catch (err) {
+      setError({
+        message:
+          err instanceof StorageError
+            ? err.message
+            : "역할 설정을 저장하지 못했어요.",
+        kind: "unknown",
+      });
+    }
   }
 
   if (!thread) {
@@ -290,11 +331,56 @@ function ThreadPageInner() {
         <ChatListPane activeHref={roomHref} />
       </aside>
       <div className="flex flex-1 flex-col overflow-hidden">
-      <TopBar title={title || "대화방"} />
+      <TopBar
+        title={title || "대화방"}
+        right={
+          participants.length >= 2 && (
+            <button
+              type="button"
+              onClick={() => setPickingPlayer((v) => !v)}
+              aria-label="나 역할 정하기"
+              className="rounded-full px-2.5 py-1 text-xs font-medium text-muted hover:bg-background"
+            >
+              🙋 나: {playerCharacter?.name ?? "없음"}
+            </button>
+          )
+        }
+      />
 
-      {participants.length >= 2 && (
+      {pickingPlayer && (
+        <div className="flex flex-col gap-2 border-b border-border bg-card px-3 py-3">
+          <label className="flex flex-col gap-1 text-xs text-muted">
+            나는
+            <select
+              value={thread.playerCharacterId ?? NO_PLAYER}
+              onChange={(e) => choosePlayerCharacter(e.target.value)}
+              className="rounded-xl border border-border bg-background p-2 text-sm text-foreground outline-none focus:border-primary/50"
+            >
+              <option value={NO_PLAYER}>이름 없는 참가자 (기본)</option>
+              {participants.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="text-xs text-muted">
+            고른 캐릭터는 AI가 더는 연기하지 않고, 다른 인물들이 그
+            배경·관계를 알고 있는 사람으로 나를 대해요.
+          </p>
+          <button
+            type="button"
+            onClick={() => setPickingPlayer(false)}
+            className="self-end rounded-full border border-border px-3 py-1.5 text-xs font-medium text-muted"
+          >
+            닫기
+          </button>
+        </div>
+      )}
+
+      {aiParticipants.length >= 1 && (
         <div className="flex shrink-0 gap-2 overflow-x-auto border-b border-border bg-card px-3 py-2">
-          {participants.map((c) => {
+          {aiParticipants.map((c) => {
             const active = targetId === c.id;
             return (
               <button
@@ -322,10 +408,17 @@ function ThreadPageInner() {
 
       <main className="flex flex-1 flex-col gap-3 overflow-y-auto px-3 py-4">
         {loadError && <p className="text-sm text-red-600">{loadError}</p>}
-        {participants.length < 2 && (
+        {participants.length < 2 ? (
           <p className="text-sm text-muted">
             참가자가 부족해요. 캐릭터가 삭제되었을 수 있어요.
           </p>
+        ) : (
+          aiParticipants.length === 0 && (
+            <p className="text-sm text-muted">
+              지금은 대화 상대가 없어요. "나" 설정을 해제하거나 캐릭터를
+              추가해 주세요.
+            </p>
+          )
         )}
 
         {thread.items.map((item, i) => {
@@ -492,8 +585,8 @@ function ThreadPageInner() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder={
-              participants.find((c) => c.id === targetId)
-                ? `${participants.find((c) => c.id === targetId)?.name}에게 말하기`
+              aiParticipants.find((c) => c.id === targetId)
+                ? `${aiParticipants.find((c) => c.id === targetId)?.name}에게 말하기`
                 : "메시지를 입력하세요"
             }
             enterKeyHint="enter"
@@ -503,7 +596,7 @@ function ThreadPageInner() {
           <button
             type="button"
             onClick={handleSend}
-            disabled={loading || !input.trim() || participants.length < 2}
+            disabled={loading || !input.trim() || aiParticipants.length === 0}
             className="gradient-primary shrink-0 rounded-full px-5 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-40"
           >
             전송

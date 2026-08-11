@@ -217,6 +217,12 @@ export interface MultiThread {
   characterIds: string[];
   /** 목록 화면에 보여줄 제목 (없으면 참가자 이름으로 대신 표시) */
   title?: string;
+  /**
+   * "나"가 characterIds 중 누구인지 (없으면 이름 없는 참가자).
+   * 고르면 그 캐릭터는 AI가 연기하는 대상에서 빠지고, 다른 캐릭터들이
+   * 이 인물의 배경·관계를 참고해서 반응한다.
+   */
+  playerCharacterId?: string;
   items: ThreadItem[];
   createdAt: number;
   updatedAt: number;

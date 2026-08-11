@@ -16,12 +16,15 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 interface ThreadChatRequestBody {
+  /** AI가 연기하는 캐릭터들 (사용자가 자처한 캐릭터는 제외된 목록) */
   characters: CharacterProfile[];
   universe: Universe;
   targetName: string;
   /** 지금 말할 차례인 캐릭터의 id (기억 조회용) */
   targetId?: string;
   items: ThreadItem[];
+  /** 사용자가 "나는 이 중 한 명이다"로 고른 캐릭터 (없으면 이름 없는 참가자) */
+  playerCharacter?: CharacterProfile;
 }
 
 // 너무 크면 매 요청마다 처리할 토큰이 늘어나 응답이 느려진다.
@@ -31,7 +34,8 @@ function buildSystemInstruction(
   characters: CharacterProfile[],
   universe: Universe,
   targetName: string,
-  memoryBlock?: string
+  memoryBlock?: string,
+  playerCharacter?: CharacterProfile
 ): string {
   const blocks: string[] = [];
 
@@ -51,6 +55,15 @@ function buildSystemInstruction(
         .join("\n")
   );
 
+  if (playerCharacter) {
+    blocks.push(
+      `[사용자 캐릭터 — "나"]\n` +
+        characterLines(playerCharacter)
+          .map((line) => `  ${line}`)
+          .join("\n")
+    );
+  }
+
   if (memoryBlock) blocks.push(memoryBlock);
 
   blocks.push(
@@ -58,6 +71,9 @@ function buildSystemInstruction(
       `[역할]`,
       `너는 비주얼 노벨 각본가다. 위 인물들과 사용자("나")가 함께 있는 하나의 이야기를 짧은 소설처럼 이어 쓴다.`,
       `사용자는 이 이야기의 참가자다. 사용자의 말과 행동은 이미 대화 기록에 있으니 새로 만들지 않는다.`,
+      playerCharacter
+        ? `사용자("나")는 바로 위 [사용자 캐릭터] 항목의 "${playerCharacter.name}" 그 자체다. 다른 인물들은 이 배경·성격·관계를 실제로 알고 있는 사람으로서 사용자를 대하고 반응한다.`
+        : `사용자("나")는 이름이 명시되지 않은 참가자다. 다른 인물들이 사용자를 부를 일이 있으면 자연스러운 호칭(너, 당신 등)을 쓰고, 없는 이름을 지어내지 않는다.`,
       `응답의 중심은 항상 대사다. 지문은 분위기를 살릴 때만 짧게 곁들이는 보조 요소다.`,
     ].join("\n")
   );
@@ -131,7 +147,8 @@ export async function POST(request: Request) {
       body.characters,
       body.universe,
       targetName,
-      buildMemoryBlock(targetName, memory)
+      buildMemoryBlock(targetName, memory),
+      body.playerCharacter
     );
     // 재시도는 실패 확률(특히 네트워크 타임아웃)을 두 배로 늘리기만 하고
     // 더 이상 에러를 막아주지도 않으니, 한 번만 호출하고 받은 그대로
