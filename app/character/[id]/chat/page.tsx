@@ -409,10 +409,20 @@ function ChatPageInner() {
     }
   }
 
+  // 채팅방 페이지는 통째로 스크롤되는 구조라(키보드 가림 문제 해결 때
+  // 그렇게 바꿨다), 헤더 바로 아래에 끼워 넣는 패널(이름 바꾸기/역할
+  // 바꾸기/이전 기록)은 대화 중간까지 스크롤한 상태에서 열면 화면
+  // 밖(문서 위쪽)에 그려진다. 여는 순간 맨 위로 스크롤해서 항상
+  // 보이게 한다.
+  function scrollToTop() {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
   function openRename() {
     if (!character) return;
     setRenameText(character.name);
     setRenaming(true);
+    scrollToTop();
   }
 
   function cancelRename() {
@@ -488,6 +498,7 @@ function ChatPageInner() {
   async function openBackups() {
     setMenuOpen(false);
     setError(null);
+    scrollToTop();
     try {
       const list = await getChatHistoryBackups(universeId, id);
       setBackups(list);
@@ -600,6 +611,7 @@ function ChatPageInner() {
                 onClick={() => {
                   setPickingVoice(true);
                   setMenuOpen(false);
+                  scrollToTop();
                 }}
                 className="border-t border-border px-4 py-3 text-left text-sm hover:bg-background"
               >
