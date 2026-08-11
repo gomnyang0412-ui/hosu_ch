@@ -6,6 +6,16 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import CharacterAvatar from "@/components/CharacterAvatar";
 import ChatListPane from "@/components/ChatListPane";
 import TopBar from "@/components/TopBar";
+import BackupPanel from "@/components/chat/BackupPanel";
+import ChatMenu from "@/components/chat/ChatMenu";
+import RenamePanel from "@/components/chat/RenamePanel";
+import RolePickerPanel from "@/components/chat/RolePickerPanel";
+import TimelinePanel from "@/components/chat/TimelinePanel";
+import {
+  dateAnchorId,
+  formatDateLabel,
+  groupMessagesByDate,
+} from "@/lib/chatDates";
 import { sourceLabel } from "@/lib/modelLabel";
 import { kstDateString, todayKST } from "@/lib/memory";
 import {
@@ -51,41 +61,6 @@ interface ChatErrorState {
 function modelItems(m: ChatMessage, characterName: string): SceneItem[] {
   if (m.items && m.items.length > 0) return m.items;
   return [{ t: "d", who: characterName, say: m.text }];
-}
-
-function dateAnchorId(date: string): string {
-  return `date-${date}`;
-}
-
-/** "2026-08-09" → "8월 9일 (일)" */
-function formatDateLabel(date: string): string {
-  const d = new Date(`${date}T00:00:00+09:00`);
-  return d.toLocaleDateString("ko-KR", {
-    month: "long",
-    day: "numeric",
-    weekday: "short",
-  });
-}
-
-interface DateGroup {
-  date: string;
-  count: number;
-  preview: string;
-}
-
-/** 대화 기록을 KST 날짜별로 묶어, 날짜 이동 패널에 보여줄 요약을 만든다 */
-function groupMessagesByDate(messages: ChatMessage[]): DateGroup[] {
-  const groups: DateGroup[] = [];
-  for (const m of messages) {
-    const date = kstDateString(m.ts);
-    const last = groups[groups.length - 1];
-    if (last && last.date === date) {
-      last.count++;
-    } else {
-      groups.push({ date, count: 1, preview: m.text.slice(0, 40) });
-    }
-  }
-  return groups;
 }
 
 export default function ChatPage() {
@@ -619,6 +594,35 @@ function ChatPageInner() {
     }
   }
 
+  // ☰ 메뉴 각 항목의 클릭 처리. 원래 JSX 안에 인라인으로 있던 걸
+  // ChatMenu 컴포넌트에 넘겨줄 콜백으로 그대로 옮긴 것뿐이라(동작
+  // 순서까지 원래와 동일하게) 실제 로직은 하나도 안 바뀌었다.
+  function handleRenameMenuClick() {
+    openRename();
+    setMenuOpen(false);
+  }
+
+  function handlePickRoleMenuClick() {
+    setPickingVoice(true);
+    setMenuOpen(false);
+    scrollToTop();
+  }
+
+  function handleTimelineMenuClick() {
+    setShowTimeline(true);
+    setMenuOpen(false);
+  }
+
+  function handleSplitMenuClick() {
+    toggleSplitMode();
+    setMenuOpen(false);
+  }
+
+  function handleResetMenuClick() {
+    setMenuOpen(false);
+    handleReset();
+  }
+
   if (!character) {
     return loadError ? (
       <p className="p-4 text-sm text-red-600">{loadError}</p>
@@ -671,237 +675,51 @@ function ChatPageInner() {
         }
       />
 
-      {menuOpen && (
-        <>
-          <button
-            type="button"
-            aria-label="메뉴 닫기"
-            onClick={() => setMenuOpen(false)}
-            className="fixed inset-0 z-10 cursor-default"
-          />
-          <div className="card-shadow fixed right-3 top-14 z-20 flex w-56 flex-col overflow-hidden rounded-2xl bg-card">
-            <button
-              type="button"
-              onClick={() => {
-                openRename();
-                setMenuOpen(false);
-              }}
-              className="px-4 py-3 text-left text-sm hover:bg-background"
-            >
-              ✎ 채팅방 이름 바꾸기
-            </button>
-            {allCharacters.length > 1 && (
-              <button
-                type="button"
-                onClick={() => {
-                  setPickingVoice(true);
-                  setMenuOpen(false);
-                  scrollToTop();
-                }}
-                className="border-t border-border px-4 py-3 text-left text-sm hover:bg-background"
-              >
-                🎭 역할 바꾸기 (AI / 나)
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => {
-                setShowTimeline(true);
-                setMenuOpen(false);
-              }}
-              className="border-t border-border px-4 py-3 text-left text-sm hover:bg-background"
-            >
-              📅 날짜별로 이동
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                toggleSplitMode();
-                setMenuOpen(false);
-              }}
-              className="border-t border-border px-4 py-3 text-left text-sm hover:bg-background"
-            >
-              ✂ 대화 나누기
-            </button>
-            <button
-              type="button"
-              onClick={openBackups}
-              className="border-t border-border px-4 py-3 text-left text-sm hover:bg-background"
-            >
-              🕐 이전 기록으로 되돌리기
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setMenuOpen(false);
-                handleReset();
-              }}
-              className="border-t border-border px-4 py-3 text-left text-sm text-red-600 hover:bg-background"
-            >
-              ↺ 대화 초기화
-            </button>
-          </div>
-        </>
-      )}
+      <ChatMenu
+        open={menuOpen}
+        onClose={() => setMenuOpen(false)}
+        canPickRole={allCharacters.length > 1}
+        onRename={handleRenameMenuClick}
+        onPickRole={handlePickRoleMenuClick}
+        onShowTimeline={handleTimelineMenuClick}
+        onToggleSplit={handleSplitMenuClick}
+        onOpenBackups={openBackups}
+        onReset={handleResetMenuClick}
+      />
 
-      {renaming && (
-        <div className="flex items-center gap-2 border-b border-border bg-card px-3 py-2">
-          <input
-            value={renameText}
-            onChange={(e) => setRenameText(e.target.value)}
-            autoFocus
-            placeholder="채팅방 이름"
-            className="min-w-0 flex-1 rounded-xl border border-border bg-background p-2 text-sm outline-none focus:border-primary/50"
-          />
-          <button
-            type="button"
-            onClick={cancelRename}
-            className="rounded-full border border-border px-3 py-1.5 text-xs font-medium text-muted"
-          >
-            취소
-          </button>
-          <button
-            type="button"
-            onClick={confirmRename}
-            disabled={!renameText.trim() || savingName}
-            className="gradient-primary rounded-full px-3 py-1.5 text-xs font-semibold text-primary-foreground disabled:opacity-40"
-          >
-            {savingName ? "저장 중…" : "저장"}
-          </button>
-        </div>
-      )}
+      <RenamePanel
+        open={renaming}
+        value={renameText}
+        onChange={setRenameText}
+        onCancel={cancelRename}
+        onConfirm={confirmRename}
+        saving={savingName}
+      />
 
-      {pickingVoice && (
-        <div className="flex flex-col gap-2 border-b border-border bg-card px-3 py-3">
-          <label className="flex flex-col gap-1 text-xs text-muted">
-            AI가 연기
-            <select
-              value={voiceCharacter.id}
-              onChange={(e) => chooseVoice(e.target.value)}
-              className="rounded-xl border border-border bg-background p-2 text-sm text-foreground outline-none focus:border-primary/50"
-            >
-              {allCharacters.map((c) => (
-                <option
-                  key={c.id}
-                  value={c.id}
-                  disabled={playerCharacter?.id === c.id}
-                >
-                  {c.id === character.id ? `${c.name} (기본, 본인)` : c.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex flex-col gap-1 text-xs text-muted">
-            나는
-            <select
-              value={playerCharacter?.id ?? PLAYER_ANONYMOUS}
-              onChange={(e) => choosePlayer(e.target.value)}
-              className="rounded-xl border border-border bg-background p-2 text-sm text-foreground outline-none focus:border-primary/50"
-            >
-              <option value={PLAYER_ANONYMOUS}>이름 없는 사용자 (기본)</option>
-              {allCharacters.map((c) => (
-                <option
-                  key={c.id}
-                  value={c.id}
-                  disabled={c.id === voiceCharacter.id}
-                >
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button
-            type="button"
-            onClick={() => setPickingVoice(false)}
-            className="self-end rounded-full border border-border px-3 py-1.5 text-xs font-medium text-muted"
-          >
-            닫기
-          </button>
-        </div>
-      )}
+      <RolePickerPanel
+        open={pickingVoice}
+        character={character}
+        allCharacters={allCharacters}
+        voiceCharacter={voiceCharacter}
+        playerCharacter={playerCharacter}
+        onChooseVoice={chooseVoice}
+        onChoosePlayer={choosePlayer}
+        onClose={() => setPickingVoice(false)}
+      />
 
-      {backups && (
-        <div className="flex flex-col gap-2 border-b border-border bg-card px-3 py-3">
-          <p className="text-xs text-muted">
-            저장될 때마다 직전 상태가 최근 5개까지 남아요. 되돌리고 싶은
-            시점을 골라주세요.
-          </p>
-          {backups.length === 0 ? (
-            <p className="text-sm text-muted">되돌릴 수 있는 이전 기록이 없어요.</p>
-          ) : (
-            <ul className="flex flex-col gap-1.5">
-              {backups.map((b, i) => (
-                <li key={b.ts}>
-                  <button
-                    type="button"
-                    onClick={() => restoreBackup(i)}
-                    disabled={restoring}
-                    className="card-shadow flex w-full items-center justify-between rounded-xl bg-background px-3 py-2 text-left text-sm disabled:opacity-40"
-                  >
-                    <span>
-                      {new Date(b.ts).toLocaleString("ko-KR", {
-                        dateStyle: "medium",
-                        timeStyle: "short",
-                      })}
-                    </span>
-                    <span className="text-xs text-muted">
-                      메시지 {b.value.length}개 · 되돌리기
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-          <button
-            type="button"
-            onClick={() => setBackups(null)}
-            className="self-end rounded-full border border-border px-3 py-1.5 text-xs font-medium text-muted"
-          >
-            닫기
-          </button>
-        </div>
-      )}
+      <BackupPanel
+        backups={backups}
+        restoring={restoring}
+        onRestore={restoreBackup}
+        onClose={() => setBackups(null)}
+      />
 
-      {showTimeline && (
-        <>
-          <button
-            type="button"
-            aria-label="닫기"
-            onClick={() => setShowTimeline(false)}
-            className="fixed inset-0 z-30 bg-black/30"
-          />
-          <div className="card-shadow fixed inset-x-3 top-16 bottom-16 z-40 flex flex-col overflow-hidden rounded-2xl bg-card lg:inset-x-auto lg:left-1/2 lg:w-96 lg:-translate-x-1/2">
-            <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
-              <p className="text-sm font-semibold">날짜별로 이동</p>
-              <button
-                type="button"
-                onClick={() => setShowTimeline(false)}
-                className="text-sm text-muted"
-              >
-                닫기
-              </button>
-            </div>
-            <ul className="flex-1 overflow-y-auto p-2">
-              {[...groupMessagesByDate(messages)].reverse().map((g) => (
-                <li key={g.date}>
-                  <button
-                    type="button"
-                    onClick={() => jumpToDate(g.date)}
-                    className="flex w-full flex-col items-start gap-0.5 rounded-xl px-3 py-2.5 text-left hover:bg-background"
-                  >
-                    <span className="text-sm font-medium">
-                      {formatDateLabel(g.date)}
-                    </span>
-                    <span className="w-full truncate text-xs text-muted">
-                      {g.preview || "…"} · {g.count}개
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </>
-      )}
+      <TimelinePanel
+        open={showTimeline}
+        groups={groupMessagesByDate(messages)}
+        onJump={jumpToDate}
+        onClose={() => setShowTimeline(false)}
+      />
 
       <main className="flex flex-1 flex-col gap-3 px-3 py-4">
         {loadError && <p className="text-sm text-red-600">{loadError}</p>}
