@@ -53,7 +53,7 @@ const BLOCKED_FINISH_REASONS = new Set<string>([
 const DIALOGUE_MODELS = [
   "gemini-3.6-flash",
   "gemini-2.5-flash",
-  "gemini-3-flash",
+  "gemini-3-flash-preview",
   "gemini-3.5-flash",
 ];
 // 요약(기억 정리)은 뉘앙스보다 사실 정리가 중요해 처음부터 가볍고 RPD가
