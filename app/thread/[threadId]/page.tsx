@@ -7,6 +7,7 @@ import ChatListPane from "@/components/ChatListPane";
 import TopBar from "@/components/TopBar";
 import { sourceLabel } from "@/lib/modelLabel";
 import {
+  deleteThread,
   getCharacters,
   getThread,
   getUniverse,
@@ -80,6 +81,7 @@ function ThreadPageInner() {
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editingText, setEditingText] = useState("");
   const [pickingPlayer, setPickingPlayer] = useState(false);
+  const [leaving, setLeaving] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const lastTargetIdRef = useRef("");
 
@@ -312,6 +314,27 @@ function ThreadPageInner() {
     }
   }
 
+  async function handleLeaveRoom() {
+    if (!thread || leaving) return;
+    if (!window.confirm("이 대화방을 나갈까요? 지금까지의 대화 기록이 모두 사라져요.")) {
+      return;
+    }
+    setLeaving(true);
+    try {
+      await deleteThread(universeId, thread.id);
+      router.replace("/chats");
+    } catch (err) {
+      setError({
+        message:
+          err instanceof StorageError
+            ? err.message
+            : "대화방을 나가지 못했어요.",
+        kind: "unknown",
+      });
+      setLeaving(false);
+    }
+  }
+
   if (!thread) {
     return loadError ? (
       <p className="p-4 text-sm text-red-600">{loadError}</p>
@@ -334,16 +357,27 @@ function ThreadPageInner() {
       <TopBar
         title={title || "대화방"}
         right={
-          participants.length >= 2 && (
+          <div className="flex items-center gap-1">
+            {participants.length >= 2 && (
+              <button
+                type="button"
+                onClick={() => setPickingPlayer((v) => !v)}
+                aria-label="나 역할 정하기"
+                className="rounded-full px-2.5 py-1 text-xs font-medium text-muted hover:bg-background"
+              >
+                🙋 나: {playerCharacter?.name ?? "없음"}
+              </button>
+            )}
             <button
               type="button"
-              onClick={() => setPickingPlayer((v) => !v)}
-              aria-label="나 역할 정하기"
-              className="rounded-full px-2.5 py-1 text-xs font-medium text-muted hover:bg-background"
+              onClick={handleLeaveRoom}
+              disabled={leaving}
+              aria-label="대화방 나가기"
+              className="rounded-full px-2.5 py-1 text-xs font-medium text-muted hover:bg-background disabled:opacity-40"
             >
-              🙋 나: {playerCharacter?.name ?? "없음"}
+              🚪 나가기
             </button>
-          )
+          </div>
         }
       />
 
