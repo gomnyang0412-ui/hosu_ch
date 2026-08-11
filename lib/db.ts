@@ -8,6 +8,7 @@ import {
   type Character,
   type CharacterMemory,
   type ChatMessage,
+  type FullExport,
   type MultiThread,
   type ObservationSession,
   type RoomSummary,
@@ -509,4 +510,50 @@ export async function getRoomSummaries(): Promise<RoomSummary[]> {
 
   rooms.sort((a, b) => b.updatedAt - a.updatedAt);
   return rooms;
+}
+
+export async function getAllData(): Promise<FullExport> {
+  const [characters, universes] = await Promise.all([
+    getCharacters(),
+    getUniverses(),
+  ]);
+
+  const chats = (
+    await Promise.all(
+      universes.flatMap((u) =>
+        characters.map(async (c) => {
+          const [history, voiceOverride, playerOverride] = await Promise.all([
+            getChatHistory(u.id, c.id),
+            getChatVoiceOverride(u.id, c.id),
+            getChatPlayerOverride(u.id, c.id),
+          ]);
+          if (history.length === 0) return null;
+          return {
+            universeId: u.id,
+            characterId: c.id,
+            history,
+            voiceOverride,
+            playerOverride,
+          };
+        })
+      )
+    )
+  ).filter((c): c is NonNullable<typeof c> => c !== null);
+
+  const threads = (
+    await Promise.all(universes.map((u) => getThreads(u.id)))
+  ).flat();
+
+  const memories = (
+    await Promise.all(characters.map((c) => getCharacterMemory(c.id)))
+  ).filter((m): m is CharacterMemory => m !== null);
+
+  return {
+    exportedAt: Date.now(),
+    characters,
+    universes,
+    chats,
+    threads,
+    memories,
+  };
 }

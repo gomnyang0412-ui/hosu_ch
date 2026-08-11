@@ -261,3 +261,19 @@ export interface CharacterMemory {
   entries: MemoryEntry[];
   updatedAt: number;
 }
+
+/** 전체 데이터 내보내기용 스냅샷. 캐릭터/세계관 전부와, 그 조합마다 있는 모든 대화 기록·기억·설정을 담는다 */
+export interface FullExport {
+  exportedAt: number;
+  characters: Character[];
+  universes: Universe[];
+  chats: {
+    universeId: string;
+    characterId: string;
+    history: ChatMessage[];
+    voiceOverride: string | null;
+    playerOverride: string | null;
+  }[];
+  threads: MultiThread[];
+  memories: CharacterMemory[];
+}

@@ -1,0 +1,21 @@
+import { NextResponse } from "next/server";
+import { DbConfigError, getAllData } from "@/lib/db";
+
+export const runtime = "nodejs";
+
+export async function GET() {
+  try {
+    const data = await getAllData();
+    return NextResponse.json(data);
+  } catch (err) {
+    return NextResponse.json(
+      {
+        error:
+          err instanceof DbConfigError
+            ? err.message
+            : "데이터를 내보내지 못했어요.",
+      },
+      { status: 502 }
+    );
+  }
+}

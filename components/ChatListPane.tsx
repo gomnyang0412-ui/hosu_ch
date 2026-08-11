@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import CharacterAvatar from "@/components/CharacterAvatar";
-import { getCharacters, getRooms } from "@/lib/storage";
+import { exportAllData, getCharacters, getRooms } from "@/lib/storage";
 import type { Character, RoomSummary } from "@/lib/types";
 
 function formatTime(ts: number): string {
@@ -53,6 +53,7 @@ export default function ChatListPane({
   const [characters, setCharacters] = useState<Character[]>([]);
   const [error, setError] = useState("");
   const [newMenuOpen, setNewMenuOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -69,12 +70,46 @@ export default function ChatListPane({
     })();
   }, []);
 
+  async function handleExport() {
+    if (exporting) return;
+    setExporting(true);
+    setError("");
+    try {
+      const data = await exportAllData();
+      const blob = new Blob([JSON.stringify(data, null, 2)], {
+        type: "application/json",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const date = new Date(data.exportedAt).toISOString().slice(0, 10);
+      a.href = url;
+      a.download = `hiatus-backup-${date}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      setError("전체 데이터를 내보내지 못했어요. 잠시 후 다시 시도해 주세요.");
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
     <div className="flex flex-1 flex-col">
       {showHeader && (
         <header className="flex items-center justify-between px-1 pb-3">
           <h1 className="text-xl font-bold">채팅</h1>
-          <div className="relative">
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={handleExport}
+              disabled={exporting}
+              aria-label="전체 데이터 내보내기"
+              title="전체 데이터 내보내기"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-lg text-muted hover:bg-background disabled:opacity-40"
+            >
+              {exporting ? "…" : "⬇"}
+            </button>
+            <div className="relative">
             <button
               type="button"
               onClick={() => setNewMenuOpen((v) => !v)}
@@ -109,6 +144,7 @@ export default function ChatListPane({
                 </div>
               </>
             )}
+            </div>
           </div>
         </header>
       )}

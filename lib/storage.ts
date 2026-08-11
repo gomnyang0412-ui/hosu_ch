@@ -4,6 +4,7 @@
 import type {
   Character,
   ChatMessage,
+  FullExport,
   MultiThread,
   ObservationSession,
   RoomSummary,
@@ -253,4 +254,10 @@ export async function deleteThread(
 export async function getRooms(): Promise<RoomSummary[]> {
   const data = await request<{ rooms: RoomSummary[] }>("/api/data/rooms");
   return data.rooms;
+}
+
+// ---------- 전체 데이터 내보내기 ----------
+
+export async function exportAllData(): Promise<FullExport> {
+  return request<FullExport>("/api/data/export");
 }
