@@ -52,6 +52,7 @@ export default function ChatListPane({
   const [rooms, setRooms] = useState<RoomSummary[] | null>(null);
   const [characters, setCharacters] = useState<Character[]>([]);
   const [error, setError] = useState("");
+  const [newMenuOpen, setNewMenuOpen] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -73,13 +74,42 @@ export default function ChatListPane({
       {showHeader && (
         <header className="flex items-center justify-between px-1 pb-3">
           <h1 className="text-xl font-bold">채팅</h1>
-          <Link
-            href="/chats/new"
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-lg text-muted hover:bg-background"
-            aria-label="새 1:1 대화방"
-          >
-            +
-          </Link>
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setNewMenuOpen((v) => !v)}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-lg text-muted hover:bg-background"
+              aria-label="새 대화 만들기"
+            >
+              +
+            </button>
+            {newMenuOpen && (
+              <>
+                <button
+                  type="button"
+                  aria-label="메뉴 닫기"
+                  onClick={() => setNewMenuOpen(false)}
+                  className="fixed inset-0 z-10 cursor-default"
+                />
+                <div className="card-shadow absolute right-0 top-9 z-20 flex w-48 flex-col overflow-hidden rounded-2xl bg-card">
+                  <Link
+                    href="/chats/new"
+                    onClick={() => setNewMenuOpen(false)}
+                    className="px-4 py-3 text-left text-sm hover:bg-background"
+                  >
+                    💬 1:1 대화 시작
+                  </Link>
+                  <Link
+                    href="/thread/new"
+                    onClick={() => setNewMenuOpen(false)}
+                    className="border-t border-border px-4 py-3 text-left text-sm hover:bg-background"
+                  >
+                    👥 멀티 대화방 만들기
+                  </Link>
+                </div>
+              </>
+            )}
+          </div>
         </header>
       )}
 
