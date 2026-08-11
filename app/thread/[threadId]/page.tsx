@@ -85,6 +85,12 @@ function ThreadPageInner() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const lastTargetIdRef = useRef("");
 
+  function handleInputFocus() {
+    setTimeout(() => {
+      bottomRef.current?.scrollIntoView({ block: "end" });
+    }, 300);
+  }
+
   useEffect(() => {
     (async () => {
       try {
@@ -353,7 +359,7 @@ function ThreadPageInner() {
       <aside className="hidden w-72 shrink-0 lg:sticky lg:top-6 lg:block lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto">
         <ChatListPane activeHref={roomHref} />
       </aside>
-      <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="relative flex flex-1 flex-col">
       <TopBar
         title={title || "대화방"}
         right={
@@ -440,7 +446,7 @@ function ThreadPageInner() {
         </div>
       )}
 
-      <main className="flex flex-1 flex-col gap-3 overflow-y-auto px-3 py-4">
+      <main className="flex flex-1 flex-col gap-3 px-3 py-4">
         {loadError && <p className="text-sm text-red-600">{loadError}</p>}
         {participants.length < 2 ? (
           <p className="text-sm text-muted">
@@ -579,64 +585,74 @@ function ThreadPageInner() {
           </div>
         )}
 
-        <div ref={bottomRef} />
-      </main>
-
-      <footer className="sticky bottom-0 flex flex-col gap-2 border-t border-border bg-card px-3 py-2">
-        {showDirective && (
+        {/*
+          입력창을 fixed나 sticky로 화면에 띄우려면 결국 "키보드가 얼마나
+          가리는지"를 알아야 하는데, 이 기기·브라우저에서는 그걸 알아낼
+          방법이 없었다(1:1 채팅방과 같은 문제). 그래서 입력창을 아무 위치
+          지정 없이 대화 목록의 마지막 항목으로 그냥 둔다 — 페이지 자체의
+          기본 스크롤에 맡기면, 페이지가 얼마나 긴지와 무관하게 끝까지
+          스크롤했을 때 항상 화면에 나타난다.
+        */}
+        <div className="-mx-3 flex flex-col gap-2 border-t border-border bg-card px-3 py-2">
+          {showDirective && (
+            <div className="flex items-end gap-2">
+              <textarea
+                value={directiveText}
+                onChange={(e) => setDirectiveText(e.target.value)}
+                onFocus={handleInputFocus}
+                placeholder="예: 몇 시간 후, 미하일을 만난다"
+                rows={1}
+                className="max-h-24 flex-1 resize-none rounded-3xl border border-dashed border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary/50"
+              />
+              <button
+                type="button"
+                onClick={handleDirectiveSubmit}
+                disabled={loading || !directiveText.trim()}
+                className="shrink-0 rounded-full border border-border px-3 py-2 text-sm font-medium disabled:opacity-40"
+              >
+                적용
+              </button>
+            </div>
+          )}
           <div className="flex items-end gap-2">
+            <button
+              type="button"
+              onClick={() => setShowDirective((v) => !v)}
+              aria-label="상황 전환"
+              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border text-sm ${
+                showDirective
+                  ? "border-foreground text-foreground"
+                  : "border-border text-muted"
+              }`}
+            >
+              🎬
+            </button>
             <textarea
-              value={directiveText}
-              onChange={(e) => setDirectiveText(e.target.value)}
-              placeholder="예: 몇 시간 후, 미하일을 만난다"
-              rows={1}
-              className="max-h-24 flex-1 resize-none rounded-3xl border border-dashed border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary/50"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onFocus={handleInputFocus}
+              placeholder={
+                aiParticipants.find((c) => c.id === targetId)
+                  ? `${aiParticipants.find((c) => c.id === targetId)?.name}에게 말하기`
+                  : "메시지를 입력하세요"
+              }
+              enterKeyHint="enter"
+              rows={Math.min(6, input.split("\n").length)}
+              className="max-h-32 flex-1 resize-none rounded-3xl border border-border bg-background px-4 py-2 text-sm outline-none focus:border-primary/50"
             />
             <button
               type="button"
-              onClick={handleDirectiveSubmit}
-              disabled={loading || !directiveText.trim()}
-              className="shrink-0 rounded-full border border-border px-3 py-2 text-sm font-medium disabled:opacity-40"
+              onClick={handleSend}
+              disabled={loading || !input.trim() || aiParticipants.length === 0}
+              className="gradient-primary shrink-0 rounded-full px-5 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-40"
             >
-              적용
+              전송
             </button>
           </div>
-        )}
-        <div className="flex items-end gap-2">
-          <button
-            type="button"
-            onClick={() => setShowDirective((v) => !v)}
-            aria-label="상황 전환"
-            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border text-sm ${
-              showDirective
-                ? "border-foreground text-foreground"
-                : "border-border text-muted"
-            }`}
-          >
-            🎬
-          </button>
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder={
-              aiParticipants.find((c) => c.id === targetId)
-                ? `${aiParticipants.find((c) => c.id === targetId)?.name}에게 말하기`
-                : "메시지를 입력하세요"
-            }
-            enterKeyHint="enter"
-            rows={Math.min(6, input.split("\n").length)}
-            className="max-h-32 flex-1 resize-none rounded-3xl border border-border bg-background px-4 py-2 text-sm outline-none focus:border-primary/50"
-          />
-          <button
-            type="button"
-            onClick={handleSend}
-            disabled={loading || !input.trim() || aiParticipants.length === 0}
-            className="gradient-primary shrink-0 rounded-full px-5 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-40"
-          >
-            전송
-          </button>
         </div>
-      </footer>
+
+        <div ref={bottomRef} />
+      </main>
       </div>
     </div>
   );
