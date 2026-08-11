@@ -168,22 +168,22 @@ export async function POST(request: Request) {
       }
     }
 
-    // targetName이 실제 대사로 응답했는지만 확인한다. 배열 맨 앞에 오는지는
-    // 프롬프트로 유도하되, 모델이 안 지켜도 아래에서 코드로 순서를 바로잡는다.
-    const hasTargetReply = (list: ReturnType<typeof parseSceneItems>) =>
-      list.some(
-        (it) => it.t === "d" && it.who === targetName && hasContent(it.say)
-      );
+    const hasAnyDialogue = (list: ReturnType<typeof parseSceneItems>) =>
+      list.some((it) => it.t === "d" && hasContent(it.say));
 
+    // targetName이 실제 대사로 응답했는지는 배열 맨 앞으로 옮기는 데만 쓴다
+    // (아래 순서 보정 단계). 재시도는 "대사가 아예 하나도 없을 때"만 한다 —
+    // targetName 지정 실패만으로 매번 재시도하면 대화방 메시지 하나에 Gemini
+    // 호출이 두 배로 늘어 사용량 초과를 오히려 더 자주 일으킨다.
     let result = await attempt(contents);
-    if (!result || !hasTargetReply(result.items)) {
+    if (!result || !hasAnyDialogue(result.items)) {
       const retryContents: Content[] = [
         ...contents,
         {
           role: "user",
           parts: [
             {
-              text: `(방금 응답에는 "${targetName}"의 실제 대사가 없었어요. 짧아도 좋으니, 이번엔 배열 맨 앞에 "${targetName}"의 실제 대사를 반드시 넣어줘.)`,
+              text: `(방금 응답에는 실제 대사가 하나도 없었어요. 짧아도 좋으니, 등장인물 중 누구든 실제로 내는 말을 대사로 반드시 넣어줘.)`,
             },
           ],
         },
