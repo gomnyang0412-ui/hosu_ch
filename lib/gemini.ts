@@ -157,8 +157,23 @@ function toGeminiError(err: unknown): GeminiRequestError {
       "network"
     );
   }
+  // 여기까지 왔다는 건 quota·overloaded·timeout 중 어디에도 안 걸리는
+  // 예외라는 뜻이라, 원인을 계속 추측만 하기보다 실제 예외 정보를 메시지에
+  // 그대로 남겨서 다음에 뜰 때 바로 원인을 알 수 있게 한다.
+  const detail =
+    err instanceof Error
+      ? `${err.name}: ${err.message}`
+      : typeof err === "string"
+        ? err
+        : (() => {
+            try {
+              return JSON.stringify(err);
+            } catch {
+              return String(err);
+            }
+          })();
   return new GeminiRequestError(
-    "네트워크 문제로 AI를 호출하지 못했어요. 다시 시도해 주세요.",
+    `네트워크 문제로 AI를 호출하지 못했어요. (${detail}) 다시 시도해 주세요.`,
     "network"
   );
 }
