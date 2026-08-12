@@ -266,12 +266,14 @@ async function generate(params: {
   /** 기본 CALL_TIMEOUT_MS보다 더 오래 걸리는 호출(예: 5000자짜리 소설 한 화)을 위한 개별 타임아웃 */
   timeoutMs?: number;
   /**
-   * 타임아웃도 quota/overloaded처럼 다음 키·모델로 넘어가게 할지.
+   * 타임아웃뿐 아니라 순수 연결 오류(toGeminiError가 둘 다 "network"로
+   * 분류한다)도 quota/overloaded처럼 다음 키·모델로 넘어가게 할지.
    * 기본은 false다 — 이미 호출부 자체가(1:1/멀티 대화) 빈 응답이면 한
    * 번 더 부르는 재시도를 갖고 있어서, 여기서도 매 모델마다 재시도하면
    * 총 대기시간이 라우트의 maxDuration을 넘어버릴 수 있다. 한 번의
-   * 호출만 하는 관찰 모드 화 생성처럼, 모델 하나가 오래 걸려도 다른
-   * 모델·키를 마저 시도해볼 여유가 있는 경우에만 켠다.
+   * 호출만 하는 관찰 모드 화 생성처럼, 모델 하나가 안 되도 다른
+   * 모델·키를 마저 시도해볼 여유가 있는 경우에만 켠다(대신
+   * overallDeadlineMs로 총 시간은 여전히 제한해야 한다).
    */
   retryOnTimeout?: boolean;
   /**
@@ -359,16 +361,16 @@ async function generate(params: {
       } catch (err) {
         if (isModelUnavailable(err)) break; // 이 모델 자체가 없음 → 바로 다음 모델로
         const mapped = toGeminiError(err);
-        const isTimeout = err instanceof Error && err.name === "TimeoutError";
         // 사용량 초과(quota)나 서버 혼잡(overloaded)이 아닌 오류는 다른
         // 키/모델로 시도해도 똑같이 실패할 가능성이 높으니 바로 실패
         // 처리한다. 이 둘일 때만, 그리고 retryOnTimeout이 켜져 있으면
-        // 타임아웃일 때도 다음 키로, 그것도 다 떨어지면 다음 모델로
-        // 넘어간다.
+        // network(타임아웃 포함 — toGeminiError는 타임아웃과 순수
+        // 연결 오류를 똑같이 "network"로 분류한다)일 때도 다음 키로,
+        // 그것도 다 떨어지면 다음 모델로 넘어간다.
         const retryable =
           mapped.kind === "quota" ||
           mapped.kind === "overloaded" ||
-          (isTimeout && params.retryOnTimeout);
+          (mapped.kind === "network" && params.retryOnTimeout);
         if (!retryable) throw mapped;
         lastError = mapped;
       }
