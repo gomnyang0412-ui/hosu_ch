@@ -265,6 +265,15 @@ async function generate(params: {
   models: string[];
   /** 기본 CALL_TIMEOUT_MS보다 더 오래 걸리는 호출(예: 5000자짜리 소설 한 화)을 위한 개별 타임아웃 */
   timeoutMs?: number;
+  /**
+   * 타임아웃도 quota/overloaded처럼 다음 키·모델로 넘어가게 할지.
+   * 기본은 false다 — 이미 호출부 자체가(1:1/멀티 대화) 빈 응답이면 한
+   * 번 더 부르는 재시도를 갖고 있어서, 여기서도 매 모델마다 재시도하면
+   * 총 대기시간이 라우트의 maxDuration을 넘어버릴 수 있다. 한 번의
+   * 호출만 하는 관찰 모드 화 생성처럼, 모델 하나가 오래 걸려도 다른
+   * 모델·키를 마저 시도해볼 여유가 있는 경우에만 켠다.
+   */
+  retryOnTimeout?: boolean;
 }): Promise<{ text: string; model: string; keyIndex: number }> {
   const clients = getClients();
   let lastError: GeminiRequestError | null = null;
@@ -329,11 +338,17 @@ async function generate(params: {
       } catch (err) {
         if (isModelUnavailable(err)) break; // 이 모델 자체가 없음 → 바로 다음 모델로
         const mapped = toGeminiError(err);
+        const isTimeout = err instanceof Error && err.name === "TimeoutError";
         // 사용량 초과(quota)나 서버 혼잡(overloaded)이 아닌 오류는 다른
         // 키/모델로 시도해도 똑같이 실패할 가능성이 높으니 바로 실패
-        // 처리한다. 이 둘일 때만 다음 키로, 그것도 다 떨어지면 다음
-        // 모델로 넘어간다.
-        if (mapped.kind !== "quota" && mapped.kind !== "overloaded") throw mapped;
+        // 처리한다. 이 둘일 때만, 그리고 retryOnTimeout이 켜져 있으면
+        // 타임아웃일 때도 다음 키로, 그것도 다 떨어지면 다음 모델로
+        // 넘어간다.
+        const retryable =
+          mapped.kind === "quota" ||
+          mapped.kind === "overloaded" ||
+          (isTimeout && params.retryOnTimeout);
+        if (!retryable) throw mapped;
         lastError = mapped;
       }
     }
@@ -406,6 +421,13 @@ export async function generateSummaryText(params: {
  * 관찰 모드 단편소설 한 화 (평문, JSON 아님). Lite로는 5000자 분량에서
  * 캐릭터가 무너지는 문제가 있어, 다른 롤플레이 생성과 똑같이 Flash
  * 체인을 우선 쓰고 전부 소진됐을 때만 Lite로 내려간다.
+ *
+ * 5000자를 쓰는 호출 하나가 특정 모델에서 유독 오래 걸리는(또는 응답이
+ * 없는) 경우가 있는데, 예전에는 그 모델 하나가 타임아웃 나면 곧바로
+ * 전체 실패로 처리해서 "네트워크 문제"로 자주 끊겼다. 이 호출은 화
+ * 하나당 딱 한 번만 부르니(1:1처럼 겹쳐 재시도하는 라우트가 아니니)
+ * 타임아웃이 나도 다음 모델·키로 넘어가 볼 여유가 있어, 개별 타임아웃을
+ * 줄이는 대신 타임아웃도 재시도 대상에 포함시킨다.
  */
 export async function generateStoryEpisode(params: {
   systemInstruction: string;
@@ -415,8 +437,8 @@ export async function generateStoryEpisode(params: {
     ...params,
     json: false,
     models: DIALOGUE_MODEL_CHAIN,
-    // 5000자 안팎을 한 번에 쓰려면 대사 한 줄보다 시간이 걸릴 수 있어 여유를 둔다.
-    timeoutMs: 55_000,
+    timeoutMs: 25_000,
+    retryOnTimeout: true,
   });
 }
 

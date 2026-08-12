@@ -9,8 +9,10 @@ import {
 import type { CharacterProfile, StoryEpisode, Universe } from "@/lib/types";
 
 export const runtime = "nodejs";
-// 5000자 안팎의 화 한 편을 통째로 Flash 모델로 받아야 해서 여유를 둔다.
-export const maxDuration = 65;
+// 5000자 안팎의 화 한 편을 통째로 Flash 모델로 받아야 하고, 개별 모델이
+// 타임아웃 나면 다음 모델·키로 넘어가며 재시도(generateStoryEpisode의
+// retryOnTimeout)하니 그만큼 넉넉히 잡는다.
+export const maxDuration = 150;
 
 interface SceneRequestBody {
   characters: CharacterProfile[];
