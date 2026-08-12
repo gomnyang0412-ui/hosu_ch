@@ -12,6 +12,7 @@ import {
   getUniverse,
   saveStory,
   deleteStory,
+  saveThread,
 } from "@/lib/storage";
 import { resolveUniverseTemplate } from "@/lib/template";
 import {
@@ -19,6 +20,7 @@ import {
   createOrgUniverse,
   toCharacterProfile,
   type Character,
+  type MultiThread,
   type ObservationSession,
   type StoryEpisode,
   type Universe,
@@ -70,6 +72,8 @@ function ObservePageInner() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<SceneErrorState | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [startingChat, setStartingChat] = useState(false);
+  const [startChatError, setStartChatError] = useState("");
 
   const [loadError, setLoadError] = useState("");
 
@@ -294,6 +298,51 @@ function ObservePageInner() {
     }
   }
 
+  /**
+   * 지금까지 읽은 화들을 10줄 안팎으로 요약해 지문으로 미리 넣어둔
+   * 새 멀티 대화방을 만든다. 기존 1:1 채팅방과 헷갈리지 않게 제목을
+   * "상황 대화방"으로 고정한다.
+   */
+  async function handleStartSituationChat() {
+    if (!session || !universe) return;
+    setStartingChat(true);
+    setStartChatError("");
+    try {
+      const res = await fetch("/api/summarize-story", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          characters: sceneCharacters.map(toCharacterProfile),
+          universe: resolveUniverseTemplate(universe, allCharacters),
+          episodes: session.episodes,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || typeof data.summary !== "string" || !data.summary.trim()) {
+        setStartChatError(data.error ?? "상황을 요약하지 못했어요.");
+        return;
+      }
+
+      const names = sceneCharacters.map((c) => c.name).join(" X ");
+      const now = Date.now();
+      const thread: MultiThread = {
+        id: crypto.randomUUID(),
+        universeId,
+        characterIds: session.characterIds,
+        title: `상황 대화방 · ${names}`,
+        items: [{ t: "n", text: data.summary.trim() }],
+        createdAt: now,
+        updatedAt: now,
+      };
+      await saveThread(thread);
+      router.push(`/thread/${thread.id}?universe=${universeId}`);
+    } catch {
+      setStartChatError("네트워크 문제로 대화방을 만들지 못했어요.");
+    } finally {
+      setStartingChat(false);
+    }
+  }
+
   if (stories === null) return null;
 
   const isAu = universe && universe.type === "au";
@@ -507,6 +556,17 @@ function ObservePageInner() {
                   </span>
                 ))}
               </div>
+              <button
+                type="button"
+                onClick={handleStartSituationChat}
+                disabled={startingChat}
+                className="self-start rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium disabled:opacity-40"
+              >
+                {startingChat ? "상황 요약하는 중…" : "💬 이 상황으로 대화 시작"}
+              </button>
+              {startChatError && (
+                <p className="text-xs text-red-600">{startChatError}</p>
+              )}
             </div>
 
             <div className="flex flex-col gap-8">
