@@ -456,17 +456,17 @@ export async function generateSummaryText(params: {
 }
 
 /**
- * 관찰 모드 단편소설 한 화 (평문, JSON 아님). Lite로는 5000자 분량에서
- * 캐릭터가 무너지는 문제가 있어, 다른 롤플레이 생성과 똑같이 Flash
- * 체인을 우선 쓰고 전부 소진됐을 때만 Lite로 내려간다.
+ * 관찰 모드 단편소설 한 화 (평문, JSON 아님). Lite로는 캐릭터가 무너지는
+ * 문제가 있어, 다른 롤플레이 생성과 똑같이 Flash 체인을 우선 쓰고 전부
+ * 소진됐을 때만 Lite로 내려간다.
  *
- * 5000자를 쓰는 호출 하나가 특정 모델에서 유독 오래 걸리는(또는 응답이
- * 없는) 경우가 있어, 타임아웃도 quota/overloaded처럼 다음 모델·키로
- * 넘어가는 재시도 대상에 포함시킨다. 다만 라우트에 적어둔
- * maxDuration보다 호스팅 플랫폼의 실제 함수 실행 제한이 더 짧을 수
- * 있어서(무료 플랜에서 특히), overallDeadlineMs로 총 재시도 시간
- * 자체에 보수적인 상한을 둔다 — 이 벽에 걸려 응답도 못 주고 죽는 것보다
- * 이 시점에서 깔끔한 실패 응답을 주는 게 낫다.
+ * 실제로 AbortError(우리 코드의 타임아웃이 아니라 호스팅 플랫폼이 함수
+ * 실행 자체를 강제 종료할 때 나는 신호)가 확인됐다 — 즉 여기 적힌 숫자를
+ * 얼마로 늘려도 플랫폼의 진짜 실행 제한이 그보다 짧으면 소용없다. 그래서
+ * 개별 타임아웃과 총 재시도 시간을 훨씬 보수적으로 줄여서, 우리 쪽
+ * 타임아웃이 그 벽보다 먼저 걸리게 한다 — 그래야 깔끔한 실패 응답이라도
+ * 준다. (라우트 쪽 목표 분량도 2800~3400자로 줄여 애초에 생성 자체가
+ * 더 빨리 끝나게 했다.)
  */
 export async function generateStoryEpisode(params: {
   systemInstruction: string;
@@ -476,9 +476,9 @@ export async function generateStoryEpisode(params: {
     ...params,
     json: false,
     models: DIALOGUE_MODEL_CHAIN,
-    timeoutMs: 20_000,
+    timeoutMs: 12_000,
     retryOnTimeout: true,
-    overallDeadlineMs: 42_000,
+    overallDeadlineMs: 35_000,
   });
 }
 
