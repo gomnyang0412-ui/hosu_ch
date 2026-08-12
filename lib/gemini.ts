@@ -150,8 +150,18 @@ function toGeminiError(err: unknown): GeminiRequestError {
       "unknown"
     );
   }
-  // AbortSignal.timeout()이 걸리면 DOMException(name: "TimeoutError")이 온다.
-  if (err instanceof Error && err.name === "TimeoutError") {
+  // AbortSignal.timeout()이 걸리면 스펙상 DOMException(name: "TimeoutError")이
+  // 와야 하지만, Node의 fetch(undici) 구현은 신호의 reason을 그대로 넘기지
+  // 않고 자체적으로 이름 없는 "AbortError"를 던지는 경우가 있다 — 실제로
+  // 우리 쪽 timeoutMs가 너무 짧게 잡혀 있어서(예전 12초) 매번 우리 스스로
+  // 건 타임아웃에 걸리는 것이었는데, 그게 "AbortError: This operation was
+  // aborted"로만 보여서 마치 호스팅 플랫폼이 함수를 강제 종료한 것처럼
+  // 오해하기 쉬웠다. 그래서 이름 없는 AbortError도 우리 자신의 타임아웃과
+  // 똑같이 취급한다.
+  if (
+    err instanceof Error &&
+    (err.name === "TimeoutError" || err.name === "AbortError")
+  ) {
     return new GeminiRequestError(
       "AI 응답이 너무 오래 걸려서 중단했어요. 다시 시도해 주세요.",
       "network"
@@ -460,13 +470,14 @@ export async function generateSummaryText(params: {
  * 문제가 있어, 다른 롤플레이 생성과 똑같이 Flash 체인을 우선 쓰고 전부
  * 소진됐을 때만 Lite로 내려간다.
  *
- * 실제로 AbortError(우리 코드의 타임아웃이 아니라 호스팅 플랫폼이 함수
- * 실행 자체를 강제 종료할 때 나는 신호)가 확인됐다 — 즉 여기 적힌 숫자를
- * 얼마로 늘려도 플랫폼의 진짜 실행 제한이 그보다 짧으면 소용없다. 그래서
- * 개별 타임아웃과 총 재시도 시간을 훨씬 보수적으로 줄여서, 우리 쪽
- * 타임아웃이 그 벽보다 먼저 걸리게 한다 — 그래야 깔끔한 실패 응답이라도
- * 준다. (라우트 쪽 목표 분량도 2800~3400자로 줄여 애초에 생성 자체가
- * 더 빨리 끝나게 했다.)
+ * "AbortError: This operation was aborted"는 호스팅 플랫폼이 함수를
+ * 강제 종료해서가 아니라, 우리 스스로 건 timeoutMs가 너무 짧아서(한때
+ * 12초) 실제 생성이 끝나기도 전에 우리 코드가 먼저 끊어버린 것이었다 —
+ * 새로 만드는 이야기의 1화(누적 맥락이 거의 없는 가장 짧은 요청)조차
+ * 똑같이 실패한 게 그 증거다. 3000자 안팎의 한국어 산문 한 화를 통째로
+ * 생성하는 데는 원래 수십 초가 걸릴 수 있으니, 개별 타임아웃을 실제
+ * 생성 시간에 맞게 넉넉히 주고 총 재시도 시간과 라우트의 maxDuration도
+ * 그에 맞춰 늘렸다.
  */
 export async function generateStoryEpisode(params: {
   systemInstruction: string;
@@ -476,9 +487,9 @@ export async function generateStoryEpisode(params: {
     ...params,
     json: false,
     models: DIALOGUE_MODEL_CHAIN,
-    timeoutMs: 12_000,
+    timeoutMs: 50_000,
     retryOnTimeout: true,
-    overallDeadlineMs: 35_000,
+    overallDeadlineMs: 55_000,
   });
 }
 

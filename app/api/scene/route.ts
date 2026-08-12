@@ -9,12 +9,12 @@ import {
 import type { CharacterProfile, StoryEpisode, Universe } from "@/lib/types";
 
 export const runtime = "nodejs";
-// generateStoryEpisode 안의 overallDeadlineMs(아래 참고)가 실제 안전판이다.
-// 여기 숫자는 그보다 살짝 여유를 둔 값일 뿐이고, 너무 크게 잡아도 의미가
-// 없다 — 호스팅 플랫폼의 실제 함수 실행 제한이 이 값보다 짧으면(무료
-// 플랜에서 실제로 그랬다) 그 벽에 걸려 AbortError로 죽는다. 그래서 안전판
-// 쪽을 훨씬 보수적으로 줄이는 게 진짜 해결책이다.
-export const maxDuration = 50;
+// generateStoryEpisode 안의 timeoutMs·overallDeadlineMs가 실제 안전판이다.
+// 여기 숫자는 그보다 살짝 여유를 둔 값. (예전엔 "AbortError = 플랫폼이
+// 강제 종료"로 오해해서 이 값을 계속 줄였는데, 실제 원인은 우리 스스로
+// 건 timeoutMs가 12초로 너무 짧았던 것이었다 — 자세한 내용은
+// lib/gemini.ts의 generateStoryEpisode 주석 참고.)
+export const maxDuration = 60;
 
 interface SceneRequestBody {
   characters: CharacterProfile[];
