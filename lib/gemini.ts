@@ -274,9 +274,18 @@ async function generate(params: {
    * 모델·키를 마저 시도해볼 여유가 있는 경우에만 켠다.
    */
   retryOnTimeout?: boolean;
+  /**
+   * 모델·키를 넘나드는 재시도 전체에 거는 총 시간 제한. 호스팅 플랫폼의
+   * 실제 함수 실행 제한은 코드의 maxDuration 설정과 별개로 더 짧을 수
+   * 있어서(예: Vercel 무료 플랜은 maxDuration을 몇 초로 적든 실제로는
+   * 훨씬 짧게 끊는다), 그 벽에 걸려 응답 자체를 못 돌려주고 죽는 것보다
+   * 이 시간이 되면 지금까지의 오류로 깔끔하게 실패 응답을 주는 게 낫다.
+   */
+  overallDeadlineMs?: number;
 }): Promise<{ text: string; model: string; keyIndex: number }> {
   const clients = getClients();
   let lastError: GeminiRequestError | null = null;
+  const startedAt = Date.now();
   const { min: minItems, max: maxItems } = params.itemRange ?? {
     min: 10,
     max: 14,
@@ -284,6 +293,18 @@ async function generate(params: {
 
   for (const model of params.models) {
     for (let i = 0; i < clients.length; i++) {
+      if (
+        params.overallDeadlineMs &&
+        Date.now() - startedAt > params.overallDeadlineMs
+      ) {
+        throw (
+          lastError ??
+          new GeminiRequestError(
+            "AI 응답이 너무 오래 걸려서 중단했어요. 다시 시도해 주세요.",
+            "network"
+          )
+        );
+      }
       const ai = clients[i];
       try {
         const response = await ai.models.generateContent({
@@ -423,11 +444,12 @@ export async function generateSummaryText(params: {
  * 체인을 우선 쓰고 전부 소진됐을 때만 Lite로 내려간다.
  *
  * 5000자를 쓰는 호출 하나가 특정 모델에서 유독 오래 걸리는(또는 응답이
- * 없는) 경우가 있는데, 예전에는 그 모델 하나가 타임아웃 나면 곧바로
- * 전체 실패로 처리해서 "네트워크 문제"로 자주 끊겼다. 이 호출은 화
- * 하나당 딱 한 번만 부르니(1:1처럼 겹쳐 재시도하는 라우트가 아니니)
- * 타임아웃이 나도 다음 모델·키로 넘어가 볼 여유가 있어, 개별 타임아웃을
- * 줄이는 대신 타임아웃도 재시도 대상에 포함시킨다.
+ * 없는) 경우가 있어, 타임아웃도 quota/overloaded처럼 다음 모델·키로
+ * 넘어가는 재시도 대상에 포함시킨다. 다만 라우트에 적어둔
+ * maxDuration보다 호스팅 플랫폼의 실제 함수 실행 제한이 더 짧을 수
+ * 있어서(무료 플랜에서 특히), overallDeadlineMs로 총 재시도 시간
+ * 자체에 보수적인 상한을 둔다 — 이 벽에 걸려 응답도 못 주고 죽는 것보다
+ * 이 시점에서 깔끔한 실패 응답을 주는 게 낫다.
  */
 export async function generateStoryEpisode(params: {
   systemInstruction: string;
@@ -437,8 +459,9 @@ export async function generateStoryEpisode(params: {
     ...params,
     json: false,
     models: DIALOGUE_MODEL_CHAIN,
-    timeoutMs: 25_000,
+    timeoutMs: 20_000,
     retryOnTimeout: true,
+    overallDeadlineMs: 42_000,
   });
 }
 

@@ -9,10 +9,12 @@ import {
 import type { CharacterProfile, StoryEpisode, Universe } from "@/lib/types";
 
 export const runtime = "nodejs";
-// 5000자 안팎의 화 한 편을 통째로 Flash 모델로 받아야 하고, 개별 모델이
-// 타임아웃 나면 다음 모델·키로 넘어가며 재시도(generateStoryEpisode의
-// retryOnTimeout)하니 그만큼 넉넉히 잡는다.
-export const maxDuration = 150;
+// generateStoryEpisode의 재시도 전체는 42초 안에서 끝나도록 자체
+// 제한(overallDeadlineMs)이 있다. 여기 maxDuration은 그보다 여유를 둔
+// 값일 뿐 — 호스팅 플랫폼(특히 무료 플랜)의 실제 함수 실행 제한이 이
+// 숫자보다 짧을 수 있어서, 너무 크게 잡아봤자 의미가 없다. 실제 안전판은
+// generate() 안의 overallDeadlineMs다.
+export const maxDuration = 55;
 
 interface SceneRequestBody {
   characters: CharacterProfile[];
