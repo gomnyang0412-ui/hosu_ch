@@ -176,8 +176,11 @@ export async function POST(request: Request) {
   }
 
   if (
+    // AI가 연기하는 인물은 최소 1명이면 된다 — 2명짜리 방에서 사용자가
+    // "나는 이 중 한 명이다"로 한쪽을 맡으면 AI 쪽엔 1명만 남는데, 그것도
+    // 정상적인 대화(예: 관찰 모드에서 만든 "상황 대화방")다.
     !Array.isArray(body?.characters) ||
-    body.characters.length < 2 ||
+    body.characters.length < 1 ||
     !body.targetName?.trim() ||
     !Array.isArray(body.items) ||
     body.items.length === 0
