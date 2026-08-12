@@ -200,12 +200,33 @@ const SINGLE_REPLY_SCHEMA = {
   required: ["say"],
 };
 
+// 캐릭터 설정 항목별 제안. 대화 근거가 없는 항목은 빈 문자열로 둘 수
+// 있어야 해서 required는 없다.
+const CHARACTER_PROFILE_SCHEMA = {
+  type: Type.OBJECT,
+  properties: {
+    oneLiner: { type: Type.STRING },
+    goal: { type: Type.STRING },
+    appearance: { type: Type.STRING },
+    scentNote: { type: Type.STRING },
+    personality: { type: Type.STRING },
+    speechStyle: { type: Type.STRING },
+    background: { type: Type.STRING },
+    lifeHistory: { type: Type.STRING },
+    relatedCharacters: { type: Type.STRING },
+    romance: { type: Type.STRING },
+    firstMessage: { type: Type.STRING },
+  },
+};
+
 async function generate(params: {
   systemInstruction: string;
   contents: Content[];
   json?: boolean;
   itemRange?: { min: number; max: number };
   singleReply?: boolean;
+  /** singleReply/배열 스키마 대신 쓸 커스텀 스키마 (있으면 이게 최우선) */
+  responseSchema?: object;
   /** 시도할 모델을 우선순위 순서대로. 앞 모델이 전체 키에서 quota로
    *  실패하면 다음 모델로 넘어간다. */
   models: string[];
@@ -233,24 +254,26 @@ async function generate(params: {
             ...(params.json
               ? {
                   responseMimeType: "application/json",
-                  responseSchema: params.singleReply
-                    ? SINGLE_REPLY_SCHEMA
-                    : {
-                        type: Type.ARRAY,
-                        items: {
-                          type: Type.OBJECT,
-                          properties: {
-                            t: { type: Type.STRING, enum: ["n", "d"] },
-                            text: { type: Type.STRING },
-                            who: { type: Type.STRING },
-                            act: { type: Type.STRING },
-                            say: { type: Type.STRING },
+                  responseSchema:
+                    params.responseSchema ??
+                    (params.singleReply
+                      ? SINGLE_REPLY_SCHEMA
+                      : {
+                          type: Type.ARRAY,
+                          items: {
+                            type: Type.OBJECT,
+                            properties: {
+                              t: { type: Type.STRING, enum: ["n", "d"] },
+                              text: { type: Type.STRING },
+                              who: { type: Type.STRING },
+                              act: { type: Type.STRING },
+                              say: { type: Type.STRING },
+                            },
+                            required: ["t"],
                           },
-                          required: ["t"],
-                        },
-                        minItems: String(minItems),
-                        maxItems: String(maxItems),
-                      },
+                          minItems: String(minItems),
+                          maxItems: String(maxItems),
+                        }),
                 }
               : {}),
           },
@@ -360,5 +383,18 @@ export async function generateStoryEpisode(params: {
     models: DIALOGUE_MODEL_CHAIN,
     // 5000자 안팎을 한 번에 쓰려면 대사 한 줄보다 시간이 걸릴 수 있어 여유를 둔다.
     timeoutMs: 55_000,
+  });
+}
+
+/** 대화 기록을 참고해 캐릭터 설정 항목별로 다듬은 글을 제안 (JSON 객체) */
+export async function generateCharacterProfile(params: {
+  systemInstruction: string;
+  contents: Content[];
+}): Promise<{ text: string; model: string; keyIndex: number }> {
+  return generate({
+    ...params,
+    json: true,
+    responseSchema: CHARACTER_PROFILE_SCHEMA,
+    models: DIALOGUE_MODEL_CHAIN,
   });
 }

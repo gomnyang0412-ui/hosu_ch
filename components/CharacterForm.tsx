@@ -5,12 +5,47 @@ import { useEffect, useState } from "react";
 import CharacterAvatar from "@/components/CharacterAvatar";
 import TopBar from "@/components/TopBar";
 import { resizeImageFile } from "@/lib/image";
-import { deleteCharacter, getCharacters, saveCharacter, StorageError } from "@/lib/storage";
-import { ACCENT_COLORS, type Character } from "@/lib/types";
+import {
+  deleteCharacter,
+  getChatHistory,
+  getCharacters,
+  saveCharacter,
+  StorageError,
+} from "@/lib/storage";
+import { ACCENT_COLORS, ORG_UNIVERSE_ID, type Character } from "@/lib/types";
 
 function pickAccentColor(existing: Character[]): Character["accentColor"] {
   return ACCENT_COLORS[existing.length % ACCENT_COLORS.length];
 }
+
+type ProfileFieldKey =
+  | "oneLiner"
+  | "goal"
+  | "appearance"
+  | "scentNote"
+  | "personality"
+  | "speechStyle"
+  | "background"
+  | "lifeHistory"
+  | "relatedCharacters"
+  | "romance"
+  | "firstMessage";
+
+const PROFILE_FIELD_LABELS: Record<ProfileFieldKey, string> = {
+  oneLiner: "한 줄 소개",
+  goal: "목표",
+  appearance: "외형 특징",
+  scentNote: "향 노트",
+  personality: "성격",
+  speechStyle: "말투",
+  background: "배경 이야기",
+  lifeHistory: "살아온 궤적",
+  relatedCharacters: "연관 인물",
+  romance: "애정 관계",
+  firstMessage: "첫 인사",
+};
+
+type ProfileSuggestions = Partial<Record<ProfileFieldKey, string>>;
 
 export default function CharacterForm({
   character,
@@ -46,6 +81,13 @@ export default function CharacterForm({
   );
   const [otherCharacters, setOtherCharacters] = useState<Character[]>([]);
 
+  const [hasHistory, setHasHistory] = useState(false);
+  const [suggesting, setSuggesting] = useState(false);
+  const [suggestError, setSuggestError] = useState("");
+  const [suggestions, setSuggestions] = useState<ProfileSuggestions | null>(
+    null
+  );
+
   useEffect(() => {
     getCharacters()
       .then((existing) => {
@@ -55,9 +97,90 @@ export default function CharacterForm({
       .catch(() => {
         // 실패해도 기본 색이 이미 지정되어 있으니 조용히 넘어간다
       });
+    if (character) {
+      getChatHistory(ORG_UNIVERSE_ID, character.id)
+        .then((history) => setHasHistory(history.length > 0))
+        .catch(() => {
+          // 확인 못 해도 버튼을 숨기기만 할 뿐, 편집 자체는 계속할 수 있다
+        });
+    }
     // 새 캐릭터일 때만 클라이언트에서 색을 배정한다 (서버 렌더링과의 불일치 방지)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const profileFieldState: Record<ProfileFieldKey, [string, (v: string) => void]> = {
+    oneLiner: [oneLiner, setOneLiner],
+    goal: [goal, setGoal],
+    appearance: [appearance, setAppearance],
+    scentNote: [scentNote, setScentNote],
+    personality: [personality, setPersonality],
+    speechStyle: [speechStyle, setSpeechStyle],
+    background: [background, setBackground],
+    lifeHistory: [lifeHistory, setLifeHistory],
+    relatedCharacters: [relatedCharacters, setRelatedCharacters],
+    romance: [romance, setRomance],
+    firstMessage: [firstMessage, setFirstMessage],
+  };
+
+  async function handleSuggestProfile() {
+    if (!character) return;
+    setSuggesting(true);
+    setSuggestError("");
+    setSuggestions(null);
+    try {
+      const history = await getChatHistory(ORG_UNIVERSE_ID, character.id).catch(
+        () => []
+      );
+      if (history.length === 0) {
+        setSuggestError("아직 이 캐릭터와 나눈 대화가 없어요.");
+        return;
+      }
+      const res = await fetch("/api/character-profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          character: {
+            name,
+            oneLiner,
+            goal,
+            appearance,
+            scentNote,
+            personality,
+            speechStyle,
+            background,
+            lifeHistory,
+            relatedCharacters,
+            romance,
+            firstMessage,
+          },
+          history,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setSuggestError(data.error ?? "설정을 다듬지 못했어요.");
+        return;
+      }
+      setSuggestions(data.profile ?? {});
+    } catch {
+      setSuggestError("네트워크 문제로 설정을 다듬지 못했어요.");
+    } finally {
+      setSuggesting(false);
+    }
+  }
+
+  function applySuggestion(key: ProfileFieldKey, value: string) {
+    profileFieldState[key][1](value);
+  }
+
+  function applyAllSuggestions() {
+    if (!suggestions) return;
+    for (const key of Object.keys(PROFILE_FIELD_LABELS) as ProfileFieldKey[]) {
+      const value = suggestions[key];
+      if (value) applySuggestion(key, value);
+    }
+    setSuggestions(null);
+  }
 
   async function handleImageChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -173,6 +296,91 @@ export default function CharacterForm({
             ))}
           </div>
         </div>
+
+        {isEdit && (
+          <div className="flex flex-col gap-2">
+            <button
+              type="button"
+              onClick={handleSuggestProfile}
+              disabled={suggesting || !hasHistory}
+              className="self-start rounded-full border border-border bg-card px-3 py-2 text-xs font-medium disabled:opacity-40"
+            >
+              {suggesting ? "대화 참고해서 다듬는 중…" : "✨ 대화 참고해서 설정 다듬기"}
+            </button>
+            {!hasHistory && (
+              <p className="text-xs text-muted">
+                아직 이 캐릭터와 나눈 1:1 대화가 없어요.
+              </p>
+            )}
+            {suggestError && (
+              <p className="text-xs text-red-600">{suggestError}</p>
+            )}
+
+            {suggestions && (
+              <div className="flex flex-col gap-3 rounded-2xl border border-primary/40 bg-card p-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold">AI가 다듬은 설정 제안</p>
+                  <button
+                    type="button"
+                    onClick={() => setSuggestions(null)}
+                    className="text-xs text-muted"
+                  >
+                    닫기
+                  </button>
+                </div>
+                {(Object.keys(PROFILE_FIELD_LABELS) as ProfileFieldKey[]).some(
+                  (key) => suggestions[key]
+                ) ? (
+                  <>
+                    <p className="text-xs text-muted">
+                      마음에 드는 항목만 골라 적용하세요. 적용하기 전까지는
+                      아무것도 바뀌지 않아요.
+                    </p>
+                    <div className="flex flex-col gap-3">
+                      {(Object.keys(PROFILE_FIELD_LABELS) as ProfileFieldKey[])
+                        .filter((key) => suggestions[key])
+                        .map((key) => (
+                          <div
+                            key={key}
+                            className="flex flex-col gap-1 rounded-xl bg-background p-2.5"
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-semibold">
+                                {PROFILE_FIELD_LABELS[key]}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  applySuggestion(key, suggestions[key] as string)
+                                }
+                                className="rounded-full bg-primary px-2.5 py-1 text-[11px] font-semibold text-primary-foreground"
+                              >
+                                적용
+                              </button>
+                            </div>
+                            <p className="whitespace-pre-wrap text-xs leading-relaxed text-foreground">
+                              {suggestions[key]}
+                            </p>
+                          </div>
+                        ))}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={applyAllSuggestions}
+                      className="rounded-xl border border-border py-2 text-xs font-semibold"
+                    >
+                      전체 적용
+                    </button>
+                  </>
+                ) : (
+                  <p className="text-xs text-muted">
+                    대화에서 새로 다듬을 만한 내용을 찾지 못했어요.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         <label className="flex flex-col gap-1.5">
           <span className="text-sm font-medium">이름</span>
