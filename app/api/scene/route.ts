@@ -9,12 +9,11 @@ import {
 import type { CharacterProfile, StoryEpisode, Universe } from "@/lib/types";
 
 export const runtime = "nodejs";
-// generateStoryEpisode의 재시도 전체는 42초 안에서 끝나도록 자체
-// 제한(overallDeadlineMs)이 있다. 여기 maxDuration은 그보다 여유를 둔
-// 값일 뿐 — 호스팅 플랫폼(특히 무료 플랜)의 실제 함수 실행 제한이 이
-// 숫자보다 짧을 수 있어서, 너무 크게 잡아봤자 의미가 없다. 실제 안전판은
-// generate() 안의 overallDeadlineMs다.
-export const maxDuration = 55;
+// 화 하나를 5000자 통째로 한 번에 쓰게 하면 그 호출 하나가 오래 걸려서
+// 호스팅 플랫폼의 함수 실행 제한에 걸리기 쉬웠다. 그래서 화 하나를 절반씩
+// 두 번의 짧은 호출로 나눠 쓰는데(아래 POST 참고), 그 두 호출 다 합쳐도
+// 넉넉하도록 여유를 둔다.
+export const maxDuration = 90;
 
 interface SceneRequestBody {
   characters: CharacterProfile[];
@@ -31,10 +30,15 @@ interface SceneRequestBody {
  *  전문으로 주고 그 이전 화들은 첫 문장 정도의 줄거리 개요로 압축한다 */
 const RECAP_PREVIEW_CHARS = 80;
 
+/** 화 하나(4500~5500자)를 한 호출로 쓰게 하면 호출 하나가 너무 오래
+ *  걸려서, 절반씩 두 번의 짧은 호출로 나눠 쓰고 이어 붙인다. */
+type Part = "first" | "second";
+
 function buildSystemInstruction(
   characters: CharacterProfile[],
   universe: Universe,
-  characterContext?: string
+  characterContext: string | undefined,
+  part: Part
 ): string {
   const blocks: string[] = [];
 
@@ -80,12 +84,16 @@ function buildSystemInstruction(
     ].join("\n")
   );
 
+  const lengthRule =
+    part === "first"
+      ? `지금 쓰는 건 이번 화의 앞부분이다. 분량은 공백 포함 2200~2800자 내외로 쓴다. 화를 매듭짓지 말고, 이야기가 계속 이어질 수 있는 자연스러운 지점에서 멈춘다.`
+      : `지금 쓰는 건 이번 화의 나머지 뒷부분이다. [지금까지 쓴 이번 화 앞부분]에 바로 이어서, 그 내용을 반복하거나 요약하지 말고 쓴다. 분량은 공백 포함 2200~2800자 내외로 쓴다. 이번 화를 여기서 마무리하되, 완전히 매듭짓지 말고 다음 화가 자연스럽게 이어질 수 있게 여운을 남기며 끝낸다.`;
+
   blocks.push(
     [
       `[규칙]`,
-      `분량은 공백 포함 4500~5500자 내외로 쓴다.`,
+      lengthRule,
       `인물들은 서로에게만 말하고, 독자를 의식하거나 독자에게 말을 걸지 않는다.`,
-      `이번 화 안에서도 하나의 짧은 흐름을 갖되, 이야기를 완전히 매듭짓지 말고 다음 화가 자연스럽게 이어질 수 있게 여운을 남기며 끝낸다.`,
       `사용자가 [다음 화 지시]를 줬다면 그 사건이 이번 화 안에서 분명히 일어나게 하되, 그 사건에 이르는 과정·전후 전개·세부 묘사는 자유롭게 창작한다.`,
       `각 인물의 행동·대사를 정할 때는 직전 흐름의 관성보다 위 [등장 인물] 항목의 성격·말투를 매번 다시 기준으로 삼는다.`,
       `설정에 없는 부분은 각 인물의 성격에 맞게 자연스럽게 채우되 세계관과 모순되지 않게 한다.`,
@@ -107,7 +115,8 @@ function buildUserText(
   topic: string,
   previousEpisodes: StoryEpisode[] | undefined,
   nextIndex: number,
-  directive?: string
+  directive?: string,
+  writtenSoFar?: string
 ): string {
   const blocks = [`주제: ${topic}`];
   const earlier = previousEpisodes?.slice(0, -1) ?? [];
@@ -135,12 +144,17 @@ function buildUserText(
     blocks.push(``, `[다음 화 지시]`, directive.trim());
   }
 
-  blocks.push(
-    ``,
-    last
-      ? `위 이야기에 자연스럽게 이어지는 ${nextIndex}화를 써줘.`
-      : `위 주제로 1화를 시작해줘.`
-  );
+  if (writtenSoFar) {
+    blocks.push(``, `[지금까지 쓴 이번 화 앞부분]`, writtenSoFar);
+    blocks.push(``, `위 앞부분에 바로 이어서 ${nextIndex}화의 나머지를 써줘.`);
+  } else {
+    blocks.push(
+      ``,
+      last
+        ? `위 이야기에 자연스럽게 이어지는 ${nextIndex}화를 시작해줘.`
+        : `위 주제로 1화를 시작해줘.`
+    );
+  }
 
   return blocks.join("\n");
 }
@@ -168,30 +182,52 @@ export async function POST(request: Request) {
   }
 
   const nextIndex = (body.previousEpisodes?.length ?? 0) + 1;
-  const userText = buildUserText(
-    body.topic.trim(),
-    body.previousEpisodes,
-    nextIndex,
-    body.directive
-  );
-  const contents: Content[] = [{ role: "user", parts: [{ text: userText }] }];
 
   try {
-    const { text } = await generateStoryEpisode({
+    const firstText = buildUserText(
+      body.topic.trim(),
+      body.previousEpisodes,
+      nextIndex,
+      body.directive
+    );
+    const { text: firstRaw } = await generateStoryEpisode({
       systemInstruction: buildSystemInstruction(
         body.characters,
         body.universe,
-        body.characterContext
+        body.characterContext,
+        "first"
       ),
-      contents,
+      contents: [{ role: "user", parts: [{ text: firstText }] }],
     });
-    const trimmed = text.trim();
-    if (!trimmed) {
+    const firstPart = firstRaw.trim();
+    if (!firstPart) {
       throw new Error("이번 화를 만들어내지 못했어요. 다시 시도해 주세요.");
     }
+
+    const secondText = buildUserText(
+      body.topic.trim(),
+      body.previousEpisodes,
+      nextIndex,
+      body.directive,
+      firstPart
+    );
+    const { text: secondRaw } = await generateStoryEpisode({
+      systemInstruction: buildSystemInstruction(
+        body.characters,
+        body.universe,
+        body.characterContext,
+        "second"
+      ),
+      contents: [{ role: "user", parts: [{ text: secondText }] }],
+    });
+    const secondPart = secondRaw.trim();
+    if (!secondPart) {
+      throw new Error("이번 화를 만들어내지 못했어요. 다시 시도해 주세요.");
+    }
+
     const episode: StoryEpisode = {
       index: nextIndex,
-      text: trimmed,
+      text: `${firstPart}\n\n${secondPart}`,
       directive: body.directive?.trim() || undefined,
     };
     return NextResponse.json({ episode });
