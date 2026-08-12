@@ -2,9 +2,9 @@ import type { Content } from "@google/genai";
 import { NextResponse } from "next/server";
 import { getCharacterMemory } from "@/lib/db";
 import {
-  GeminiRequestError,
   characterLines,
   generateChatReply,
+  geminiErrorResponse,
   worldBlock,
 } from "@/lib/gemini";
 import { buildMemoryBlock } from "@/lib/memory";
@@ -175,20 +175,6 @@ export async function POST(request: Request) {
     );
     return NextResponse.json({ items, text: serializeItems(items) });
   } catch (err) {
-    if (err instanceof GeminiRequestError) {
-      const status = err.kind === "quota" ? 429 : 502;
-      return NextResponse.json(
-        { error: err.message, kind: err.kind },
-        { status }
-      );
-    }
-    return NextResponse.json(
-      {
-        error:
-          err instanceof Error ? err.message : "알 수 없는 오류가 발생했어요.",
-        kind: "parse",
-      },
-      { status: 502 }
-    );
+    return geminiErrorResponse(err);
   }
 }

@@ -29,7 +29,7 @@ import {
 
 interface ThreadErrorState {
   message: string;
-  kind: "quota" | "network" | "unknown" | "parse";
+  kind: "quota" | "network" | "overloaded" | "unknown" | "parse";
 }
 
 function findParticipant(

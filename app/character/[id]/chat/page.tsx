@@ -55,7 +55,7 @@ import {
 
 interface ChatErrorState {
   message: string;
-  kind: "quota" | "network" | "unknown" | "parse";
+  kind: "quota" | "network" | "overloaded" | "unknown" | "parse";
 }
 
 /** items가 없는 예전 메시지는 대사 1개짜리로 감싸서 보여준다 */

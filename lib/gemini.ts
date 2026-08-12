@@ -9,6 +9,7 @@ import {
   type Content,
   type SafetySetting,
 } from "@google/genai";
+import { NextResponse } from "next/server";
 import type { CharacterProfile, Universe } from "./types";
 
 // 캐릭터 롤플레이는 갈등·위협·권력관계 같은 긴장된 상황을 다루는 경우가
@@ -61,7 +62,7 @@ const DIALOGUE_MODELS = [
 const LITE_MODEL = "gemini-3.5-flash-lite";
 const DIALOGUE_MODEL_CHAIN = [...DIALOGUE_MODELS, LITE_MODEL];
 
-export type GeminiErrorKind = "quota" | "network" | "unknown";
+export type GeminiErrorKind = "quota" | "network" | "overloaded" | "unknown";
 
 export class GeminiRequestError extends Error {
   kind: GeminiErrorKind;
@@ -70,6 +71,28 @@ export class GeminiRequestError extends Error {
     this.name = "GeminiRequestError";
     this.kind = kind;
   }
+}
+
+/**
+ * Gemini를 호출하는 모든 Route Handler의 공통 에러 응답. 각 라우트가
+ * 거의 똑같은 catch 블록을 따로 들고 있던 걸 여기 하나로 모았다.
+ */
+export function geminiErrorResponse(err: unknown): NextResponse {
+  if (err instanceof GeminiRequestError) {
+    const status =
+      err.kind === "quota" ? 429 : err.kind === "overloaded" ? 503 : 502;
+    return NextResponse.json(
+      { error: err.message, kind: err.kind },
+      { status }
+    );
+  }
+  return NextResponse.json(
+    {
+      error: err instanceof Error ? err.message : "알 수 없는 오류가 발생했어요.",
+      kind: "unknown",
+    },
+    { status: 502 }
+  );
 }
 
 let clients: GoogleGenAI[] | null = null;
@@ -110,6 +133,16 @@ function toGeminiError(err: unknown): GeminiRequestError {
       return new GeminiRequestError(
         "오늘 사용량을 다 썼어요. 잠시 후 다시 시도해 주세요.",
         "quota"
+      );
+    }
+    // 503(UNAVAILABLE)·500은 이 키·계정의 문제가 아니라 구글 쪽 모델
+    // 서버가 일시적으로 혼잡한 것이다. 다른 모델·키로 넘어가면 될
+    // 확률이 높으니 quota와 똑같이 "다음으로 넘어가도 되는" 오류로
+    // 취급한다.
+    if (err.status === 503 || err.status === 500) {
+      return new GeminiRequestError(
+        "AI 서버가 지금 일시적으로 혼잡해요. 잠시 후 다시 시도해 주세요.",
+        "overloaded"
       );
     }
     return new GeminiRequestError(
@@ -296,10 +329,11 @@ async function generate(params: {
       } catch (err) {
         if (isModelUnavailable(err)) break; // 이 모델 자체가 없음 → 바로 다음 모델로
         const mapped = toGeminiError(err);
-        // 사용량 초과가 아닌 오류는 다른 키/모델로 시도해도 똑같이 실패할
-        // 가능성이 높으니 바로 실패 처리한다. 사용량 초과일 때만 다음
-        // 키로, 그것도 다 떨어지면 다음 모델로 넘어간다.
-        if (mapped.kind !== "quota") throw mapped;
+        // 사용량 초과(quota)나 서버 혼잡(overloaded)이 아닌 오류는 다른
+        // 키/모델로 시도해도 똑같이 실패할 가능성이 높으니 바로 실패
+        // 처리한다. 이 둘일 때만 다음 키로, 그것도 다 떨어지면 다음
+        // 모델로 넘어간다.
+        if (mapped.kind !== "quota" && mapped.kind !== "overloaded") throw mapped;
         lastError = mapped;
       }
     }

@@ -1,6 +1,6 @@
 import type { Content } from "@google/genai";
 import { NextResponse } from "next/server";
-import { GeminiRequestError, generateCharacterProfile } from "@/lib/gemini";
+import { generateCharacterProfile, geminiErrorResponse } from "@/lib/gemini";
 import type { ChatMessage } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -119,19 +119,6 @@ export async function POST(request: Request) {
     }
     return NextResponse.json({ profile });
   } catch (err) {
-    if (err instanceof GeminiRequestError) {
-      const status = err.kind === "quota" ? 429 : 502;
-      return NextResponse.json(
-        { error: err.message, kind: err.kind },
-        { status }
-      );
-    }
-    return NextResponse.json(
-      {
-        error: err instanceof Error ? err.message : "알 수 없는 오류가 발생했어요.",
-        kind: "parse",
-      },
-      { status: 502 }
-    );
+    return geminiErrorResponse(err);
   }
 }

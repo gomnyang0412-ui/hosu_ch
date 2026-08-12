@@ -1,9 +1,9 @@
 import type { Content } from "@google/genai";
 import { NextResponse } from "next/server";
 import {
-  GeminiRequestError,
   characterLines,
   generateSummaryText,
+  geminiErrorResponse,
   worldBlock,
 } from "@/lib/gemini";
 import type { CharacterProfile, StoryEpisode, Universe } from "@/lib/types";
@@ -89,16 +89,6 @@ export async function POST(request: Request) {
     });
     return NextResponse.json({ summary: summary.trim() });
   } catch (err) {
-    if (err instanceof GeminiRequestError) {
-      const status = err.kind === "quota" ? 429 : 502;
-      return NextResponse.json(
-        { error: err.message, kind: err.kind },
-        { status }
-      );
-    }
-    return NextResponse.json(
-      { error: "알 수 없는 오류가 발생했어요.", kind: "unknown" },
-      { status: 500 }
-    );
+    return geminiErrorResponse(err);
   }
 }

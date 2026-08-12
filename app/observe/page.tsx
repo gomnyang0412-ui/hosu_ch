@@ -28,7 +28,7 @@ import {
 
 interface SceneErrorState {
   message: string;
-  kind: "quota" | "network" | "unknown" | "parse";
+  kind: "quota" | "network" | "overloaded" | "unknown" | "parse";
 }
 
 function storyTitle(session: ObservationSession, characters: Character[]): string {
