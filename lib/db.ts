@@ -51,7 +51,9 @@ const KEYS = {
   /** 예전 버전(단일 세계관)이 쓰던 키. ORG 마이그레이션에만 읽는다. */
   legacyWorld: "cc:world",
   chatPrefix: "cc:chat:",
+  /** 예전 버전(유니버스당 진행 중인 이야기 1개)이 쓰던 키. 목록 형식 마이그레이션에만 읽는다. */
   observationPrefix: "cc:observation:",
+  storiesPrefix: "cc:stories:",
   threadsPrefix: "cc:threads:",
   memoryPrefix: "cc:memory:",
   chatVoicePrefix: "cc:chatvoice:",
@@ -93,6 +95,10 @@ function legacyChatKey(characterId: string) {
 
 function observationKey(universeId: string) {
   return `${KEYS.observationPrefix}${universeId}`;
+}
+
+function storiesKey(universeId: string) {
+  return `${KEYS.storiesPrefix}${universeId}`;
 }
 
 function threadsKey(universeId: string) {
@@ -223,6 +229,7 @@ export async function deleteUniverse(id: string): Promise<void> {
     universes.filter((u) => u.id !== id)
   );
   await getRedis().del(observationKey(id));
+  await getRedis().del(storiesKey(id));
   await getRedis().del(threadsKey(id));
 }
 
@@ -369,38 +376,63 @@ export async function saveCharacterMemory(
   await getRedis().set(memoryKey(memory.characterId), memory);
 }
 
-// ---------- 관찰 모드 세션 (유니버스별) ----------
+// ---------- 관찰 모드 이야기 (유니버스별, 여러 편 저장) ----------
 
-export async function getObservationSession(
+export async function getStories(
   universeId: string
-): Promise<ObservationSession | null> {
-  const existing = await getRedis().get<ObservationSession>(
+): Promise<ObservationSession[]> {
+  const stories = await getRedis().get<ObservationSession[]>(
+    storiesKey(universeId)
+  );
+  if (stories) return stories;
+
+  // 예전 버전(유니버스당 진행 중인 이야기 1개)에 남아있던 이야기가 있다면
+  // 잃어버리지 않도록 목록의 첫 항목으로 옮겨온다.
+  const legacy = await getRedis().get<ObservationSession>(
     observationKey(universeId)
   );
-  if (existing) return existing;
-  if (universeId === ORG_UNIVERSE_ID) {
-    // 예전 버전(유니버스 구분이 없던 시절)의 관찰 세션을 그대로 보여준다.
-    const legacy = await getRedis().get<Omit<ObservationSession, "universeId">>(
-      "cc:observation"
-    );
-    if (legacy) return { ...legacy, universeId: ORG_UNIVERSE_ID };
+  if (legacy && Array.isArray(legacy.episodes) && legacy.episodes.length > 0) {
+    const migrated: ObservationSession = {
+      ...legacy,
+      id: legacy.id ?? crypto.randomUUID(),
+      universeId,
+    };
+    await getRedis().set(storiesKey(universeId), [migrated]);
+    return [migrated];
   }
-  return null;
+  return [];
 }
 
-export async function saveObservationSession(
-  session: ObservationSession
-): Promise<void> {
-  await getRedis().set(observationKey(session.universeId), session);
+export async function getStory(
+  universeId: string,
+  storyId: string
+): Promise<ObservationSession | undefined> {
+  const stories = await getStories(universeId);
+  return stories.find((s) => s.id === storyId);
 }
 
-export async function clearObservationSession(
-  universeId: string
-): Promise<void> {
-  await getRedis().del(observationKey(universeId));
-  if (universeId === ORG_UNIVERSE_ID) {
-    await getRedis().del("cc:observation");
+/** 이야기 하나를 만들거나 덮어쓴다 (id가 같으면 수정) */
+export async function saveStory(story: ObservationSession): Promise<void> {
+  const stories = await getStories(story.universeId);
+  const key = storiesKey(story.universeId);
+  const idx = stories.findIndex((s) => s.id === story.id);
+  if (idx >= 0) {
+    stories[idx] = story;
+  } else {
+    stories.push(story);
   }
+  await getRedis().set(key, stories);
+}
+
+export async function deleteStory(
+  universeId: string,
+  storyId: string
+): Promise<void> {
+  const stories = await getStories(universeId);
+  await getRedis().set(
+    storiesKey(universeId),
+    stories.filter((s) => s.id !== storyId)
+  );
 }
 
 // ---------- 멀티 캐릭터 대화방 (유니버스별, 여러 개 가능) ----------

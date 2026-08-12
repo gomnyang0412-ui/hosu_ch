@@ -186,10 +186,13 @@ export interface StoryEpisode {
   index: number;
   /** 완성된 본문 (평문, 대사는 큰따옴표로 문단 안에 녹아 있음) */
   text: string;
+  /** 이 화를 쓸 때 사용자가 준 한 줄짜리 방향 지시 (없으면 자유 전개) */
+  directive?: string;
 }
 
-/** 진행 중인 관찰 모드 세션 (캐릭터 선택 + 주제 + 지금까지 이어 쓴 화들) */
+/** 관찰 모드로 이어 쓰는 단편소설 하나 (캐릭터 선택 + 주제 + 지금까지 이어 쓴 화들) */
 export interface ObservationSession {
+  id: string;
   universeId: string;
   characterIds: string[];
   topic: string;

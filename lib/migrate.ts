@@ -1,25 +1,17 @@
 // 예전 버전(브라우저 localStorage 저장 방식)에 남아있던 데이터를
 // 서버가 비어있을 때 한 번만 서버로 옮기는 마이그레이션.
-import {
-  getCharacters,
-  saveCharacter,
-  saveChatHistory,
-  saveUniverse,
-  saveObservationSession,
-} from "./storage";
+import { getCharacters, saveCharacter, saveChatHistory, saveUniverse } from "./storage";
 import {
   ORG_UNIVERSE_ID,
   createOrgUniverse,
   type Character,
   type ChatMessage,
-  type ObservationSession,
 } from "./types";
 
 const OLD_KEYS = {
   characters: "cc_characters",
   world: "cc_world",
   chatPrefix: "cc_chat_",
-  observation: "cc_observation",
 } as const;
 
 /** 유니버스 개념이 생기기 전, localStorage에 저장되던 세계관 형태 */
@@ -71,13 +63,6 @@ export async function migrateFromLocalStorageIfNeeded(): Promise<void> {
         org.relations[0] = oldWorld.relatedPeople;
       }
       await saveUniverse(org);
-    }
-
-    const observation = readLocal<Omit<ObservationSession, "universeId">>(
-      OLD_KEYS.observation
-    );
-    if (observation) {
-      await saveObservationSession({ ...observation, universeId: ORG_UNIVERSE_ID });
     }
   } catch {
     // 일부만 옮겨졌더라도 로컬 데이터는 그대로 남아있으니 다음에 다시 시도된다

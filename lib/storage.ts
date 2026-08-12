@@ -188,30 +188,41 @@ export async function saveChatPlayerOverride(
   });
 }
 
-// ---------- 관찰 모드 세션 ----------
+// ---------- 관찰 모드 이야기 (유니버스별, 여러 편 저장) ----------
 
-export async function getObservationSession(
+export async function getStories(
   universeId: string
-): Promise<ObservationSession | null> {
-  const data = await request<{ session: ObservationSession | null }>(
-    `/api/data/observation/${universeId}`
+): Promise<ObservationSession[]> {
+  const data = await request<{ stories: ObservationSession[] }>(
+    `/api/data/stories/${universeId}`
   );
-  return data.session;
+  return data.stories;
 }
 
-export async function saveObservationSession(
-  session: ObservationSession
-): Promise<void> {
-  await request(`/api/data/observation/${session.universeId}`, {
+export async function getStory(
+  universeId: string,
+  storyId: string
+): Promise<ObservationSession | null> {
+  const data = await request<{ story: ObservationSession | null }>(
+    `/api/data/stories/${universeId}/${storyId}`
+  );
+  return data.story;
+}
+
+export async function saveStory(story: ObservationSession): Promise<void> {
+  await request(`/api/data/stories/${story.universeId}`, {
     method: "POST",
-    body: JSON.stringify(session),
+    body: JSON.stringify(story),
   });
 }
 
-export async function clearObservationSession(
-  universeId: string
+export async function deleteStory(
+  universeId: string,
+  storyId: string
 ): Promise<void> {
-  await request(`/api/data/observation/${universeId}`, { method: "DELETE" });
+  await request(`/api/data/stories/${universeId}/${storyId}`, {
+    method: "DELETE",
+  });
 }
 
 // ---------- 멀티 캐릭터 대화방 ----------

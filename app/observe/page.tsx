@@ -1,20 +1,20 @@
 "use client";
 
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
 import BottomNav from "@/components/BottomNav";
 import CharacterAvatar from "@/components/CharacterAvatar";
 import {
   getCharacters,
   getChatHistory,
-  getObservationSession,
+  getStories,
   getUniverse,
-  saveObservationSession,
-  clearObservationSession,
+  saveStory,
+  deleteStory,
 } from "@/lib/storage";
 import { resolveUniverseTemplate } from "@/lib/template";
 import {
-  ACCENT_COLORS,
   ORG_UNIVERSE_ID,
   createOrgUniverse,
   toCharacterProfile,
@@ -29,13 +29,19 @@ interface SceneErrorState {
   kind: "quota" | "network" | "unknown" | "parse";
 }
 
-/** 옛 버전(장면 항목 배열 형식)의 세션은 새 화 형식으로 표시할 수 없어
- *  없는 세션과 동일하게 취급하고 새로 시작하게 한다 */
-function normalizeSession(
-  session: ObservationSession | null
-): ObservationSession | null {
-  if (session && Array.isArray(session.episodes)) return session;
-  return null;
+function storyTitle(session: ObservationSession, characters: Character[]): string {
+  const names = session.characterIds
+    .map((id) => characters.find((c) => c.id === id)?.name)
+    .filter((n): n is string => !!n);
+  const namePart = names.join(" X ") || "이야기";
+  return session.topic.trim() ? `${namePart} · ${session.topic.trim()}` : namePart;
+}
+
+function formatDate(ts: number): string {
+  return new Date(ts).toLocaleDateString("ko-KR", {
+    month: "long",
+    day: "numeric",
+  });
 }
 
 export default function ObservePage() {
@@ -47,42 +53,46 @@ export default function ObservePage() {
 }
 
 function ObservePageInner() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const universeId = searchParams.get("universe") || ORG_UNIVERSE_ID;
+  const storyId = searchParams.get("story");
 
   const [universe, setUniverse] = useState<Universe | null>(null);
   const [allCharacters, setAllCharacters] = useState<Character[]>([]);
-  const [session, setSession] = useState<ObservationSession | null | undefined>(
-    undefined
-  );
+  const [stories, setStories] = useState<ObservationSession[] | null>(null);
+  const [showNewForm, setShowNewForm] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [hasHistoryIds, setHasHistoryIds] = useState<Set<string>>(new Set());
   const [importIds, setImportIds] = useState<string[]>([]);
   const [topic, setTopic] = useState("");
+  const [directive, setDirective] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<SceneErrorState | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const [loadError, setLoadError] = useState("");
 
   useEffect(() => {
-    setSession(undefined);
+    setStories(null);
+    setShowNewForm(false);
     setSelectedIds([]);
     setImportIds([]);
     setTopic("");
+    setDirective("");
     setError(null);
     (async () => {
       try {
-        const [characters, obsSession, foundUniverse] = await Promise.all([
+        const [characters, storyList, foundUniverse] = await Promise.all([
           getCharacters(),
-          getObservationSession(universeId),
+          getStories(universeId),
           getUniverse(universeId).catch(() => undefined),
         ]);
         setAllCharacters(characters);
-        setSession(normalizeSession(obsSession));
+        setStories(storyList);
         const resolvedFoundUniverse = foundUniverse ?? createOrgUniverse();
         setUniverse(resolvedFoundUniverse);
         if (
-          !obsSession &&
           resolvedFoundUniverse.type === "au" &&
           resolvedFoundUniverse.roleA &&
           resolvedFoundUniverse.roleB
@@ -105,10 +115,12 @@ function ObservePageInner() {
         );
       } catch {
         setLoadError("불러오지 못했어요. 새로고침해 주세요.");
-        setSession(null);
+        setStories([]);
       }
     })();
   }, [universeId]);
+
+  const session = stories?.find((s) => s.id === storyId) ?? null;
 
   const sceneCharacters = session
     ? session.characterIds
@@ -165,6 +177,7 @@ function ObservePageInner() {
     topic: string;
     previousEpisodes?: StoryEpisode[];
     characterContext?: string;
+    directive?: string;
   }) {
     if (!universe) return null;
     setLoading(true);
@@ -179,6 +192,7 @@ function ObservePageInner() {
           topic: params.topic,
           previousEpisodes: params.previousEpisodes,
           characterContext: params.characterContext,
+          directive: params.directive,
         }),
       });
       const data = await res.json();
@@ -219,7 +233,8 @@ function ObservePageInner() {
       characterContext,
     });
     if (!episode) return;
-    const newSession: ObservationSession = {
+    const newStory: ObservationSession = {
+      id: crypto.randomUUID(),
       universeId,
       characterIds: selectedIds,
       topic: topic.trim(),
@@ -228,12 +243,13 @@ function ObservePageInner() {
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
-    setSession(newSession);
+    setStories((prev) => [...(prev ?? []), newStory]);
     try {
-      await saveObservationSession(newSession);
+      await saveStory(newStory);
     } catch {
       setError({ message: "이번 화를 저장하지 못했어요.", kind: "unknown" });
     }
+    router.push(`/observe?universe=${universeId}&story=${newStory.id}`);
   }
 
   async function handleContinue() {
@@ -243,6 +259,7 @@ function ObservePageInner() {
       topic: session.topic,
       previousEpisodes: session.episodes,
       characterContext: session.characterContext,
+      directive: directive.trim() || undefined,
     });
     if (!episode) return;
     const updated: ObservationSession = {
@@ -250,30 +267,37 @@ function ObservePageInner() {
       episodes: [...session.episodes, episode],
       updatedAt: Date.now(),
     };
-    setSession(updated);
+    setStories((prev) =>
+      (prev ?? []).map((s) => (s.id === updated.id ? updated : s))
+    );
+    setDirective("");
     try {
-      await saveObservationSession(updated);
+      await saveStory(updated);
     } catch {
       setError({ message: "이번 화를 저장하지 못했어요.", kind: "unknown" });
     }
   }
 
-  async function handleRestart() {
-    if (!window.confirm("지금 이야기를 지우고 새로 시작할까요?")) return;
+  async function handleDeleteStory(id: string) {
+    if (!window.confirm("이 이야기를 삭제할까요? 되돌릴 수 없어요.")) return;
+    setDeletingId(id);
     try {
-      await clearObservationSession(universeId);
+      await deleteStory(universeId, id);
+      setStories((prev) => (prev ?? []).filter((s) => s.id !== id));
+      if (storyId === id) {
+        router.push(`/observe?universe=${universeId}`);
+      }
     } catch {
-      // 서버에서 못 지웠어도 화면은 새 설정 화면으로 돌아간다
+      setError({ message: "이야기를 지우지 못했어요.", kind: "unknown" });
+    } finally {
+      setDeletingId(null);
     }
-    setSession(null);
-    setSelectedIds([]);
-    setTopic("");
-    setError(null);
   }
 
-  if (session === undefined) return null;
+  if (stories === null) return null;
 
   const isAu = universe && universe.type === "au";
+  const showForm = showNewForm || stories.length === 0;
 
   return (
     <div className="flex flex-1 flex-col">
@@ -281,14 +305,34 @@ function ObservePageInner() {
         <h1 className="text-xl font-bold">
           관찰 모드{isAu && <span className="text-muted"> · {universe.title}</span>}
         </h1>
-        {session && (
-          <button
-            type="button"
-            onClick={handleRestart}
-            className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted"
-          >
-            🔄 새로 시작
-          </button>
+        {session ? (
+          <div className="flex items-center gap-1">
+            <Link
+              href={`/observe?universe=${universeId}`}
+              className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted"
+            >
+              ← 목록
+            </Link>
+            <button
+              type="button"
+              onClick={() => handleDeleteStory(session.id)}
+              disabled={deletingId === session.id}
+              className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-red-600 disabled:opacity-40"
+            >
+              🗑 삭제
+            </button>
+          </div>
+        ) : (
+          !showForm &&
+          stories.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowNewForm(true)}
+              className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground"
+            >
+              + 새 이야기
+            </button>
+          )
         )}
       </header>
 
@@ -302,7 +346,7 @@ function ObservePageInner() {
                 <br />
                 캐릭터 탭에서 먼저 캐릭터를 추가해 주세요.
               </p>
-            ) : (
+            ) : showForm ? (
               <>
                 <div>
                   <p className="mb-2 text-sm font-medium">
@@ -401,7 +445,50 @@ function ObservePageInner() {
                       : "1화를 쓰는 중…"
                     : "이야기 시작"}
                 </button>
+
+                {stories.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowNewForm(false)}
+                    className="self-start text-xs text-muted underline"
+                  >
+                    ← 목록으로
+                  </button>
+                )}
               </>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {stories
+                  .slice()
+                  .sort((a, b) => b.updatedAt - a.updatedAt)
+                  .map((s) => (
+                    <div
+                      key={s.id}
+                      className="card-shadow flex items-center gap-3 rounded-2xl bg-card p-3"
+                    >
+                      <Link
+                        href={`/observe?universe=${universeId}&story=${s.id}`}
+                        className="min-w-0 flex-1"
+                      >
+                        <p className="truncate font-semibold">
+                          {storyTitle(s, allCharacters)}
+                        </p>
+                        <p className="text-xs text-muted">
+                          {s.episodes.length}화 · {formatDate(s.updatedAt)}
+                        </p>
+                      </Link>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteStory(s.id)}
+                        disabled={deletingId === s.id}
+                        aria-label="이야기 삭제"
+                        className="shrink-0 text-sm text-muted hover:text-red-600 disabled:opacity-40"
+                      >
+                        🗑
+                      </button>
+                    </div>
+                  ))}
+              </div>
             )}
           </div>
         ) : (
@@ -428,6 +515,11 @@ function ObservePageInner() {
                   <h2 className="text-sm font-semibold text-muted">
                     {ep.index}화
                   </h2>
+                  {ep.directive && (
+                    <p className="text-xs italic text-muted">
+                      🎬 지시: {ep.directive}
+                    </p>
+                  )}
                   <div className="flex flex-col gap-4">
                     {ep.text
                       .split(/\n+/)
@@ -466,13 +558,27 @@ function ObservePageInner() {
             )}
 
             {!loading && (
-              <button
-                type="button"
-                onClick={handleContinue}
-                className="rounded-xl border border-border bg-card py-3 text-sm font-semibold"
-              >
-                {session.episodes.length + 1}화 이어쓰기
-              </button>
+              <div className="flex flex-col gap-2">
+                <label className="flex flex-col gap-1.5">
+                  <span className="text-xs font-medium text-muted">
+                    다음 화 지시 (선택)
+                  </span>
+                  <input
+                    type="text"
+                    value={directive}
+                    onChange={(e) => setDirective(e.target.value)}
+                    placeholder="예: 민준은 서연과 함께 도서관으로 이동한다"
+                    className="rounded-xl border border-border bg-card p-2.5 text-sm outline-none focus:border-primary/50"
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={handleContinue}
+                  className="rounded-xl border border-border bg-card py-3 text-sm font-semibold"
+                >
+                  {session.episodes.length + 1}화 이어쓰기
+                </button>
+              </div>
             )}
           </div>
         )}

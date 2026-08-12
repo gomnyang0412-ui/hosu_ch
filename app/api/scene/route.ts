@@ -19,6 +19,8 @@ interface SceneRequestBody {
   previousEpisodes?: StoryEpisode[];
   /** 시작할 때 한 번 가져온 등장인물들의 1:1 대화 요약 (있으면 매 화 계속 같이 보냄) */
   characterContext?: string;
+  /** 사용자가 이번 화에 반드시 들어가길 바라는 사건 한 줄 (없으면 자유 전개) */
+  directive?: string;
 }
 
 /** 앞선 화들을 매번 전문으로 다시 보내면 갈수록 느려지니, 바로 직전 화만
@@ -80,6 +82,7 @@ function buildSystemInstruction(
       `분량은 공백 포함 4500~5500자 내외로 쓴다.`,
       `인물들은 서로에게만 말하고, 독자를 의식하거나 독자에게 말을 걸지 않는다.`,
       `이번 화 안에서도 하나의 짧은 흐름을 갖되, 이야기를 완전히 매듭짓지 말고 다음 화가 자연스럽게 이어질 수 있게 여운을 남기며 끝낸다.`,
+      `사용자가 [다음 화 지시]를 줬다면 그 사건이 이번 화 안에서 분명히 일어나게 하되, 그 사건에 이르는 과정·전후 전개·세부 묘사는 자유롭게 창작한다.`,
       `각 인물의 행동·대사를 정할 때는 직전 흐름의 관성보다 위 [등장 인물] 항목의 성격·말투를 매번 다시 기준으로 삼는다.`,
       `설정에 없는 부분은 각 인물의 성격에 맞게 자연스럽게 채우되 세계관과 모순되지 않게 한다.`,
     ].join("\n")
@@ -99,7 +102,8 @@ function buildSystemInstruction(
 function buildUserText(
   topic: string,
   previousEpisodes: StoryEpisode[] | undefined,
-  nextIndex: number
+  nextIndex: number,
+  directive?: string
 ): string {
   const blocks = [`주제: ${topic}`];
   const earlier = previousEpisodes?.slice(0, -1) ?? [];
@@ -121,10 +125,18 @@ function buildUserText(
 
   if (last) {
     blocks.push(``, `[바로 직전 화 전문 (${last.index}화)]`, last.text);
-    blocks.push(``, `위 이야기에 자연스럽게 이어지는 ${nextIndex}화를 써줘.`);
-  } else {
-    blocks.push(``, `위 주제로 1화를 시작해줘.`);
   }
+
+  if (directive?.trim()) {
+    blocks.push(``, `[다음 화 지시]`, directive.trim());
+  }
+
+  blocks.push(
+    ``,
+    last
+      ? `위 이야기에 자연스럽게 이어지는 ${nextIndex}화를 써줘.`
+      : `위 주제로 1화를 시작해줘.`
+  );
 
   return blocks.join("\n");
 }
@@ -155,7 +167,8 @@ export async function POST(request: Request) {
   const userText = buildUserText(
     body.topic.trim(),
     body.previousEpisodes,
-    nextIndex
+    nextIndex,
+    body.directive
   );
   const contents: Content[] = [{ role: "user", parts: [{ text: userText }] }];
 
@@ -172,7 +185,11 @@ export async function POST(request: Request) {
     if (!trimmed) {
       throw new Error("이번 화를 만들어내지 못했어요. 다시 시도해 주세요.");
     }
-    const episode: StoryEpisode = { index: nextIndex, text: trimmed };
+    const episode: StoryEpisode = {
+      index: nextIndex,
+      text: trimmed,
+      directive: body.directive?.trim() || undefined,
+    };
     return NextResponse.json({ episode });
   } catch (err) {
     if (err instanceof GeminiRequestError) {
