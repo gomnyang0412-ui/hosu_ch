@@ -337,12 +337,17 @@ export async function POST(request: Request) {
 
       try {
         reactionItems = await attemptReactions();
-      } catch {
+      } catch (err) {
+        // 반응 단계는 실패해도 대화 자체를 막지 않는 best-effort라 사용자
+        // 화면엔 그냥 조용히 넘어가지만, 왜 실패하는지 원인 파악을 위해
+        // 서버 로그에는 남긴다.
+        console.error("[room-chat] 반응 1차 시도 실패:", err);
         try {
           reactionItems = await attemptReactions(
             `(방금 응답에는 아무도 반응하지 않았어요. 누구든 좋으니 최소 한 명은 짧게라도 반드시 반응하는 대사를 넣어줘.)`
           );
-        } catch {
+        } catch (err2) {
+          console.error("[room-chat] 반응 재시도도 실패:", err2);
           reactionItems = [];
         }
       }
