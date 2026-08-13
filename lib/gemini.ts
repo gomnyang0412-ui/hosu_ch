@@ -464,9 +464,11 @@ export async function generateSceneJson(params: {
 
 /**
  * 멀티 대화방에서, 지정한 대상 말고 다른 등장인물 중 최소 한 명이
- * 상황을 보고 추가로 반응하는 부분. 지정 대상의 대답 자체는 훨씬 더
- * 간단하고 안정적인 generateChatReply(1:1과 같은 방식)로 이미 끝낸
- * 뒤에 부르는 단계라서, 가볍고 빠른 Lite만 쓴다.
+ * 상황을 보고 추가로 반응하는 부분. 처음엔 가볍고 빠른 Lite만 썼는데,
+ * 지정 대상은 Flash로 답하고 반응한 인물만 Lite 말투로 답해서 같은
+ * 장면 안에서 캐릭터 품질이 어색하게 갈렸다. 그래서 지정 대상의
+ * generateChatReply와 똑같이 Flash 체인을 우선 쓰고, 전부 소진됐을
+ * 때만 Lite로 내려가게 한다.
  */
 export async function generateThreadReactions(params: {
   systemInstruction: string;
@@ -476,8 +478,7 @@ export async function generateThreadReactions(params: {
     ...params,
     json: true,
     responseSchema: REACTION_ARRAY_SCHEMA,
-    models: [LITE_MODEL],
-    timeoutMs: 12_000,
+    models: DIALOGUE_MODEL_CHAIN,
   });
 }
 
