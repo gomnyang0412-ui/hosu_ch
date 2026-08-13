@@ -2,19 +2,30 @@
 
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import AutoGrowTextarea from "@/components/AutoGrowTextarea";
 import CharacterAvatar from "@/components/CharacterAvatar";
 import ChatListPane from "@/components/ChatListPane";
 import TopBar from "@/components/TopBar";
+import BackupPanel from "@/components/chat/BackupPanel";
 import DialogueBubble from "@/components/chat/DialogueBubble";
 import ErrorRetryBanner from "@/components/chat/ErrorRetryBanner";
 import NarrationBubble from "@/components/chat/NarrationBubble";
+import TimelinePanel from "@/components/chat/TimelinePanel";
 import { useKeyboardScrollFix } from "@/hooks/useKeyboardScrollFix";
+import {
+  dateAnchorId,
+  formatDateLabel,
+  groupRoomItemsByDate,
+} from "@/lib/chatDates";
+import { kstDateString } from "@/lib/memory";
 import {
   deleteRoom,
   getCharacters,
   getRoom,
+  getRoomBackups,
   getUniverse,
+  restoreRoomBackup,
   saveRoom,
   StorageError,
 } from "@/lib/storage";
@@ -90,6 +101,11 @@ function ThreadPageInner() {
   const [editingText, setEditingText] = useState("");
   const [pickingPlayer, setPickingPlayer] = useState(false);
   const [leaving, setLeaving] = useState(false);
+  const [showTimeline, setShowTimeline] = useState(false);
+  const [backups, setBackups] = useState<{ value: Room; ts: number }[] | null>(
+    null
+  );
+  const [restoring, setRestoring] = useState(false);
   const { bottomRef, handleInputFocus } = useKeyboardScrollFix([
     thread?.items.length,
     loading,
@@ -357,6 +373,54 @@ function ThreadPageInner() {
     }
   }
 
+  async function openBackups() {
+    if (!thread) return;
+    setError(null);
+    try {
+      const list = await getRoomBackups(universeId, thread.id);
+      setBackups(list);
+    } catch (err) {
+      setError({
+        message:
+          err instanceof StorageError
+            ? err.message
+            : "이전 기록을 불러오지 못했어요.",
+        kind: "unknown",
+      });
+    }
+  }
+
+  async function restoreBackup(index: number) {
+    if (!thread || restoring) return;
+    setRestoring(true);
+    setError(null);
+    try {
+      const restored = await restoreRoomBackup(universeId, thread.id, index);
+      setThread(restored);
+      setBackups(null);
+    } catch (err) {
+      setError({
+        message:
+          err instanceof StorageError
+            ? err.message
+            : "이전 기록으로 되돌리지 못했어요.",
+        kind: "unknown",
+      });
+    } finally {
+      setRestoring(false);
+    }
+  }
+
+  function jumpToDate(date: string) {
+    setShowTimeline(false);
+    // 패널 닫힘 애니메이션/리렌더와 겹치지 않게 한 틱 뒤에 스크롤한다.
+    setTimeout(() => {
+      document
+        .getElementById(dateAnchorId(date))
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 50);
+  }
+
   async function handleLeaveRoom() {
     if (!thread || leaving) return;
     if (!window.confirm("이 대화방을 나갈까요? 지금까지의 대화 기록이 모두 사라져요.")) {
@@ -413,6 +477,22 @@ function ThreadPageInner() {
             )}
             <button
               type="button"
+              onClick={() => setShowTimeline(true)}
+              aria-label="날짜별로 이동"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-base text-muted hover:bg-background"
+            >
+              🕒
+            </button>
+            <button
+              type="button"
+              onClick={openBackups}
+              aria-label="이전 기록"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-base text-muted hover:bg-background"
+            >
+              🗂
+            </button>
+            <button
+              type="button"
               onClick={handleLeaveRoom}
               disabled={leaving}
               aria-label="대화방 나가기"
@@ -422,6 +502,20 @@ function ThreadPageInner() {
             </button>
           </div>
         }
+      />
+
+      <BackupPanel
+        backups={backups}
+        restoring={restoring}
+        onRestore={restoreBackup}
+        onClose={() => setBackups(null)}
+      />
+
+      <TimelinePanel
+        open={showTimeline}
+        groups={groupRoomItemsByDate(thread.items)}
+        onJump={jumpToDate}
+        onClose={() => setShowTimeline(false)}
       />
 
       {pickingPlayer && (
@@ -471,9 +565,14 @@ function ThreadPageInner() {
         )}
 
         {thread.items.map((item, i) => {
+          const date = kstDateString(item.ts);
+          const showDateDivider =
+            i === 0 || kstDateString(thread.items[i - 1].ts) !== date;
+
+          let content: ReactNode;
           if (editingIndex === i && (item.t === "u" || item.t === "x")) {
-            return (
-              <div key={i} className="flex flex-col items-end gap-1.5">
+            content = (
+              <div className="flex flex-col items-end gap-1.5">
                 <textarea
                   value={editingText}
                   onChange={(e) => setEditingText(e.target.value)}
@@ -500,10 +599,9 @@ function ThreadPageInner() {
                 </div>
               </div>
             );
-          }
-          if (item.t === "u") {
-            return (
-              <div key={i} className="flex items-center justify-end gap-1.5">
+          } else if (item.t === "u") {
+            content = (
+              <div className="flex items-center justify-end gap-1.5">
                 <button
                   type="button"
                   onClick={() => startEdit(i)}
@@ -518,13 +616,9 @@ function ThreadPageInner() {
                 </div>
               </div>
             );
-          }
-          if (item.t === "x") {
-            return (
-              <div
-                key={i}
-                className="flex items-center gap-2 py-1 text-center text-xs text-muted"
-              >
+          } else if (item.t === "x") {
+            content = (
+              <div className="flex items-center gap-2 py-1 text-center text-xs text-muted">
                 <span className="h-px flex-1 bg-border" />
                 <button
                   type="button"
@@ -539,21 +633,36 @@ function ThreadPageInner() {
                 <span className="h-px flex-1 bg-border" />
               </div>
             );
+          } else if (item.t === "n") {
+            content = <NarrationBubble text={item.text} />;
+          } else {
+            const c = findParticipant(participants, item.who);
+            content = (
+              <DialogueBubble
+                speaker={c}
+                act={item.act}
+                say={item.say}
+                model={item.model}
+                keyIndex={item.keyIndex}
+                showName
+              />
+            );
           }
-          if (item.t === "n") {
-            return <NarrationBubble key={i} text={item.text} />;
-          }
-          const c = findParticipant(participants, item.who);
+
           return (
-            <DialogueBubble
-              key={i}
-              speaker={c}
-              act={item.act}
-              say={item.say}
-              model={item.model}
-              keyIndex={item.keyIndex}
-              showName
-            />
+            <div key={i} className="flex flex-col gap-1.5">
+              {showDateDivider && (
+                <div
+                  id={dateAnchorId(date)}
+                  className="my-1 flex items-center justify-center scroll-mt-20"
+                >
+                  <span className="rounded-full bg-card px-3 py-1 text-[11px] font-medium text-muted">
+                    {formatDateLabel(date)}
+                  </span>
+                </div>
+              )}
+              {content}
+            </div>
           );
         })}
 

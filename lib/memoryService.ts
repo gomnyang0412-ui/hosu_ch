@@ -21,6 +21,8 @@ import type {
   CharacterMemory,
   ChatMessage,
   MemoryEntry,
+  Room,
+  RoomItem,
   Universe,
 } from "./types";
 
@@ -33,6 +35,26 @@ function messageLine(m: ChatMessage, voiceCharacterName: string, userLabel: stri
     return serializeItems([{ t: "d" as const, who: voiceCharacterName, say: m.text }]);
   }
   return `${userLabel}: ${m.text}`;
+}
+
+/** 그룹 대화방 아이템 하나를 기억용 한 줄로 바꾼다. 사용자 발화(t:"u")는
+ *  그 방에서 "나는 이 중 한 명이다"로 고른 캐릭터가 있으면 그 이름으로,
+ *  없으면 "나(사용자)"로 표시한다. */
+function groupItemLine(item: RoomItem, room: Room, allCharacters: Character[]): string {
+  switch (item.t) {
+    case "n":
+      return `(지문) ${item.text}`;
+    case "x":
+      return `(상황 전환) ${item.text}`;
+    case "d":
+      return `${item.who}${item.act ? ` (${item.act})` : ""}: ${item.say}`;
+    case "u": {
+      const playerName = room.playerCharacterId
+        ? allCharacters.find((c) => c.id === room.playerCharacterId)?.name
+        : undefined;
+      return `${playerName ?? "나(사용자)"}: ${item.text}`;
+    }
+  }
 }
 
 async function summarizeForMemory(
@@ -134,14 +156,19 @@ async function compactMemoryEntries(
 
 /**
  * 캐릭터 한 명이 (역할 반전으로 다른 캐릭터 방에서 연기한 경우까지 포함해)
- * "본인"으로 실제 말한 모든 1:1 방의 대화를, 아직 정리 안 된 지난 날짜만
- * 골라 하루 단위로 요약해 기억에 쌓는다. 오늘 날짜는 아직 안 끝났으니
- * 제외한다.
+ * "본인"으로 실제 말한 모든 1:1 방 + 참가한 모든 그룹 대화방의 대화를,
+ * 아직 정리 안 된 지난 날짜만 골라 하루 단위로 요약해 기억에 쌓는다.
+ * 오늘 날짜는 아직 안 끝났으니 제외한다.
+ *
+ * roomsByUniverse는 호출부(라우트)에서 유니버스마다 한 번만 불러와
+ * 넘겨준다 — 캐릭터 수만큼 이 함수가 반복 호출되는데, 그때마다 같은
+ * 유니버스의 방 목록을 다시 불러오면 낭비라서다.
  */
 export async function syncCharacterMemory(
   character: Character,
   allCharacters: Character[],
-  universes: Universe[]
+  universes: Universe[],
+  roomsByUniverse: Record<string, Room[]>
 ): Promise<{ addedDays: number; more: boolean }> {
   const today = todayKST();
   const existing = await getCharacterMemory(character.id);
@@ -152,15 +179,24 @@ export async function syncCharacterMemory(
     updatedAt: Date.now(),
   };
 
-  const rooms = allCharacters
+  const singleRooms = allCharacters
     .filter((c) => resolveVoiceCharacter(c, allCharacters).id === character.id)
     .flatMap((roomCharacter) =>
       universes.map((u) => ({ universeId: u.id, roomCharacter }))
     );
-  if (rooms.length === 0) return { addedDays: 0, more: false };
+
+  const groupRooms = universes.flatMap((u) =>
+    (roomsByUniverse[u.id] ?? []).filter(
+      (r) => r.kind === "group" && r.characterIds.includes(character.id)
+    )
+  );
+
+  if (singleRooms.length === 0 && groupRooms.length === 0) {
+    return { addedDays: 0, more: false };
+  }
 
   const byDate = new Map<string, string[]>();
-  for (const { universeId, roomCharacter } of rooms) {
+  for (const { universeId, roomCharacter } of singleRooms) {
     const history = await getChatHistory(universeId, roomCharacter.id);
     if (history.length === 0) continue;
     const userLabel =
@@ -169,6 +205,17 @@ export async function syncCharacterMemory(
       const date = kstDateString(m.ts);
       if (date >= today || date <= memory.summarizedThrough) continue;
       const line = messageLine(m, character.name, userLabel).trim();
+      if (!line) continue;
+      const arr = byDate.get(date) ?? [];
+      arr.push(line);
+      byDate.set(date, arr);
+    }
+  }
+  for (const room of groupRooms) {
+    for (const item of room.items) {
+      const date = kstDateString(item.ts);
+      if (date >= today || date <= memory.summarizedThrough) continue;
+      const line = groupItemLine(item, room, allCharacters).trim();
       if (!line) continue;
       const arr = byDate.get(date) ?? [];
       arr.push(line);

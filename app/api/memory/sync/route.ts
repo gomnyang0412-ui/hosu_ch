@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { DbConfigError, getCharacters, getUniverses } from "@/lib/db";
+import { DbConfigError, getCharacters, getRooms, getUniverses } from "@/lib/db";
 import { syncCharacterMemory } from "@/lib/memoryService";
+import type { Room } from "@/lib/types";
 
 export const runtime = "nodejs";
 // 캐릭터 여러 명 × 밀린 날짜만큼 Gemini 요약 호출이 이어질 수 있어 여유를 둔다.
@@ -12,11 +13,21 @@ export async function POST() {
       getCharacters(),
       getUniverses(),
     ]);
+    const roomsByUniverse: Record<string, Room[]> = Object.fromEntries(
+      await Promise.all(
+        universes.map(async (u) => [u.id, await getRooms(u.id)] as const)
+      )
+    );
 
     let addedDays = 0;
     let more = false;
     for (const character of characters) {
-      const result = await syncCharacterMemory(character, characters, universes);
+      const result = await syncCharacterMemory(
+        character,
+        characters,
+        universes,
+        roomsByUniverse
+      );
       addedDays += result.addedDays;
       if (result.more) more = true;
     }
