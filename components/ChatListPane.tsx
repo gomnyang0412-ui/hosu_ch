@@ -1,10 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import CharacterAvatar from "@/components/CharacterAvatar";
-import { exportAllData, getCharacters, getRooms } from "@/lib/storage";
-import type { Character, RoomSummary } from "@/lib/types";
+import {
+  exportAllData,
+  getCharacters,
+  getRooms,
+  importAllData,
+} from "@/lib/storage";
+import type { Character, FullExport, RoomSummary } from "@/lib/types";
 
 function formatTime(ts: number): string {
   const date = new Date(ts);
@@ -54,6 +59,8 @@ export default function ChatListPane({
   const [error, setError] = useState("");
   const [newMenuOpen, setNewMenuOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     (async () => {
@@ -93,6 +100,53 @@ export default function ChatListPane({
     }
   }
 
+  function handleImportClick() {
+    if (importing) return;
+    fileInputRef.current?.click();
+  }
+
+  async function handleImportFileChange(
+    e: React.ChangeEvent<HTMLInputElement>
+  ) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+
+    if (
+      !confirm(
+        "백업 파일을 불러오면 지금 저장된 모든 캐릭터·세계관·대화·이야기가 이 파일 내용으로 완전히 대체돼요. 되돌릴 수 없어요. 계속할까요?"
+      )
+    ) {
+      return;
+    }
+
+    setImporting(true);
+    setError("");
+    try {
+      const text = await file.text();
+      let data: FullExport;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        throw new Error("올바른 백업 파일이 아니에요.");
+      }
+      if (!Array.isArray(data.characters) || !Array.isArray(data.universes)) {
+        throw new Error("올바른 백업 파일이 아니에요.");
+      }
+      await importAllData(data);
+      // 캐릭터/세계관/대화 등 앱 전체 상태가 통째로 바뀌었으니, 개별
+      // 화면 state를 하나씩 갱신하는 대신 페이지 전체를 새로고침한다.
+      window.location.reload();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "데이터를 불러오지 못했어요. 잠시 후 다시 시도해 주세요."
+      );
+      setImporting(false);
+    }
+  }
+
   return (
     <div className="flex flex-1 flex-col">
       {showHeader && (
@@ -109,6 +163,23 @@ export default function ChatListPane({
             >
               {exporting ? "…" : "⬇"}
             </button>
+            <button
+              type="button"
+              onClick={handleImportClick}
+              disabled={importing}
+              aria-label="백업 파일 불러오기"
+              title="백업 파일 불러오기"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-lg text-muted hover:bg-background disabled:opacity-40"
+            >
+              {importing ? "…" : "⬆"}
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="application/json"
+              onChange={handleImportFileChange}
+              className="hidden"
+            />
             <div className="relative">
             <button
               type="button"

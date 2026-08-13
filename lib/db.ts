@@ -576,6 +576,10 @@ export async function getAllData(): Promise<FullExport> {
     await Promise.all(universes.map((u) => getThreads(u.id)))
   ).flat();
 
+  const stories = (
+    await Promise.all(universes.map((u) => getStories(u.id)))
+  ).flat();
+
   const memories = (
     await Promise.all(characters.map((c) => getCharacterMemory(c.id)))
   ).filter((m): m is CharacterMemory => m !== null);
@@ -586,6 +590,81 @@ export async function getAllData(): Promise<FullExport> {
     universes,
     chats,
     threads,
+    stories,
     memories,
   };
+}
+
+/**
+ * 내보내기 파일 하나로 지금 저장된 모든 데이터를 완전히 대체한다.
+ * 백업 시점 이후에 생긴 데이터(백업에 없는 캐릭터·세계관·대화방 등)까지
+ * 포함해서 "지금 있는 모든 것"을 지우고 백업 내용만 남기는 되돌리기
+ * 전용 동작이다 — 부분 병합이 아니다.
+ */
+export async function importAllData(data: FullExport): Promise<void> {
+  const [oldCharacters, oldUniverses] = await Promise.all([
+    getCharacters(),
+    getUniverses(),
+  ]);
+
+  const oldThreadUniverseIds = new Set(oldUniverses.map((u) => u.id));
+  const newThreadUniverseIds = new Set(data.universes.map((u) => u.id));
+  const allUniverseIds = new Set([
+    ...oldThreadUniverseIds,
+    ...newThreadUniverseIds,
+  ]);
+
+  await Promise.all([
+    // 캐릭터별 부가 데이터(1:1 기록·기억·음성/플레이어 오버라이드)를
+    // 예전 캐릭터 x 예전 세계관 조합 전부에 대해 지운다.
+    ...oldCharacters.flatMap((c) => [
+      ...oldUniverses.map((u) => getRedis().del(chatKey(u.id, c.id))),
+      getRedis().del(legacyChatKey(c.id)),
+      ...oldUniverses.map((u) => getRedis().del(chatVoiceKey(u.id, c.id))),
+      ...oldUniverses.map((u) => getRedis().del(chatPlayerKey(u.id, c.id))),
+      getRedis().del(memoryKey(c.id)),
+    ]),
+    // 세계관 스코프 데이터(대화방·관찰 이야기)는 예전+새 세계관 id를
+    // 합친 전체 범위에서 지운다.
+    ...Array.from(allUniverseIds).flatMap((id) => [
+      getRedis().del(threadsKey(id)),
+      getRedis().del(storiesKey(id)),
+      getRedis().del(observationKey(id)),
+    ]),
+  ]);
+
+  await Promise.all([
+    saveCharacters(data.characters),
+    getRedis().set(KEYS.universes, data.universes),
+    ...data.chats.map((c) =>
+      getRedis().set(chatKey(c.universeId, c.characterId), c.history)
+    ),
+    ...data.chats
+      .filter((c) => c.voiceOverride)
+      .map((c) =>
+        getRedis().set(chatVoiceKey(c.universeId, c.characterId), c.voiceOverride)
+      ),
+    ...data.chats
+      .filter((c) => c.playerOverride)
+      .map((c) =>
+        getRedis().set(chatPlayerKey(c.universeId, c.characterId), c.playerOverride)
+      ),
+    ...Object.entries(groupByUniverseId(data.threads)).map(([universeId, list]) =>
+      getRedis().set(threadsKey(universeId), list)
+    ),
+    ...Object.entries(groupByUniverseId(data.stories ?? [])).map(
+      ([universeId, list]) => getRedis().set(storiesKey(universeId), list)
+    ),
+    ...data.memories.map((m) => saveCharacterMemory(m)),
+  ]);
+}
+
+function groupByUniverseId<T extends { universeId: string }>(
+  list: T[]
+): Record<string, T[]> {
+  const groups: Record<string, T[]> = {};
+  for (const item of list) {
+    (groups[item.universeId] ??= []).push(item);
+  }
+  return groups;
 }

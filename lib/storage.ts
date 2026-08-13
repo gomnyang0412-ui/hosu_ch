@@ -267,8 +267,16 @@ export async function getRooms(): Promise<RoomSummary[]> {
   return data.rooms;
 }
 
-// ---------- 전체 데이터 내보내기 ----------
+// ---------- 전체 데이터 내보내기/불러오기 ----------
 
 export async function exportAllData(): Promise<FullExport> {
   return request<FullExport>("/api/data/export");
+}
+
+/** 내보내기 파일로 지금 저장된 모든 데이터를 완전히 대체한다 (되돌릴 수 없음) */
+export async function importAllData(data: FullExport): Promise<void> {
+  await request("/api/data/import", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
 }

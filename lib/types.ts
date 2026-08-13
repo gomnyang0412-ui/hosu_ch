@@ -292,5 +292,7 @@ export interface FullExport {
     playerOverride: string | null;
   }[];
   threads: MultiThread[];
+  /** 관찰 모드 이야기. 이 필드가 생기기 전에 받은 예전 백업 파일에는 없을 수 있다 */
+  stories?: ObservationSession[];
   memories: CharacterMemory[];
 }
