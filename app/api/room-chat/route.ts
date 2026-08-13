@@ -4,28 +4,27 @@ import { getCharacterMemory } from "@/lib/db";
 import {
   characterLines,
   generateChatReply,
-  generateThreadReactions,
   geminiErrorResponse,
   worldBlock,
 } from "@/lib/gemini";
 import { buildMemoryBlock } from "@/lib/memory";
-import { hasContent, parseChatReply, parseSceneItems } from "@/lib/scene";
+import { hasContent, parseChatReply } from "@/lib/scene";
 import { serializeThreadItems } from "@/lib/thread";
 import type { CharacterProfile, ThreadItem, Universe } from "@/lib/types";
 
 export const runtime = "nodejs";
-// 지정 대상의 대답(+재시도 1회) 다음에 다른 인물들의 반응(+재시도 1회)까지
-// 순서대로 부를 수 있어 넉넉히 잡는다(1:1 방은 반응 단계 자체가 없어 실제로는
-// 훨씬 일찍 끝난다). 각 단계는 자체 타임아웃으로 더 일찍 끊긴다.
-export const maxDuration = 90;
+// 대답 재시도 1회까지 감안해 여유를 둔다. 각 시도는 자체 타임아웃으로 더
+// 일찍 끊긴다.
+export const maxDuration = 60;
 
 /**
- * 1:1 채팅(`/api/chat`)과 멀티 대화방(`/api/thread-chat`)이 따로 구현하고
- * 있던 AI 호출을 하나로 합친 라우트. 1:1은 "다른 인물이 0명인 방"으로
- * 취급한다 — aiCharacters가 1개뿐이고 targetName이 그 하나뿐인 캐릭터면,
- * 반응(reaction) 단계가 자동으로 스킵돼서 예전 1:1 호출과 똑같이 딱 한 번만
- * Gemini를 부른다. 그래서 "상황 대화방"처럼 AI 참가자가 1명인 멀티 대화방도
- * 특례 코드 없이 이 라우트 하나로 자연스럽게 처리된다.
+ * 1:1 채팅과 멀티 대화방의 AI 호출을 하나로 합친 라우트. 지정된 한
+ * 캐릭터(target)의 대답만 만든다 — 1:1은 항상 참가자가 target 한 명뿐인
+ * 방으로 취급하고, 멀티 대화방에서 여러 명에게 동시에 말을 걸고 싶으면
+ * 화면 쪽에서 이 라우트를 대상 수만큼 순서대로 호출한다("선택한 사람만
+ * 확실히 응답" — 그 외 인물이 우연히 끼어드는 반응 기능은 예측 불가능하다는
+ * 피드백에 따라 제거했다). others(같은 방의 다른 참가자)는 target의 대답을
+ * 만들 때 "이런 사람들도 함께 있다"는 맥락으로만 쓰인다.
  */
 interface RoomChatRequestBody {
   /** AI가 연기하는 캐릭터들 (사용자가 자처한 캐릭터는 제외). 1:1은 항상 1개 */
@@ -140,61 +139,6 @@ function buildTargetSystemInstruction(
   return blocks.join("\n\n");
 }
 
-/**
- * 지정 대상 말고 다른 인물 중 최소 한 명이 방금 상황을 보고 반응하게
- * 만드는 부분. aiCharacters가 1명뿐인 방(=1:1, 또는 상황 대화방처럼 AI
- * 참가자가 1명인 멀티 대화방)에서는 others가 비어서 이 단계 자체가
- * 호출되지 않는다.
- */
-function buildReactionSystemInstruction(
-  others: CharacterProfile[],
-  universe: Universe,
-  targetName: string,
-  targetReplyText: string
-): string {
-  const blocks: string[] = [];
-
-  const world_ = worldBlock(universe);
-  if (world_) blocks.push(world_);
-
-  blocks.push(
-    `[등장 인물]\n` +
-      others
-        .map(
-          (c) =>
-            `- ${c.name} -\n` +
-            characterLines(c)
-              .map((line) => `  ${line}`)
-              .join("\n")
-        )
-        .join("\n")
-  );
-
-  blocks.push(`[방금 상황]\n${targetName}이(가) 방금 이렇게 반응했다: "${targetReplyText}"`);
-
-  blocks.push(
-    [
-      `[역할]`,
-      `너는 각본가다. 위 인물 중 최소 한 명은 지금 상황을 보고 반드시 짧게라도 반응한다 — 완전히 무시하고 지나가는 인물만 있는 건 안 된다.`,
-      `그 자리에 있을 자연스러운 이유가 있는 인물부터 우선 반응시키되, 정 반응할 이유가 마땅치 않다면 가장 그 상황에 관심을 가질 법한 인물이라도 짧은 한마디로 반응한다.`,
-      `전원이 다 말할 필요는 없다 — 최소 한 명이면 충분하다.`,
-      `인물마다 말투를 뚜렷이 구분해서 쓴다.`,
-      `각 인물의 대사를 정할 때는 위 [등장 인물] 항목의 성격·말투를 기준으로 삼는다.`,
-    ].join("\n")
-  );
-
-  blocks.push(
-    [
-      `[출력 형식]`,
-      `아래 형식의 JSON 배열만 출력한다. 최소 1개, 최대 3개의 항목을 담는다.`,
-      `대사 항목: {"t": "d", "who": "인물 이름", "act": "행동(생략 가능)", "say": "대사"}`,
-      `설명이나 코드블록 표시 없이 JSON 배열 자체만 출력한다.`,
-    ].join("\n")
-  );
-
-  return blocks.join("\n\n");
-}
-
 export async function POST(request: Request) {
   let body: RoomChatRequestBody;
   try {
@@ -286,74 +230,13 @@ export async function POST(request: Request) {
       throw new Error(`"${targetName}"이(가) 대답하지 않았어요. 다시 시도해 주세요.`);
     }
 
-    const targetItems = targetResult.items.map((it) =>
+    const targetItems: ThreadItem[] = targetResult.items.map((it) =>
       it.t === "d"
         ? { ...it, model: targetResult!.model, keyIndex: targetResult!.keyIndex }
         : it
     );
 
-    // 지정 대상의 대답은 이미 확보된 뒤라, 다른 인물들의 반응 단계가
-    // 전부 실패해도(또는 애초에 다른 인물이 없어도) 대화 자체는 끊기지
-    // 않는다.
-    let reactionItems: ThreadItem[] = [];
-    if (others.length > 0) {
-      const targetReplyText = targetItems
-        .filter((it) => it.t === "d")
-        .map((it) => (it as { say: string }).say)
-        .join(" ");
-      const reactionSystemInstruction = buildReactionSystemInstruction(
-        others,
-        body.universe,
-        targetName,
-        targetReplyText
-      );
-
-      async function attemptReactions(extra?: string): Promise<ThreadItem[]> {
-        const { text: raw, model, keyIndex } = await generateThreadReactions({
-          systemInstruction: reactionSystemInstruction,
-          contents: [
-            {
-              role: "user",
-              parts: [
-                {
-                  text: [
-                    `지금까지의 이야기:`,
-                    historyText,
-                    ``,
-                    `위 상황과 방금 "${targetName}"의 반응을 보고, 다른 인물 중 최소 한 명이 반응해줘.`,
-                    extra ?? "",
-                  ]
-                    .filter(Boolean)
-                    .join("\n"),
-                },
-              ],
-            },
-          ],
-        });
-        return parseSceneItems(raw).map((it) =>
-          it.t === "d" ? { ...it, model, keyIndex } : it
-        );
-      }
-
-      try {
-        reactionItems = await attemptReactions();
-      } catch (err) {
-        // 반응 단계는 실패해도 대화 자체를 막지 않는 best-effort라 사용자
-        // 화면엔 그냥 조용히 넘어가지만, 왜 실패하는지 원인 파악을 위해
-        // 서버 로그에는 남긴다.
-        console.error("[room-chat] 반응 1차 시도 실패:", err);
-        try {
-          reactionItems = await attemptReactions(
-            `(방금 응답에는 아무도 반응하지 않았어요. 누구든 좋으니 최소 한 명은 짧게라도 반드시 반응하는 대사를 넣어줘.)`
-          );
-        } catch (err2) {
-          console.error("[room-chat] 반응 재시도도 실패:", err2);
-          reactionItems = [];
-        }
-      }
-    }
-
-    return NextResponse.json({ items: [...targetItems, ...reactionItems] });
+    return NextResponse.json({ items: targetItems });
   } catch (err) {
     return geminiErrorResponse(err);
   }

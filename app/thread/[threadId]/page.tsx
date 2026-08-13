@@ -48,15 +48,18 @@ function findParticipant(
 /** "나"로 고를 수 있는 값. 빈 문자열 = 이름 없는 참가자(기본) */
 const NO_PLAYER = "";
 
-function initialTargetId(items: RoomItem[], participants: Character[]): string {
+/** 방에 들어왔을 때 기본으로 선택해둘 대상(들). 마지막으로 말한 캐릭터
+ *  한 명을 기본 선택으로 잡아준다 — 여러 명을 동시에 고르는 건 매번
+ *  사용자가 직접 선택해야 한다. */
+function initialTargetIds(items: RoomItem[], participants: Character[]): string[] {
   for (let i = items.length - 1; i >= 0; i--) {
     const item = items[i];
     if (item.t === "d") {
       const found = participants.find((c) => c.name === item.who);
-      if (found) return found.id;
+      if (found) return [found.id];
     }
   }
-  return participants[0]?.id ?? "";
+  return participants[0] ? [participants[0].id] : [];
 }
 
 export default function ThreadPage() {
@@ -76,7 +79,7 @@ function ThreadPageInner() {
   const [thread, setThread] = useState<Room | null>(null);
   const [universe, setUniverse] = useState<Universe | null>(null);
   const [allCharacters, setAllCharacters] = useState<Character[]>([]);
-  const [targetId, setTargetId] = useState("");
+  const [targetIds, setTargetIds] = useState<string[]>([]);
   const [input, setInput] = useState("");
   const [showDirective, setShowDirective] = useState(false);
   const [directiveText, setDirectiveText] = useState("");
@@ -91,7 +94,10 @@ function ThreadPageInner() {
     thread?.items.length,
     loading,
   ]);
-  const lastTargetIdRef = useRef("");
+  // 여러 명에게 순서대로 답을 요청하다가 중간에 실패하면, 이미 답한
+  // 사람은 그대로 두고 남은 대상들만 재시도할 수 있도록 기억해둔다.
+  const pendingTargetsRef = useRef<Character[]>([]);
+  const pendingBaseRef = useRef<Room | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -114,7 +120,7 @@ function ThreadPageInner() {
         const aiParticipants = participants.filter(
           (c) => c.id !== foundThread.playerCharacterId
         );
-        setTargetId(initialTargetId(foundThread.items, aiParticipants));
+        setTargetIds(initialTargetIds(foundThread.items, aiParticipants));
       } catch {
         setLoadError("대화방을 불러오지 못했어요. 새로고침해 주세요.");
       }
@@ -129,74 +135,102 @@ function ThreadPageInner() {
   const playerCharacter = participants.find(
     (c) => c.id === thread?.playerCharacterId
   );
+  function toggleTarget(id: string) {
+    setTargetIds((prev) =>
+      prev.includes(id) ? prev.filter((v) => v !== id) : [...prev, id]
+    );
+  }
+
   const aiParticipants = participants.filter(
     (c) => c.id !== thread?.playerCharacterId
   );
 
-  async function requestReply(base: Room, targetChar: Character) {
-    if (!universe) return;
+  /** 선택한 대상들에게 순서대로 답을 요청한다. 앞사람 답을 본 뒤에
+   *  다음 사람이 답하도록 순차적으로 부른다 — 그래야 뒤에 답하는
+   *  사람이 앞사람 반응까지 자연스럽게 아는 상태로 이어진다. 중간에
+   *  하나라도 실패하면 그때까지 성공한 답은 그대로 저장해두고, 남은
+   *  대상은 재시도할 수 있게 pendingTargetsRef에 남겨둔다. */
+  async function requestReplies(startBase: Room, targets: Character[]) {
+    if (!universe || targets.length === 0) return;
     setLoading(true);
     setError(null);
-    lastTargetIdRef.current = targetChar.id;
-    try {
-      const res = await fetch("/api/room-chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          aiCharacters: aiParticipants.map(toCharacterProfile),
-          universe: resolveUniverseTemplate(universe, allCharacters),
-          targetName: targetChar.name,
-          targetId: targetChar.id,
-          playerCharacter: playerCharacter
-            ? toCharacterProfile(playerCharacter)
-            : undefined,
-          items: base.items,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError({
-          message: data.error ?? "메시지를 보내지 못했어요.",
-          kind: data.kind ?? "unknown",
+    let current = startBase;
+    let remaining = targets;
+    while (remaining.length > 0) {
+      const targetChar = remaining[0];
+      try {
+        const res = await fetch("/api/room-chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            aiCharacters: aiParticipants.map(toCharacterProfile),
+            universe: resolveUniverseTemplate(universe, allCharacters),
+            targetName: targetChar.name,
+            targetId: targetChar.id,
+            playerCharacter: playerCharacter
+              ? toCharacterProfile(playerCharacter)
+              : undefined,
+            items: current.items,
+          }),
         });
+        const data = await res.json();
+        if (!res.ok) {
+          setError({
+            message: data.error ?? "메시지를 보내지 못했어요.",
+            kind: data.kind ?? "unknown",
+          });
+          pendingTargetsRef.current = remaining;
+          pendingBaseRef.current = current;
+          setLoading(false);
+          return;
+        }
+        const now = Date.now();
+        const newItems: RoomItem[] = (data.items as ThreadItem[]).map((it) => ({
+          ...it,
+          ts: now,
+        }));
+        current = {
+          ...current,
+          items: [...current.items, ...newItems],
+          updatedAt: now,
+        };
+        setThread(current);
+        try {
+          await saveRoom(current);
+        } catch (err) {
+          setError({
+            message:
+              err instanceof StorageError
+                ? err.message
+                : "대화를 저장하지 못했어요.",
+            kind: "unknown",
+          });
+          pendingTargetsRef.current = remaining.slice(1);
+          pendingBaseRef.current = current;
+          setLoading(false);
+          return;
+        }
+        remaining = remaining.slice(1);
+      } catch {
+        setError({
+          message: "네트워크 문제로 메시지를 보내지 못했어요.",
+          kind: "network",
+        });
+        pendingTargetsRef.current = remaining;
+        pendingBaseRef.current = current;
+        setLoading(false);
         return;
       }
-      const now = Date.now();
-      const newItems: RoomItem[] = (data.items as ThreadItem[]).map((it) => ({
-        ...it,
-        ts: now,
-      }));
-      const updated: Room = {
-        ...base,
-        items: [...base.items, ...newItems],
-        updatedAt: now,
-      };
-      setThread(updated);
-      try {
-        await saveRoom(updated);
-      } catch (err) {
-        setError({
-          message:
-            err instanceof StorageError
-              ? err.message
-              : "대화를 저장하지 못했어요.",
-          kind: "unknown",
-        });
-      }
-    } catch {
-      setError({
-        message: "네트워크 문제로 메시지를 보내지 못했어요.",
-        kind: "network",
-      });
-    } finally {
-      setLoading(false);
     }
+    pendingTargetsRef.current = [];
+    pendingBaseRef.current = null;
+    setLoading(false);
   }
 
   async function handleSend() {
     const text = input.trim();
-    const targetChar = aiParticipants.find((c) => c.id === targetId);
-    if (!text || !thread || !targetChar || loading) return;
+    const targets = aiParticipants.filter((c) => targetIds.includes(c.id));
+    if (!text || !thread || targets.length === 0 || loading) return;
     const now = Date.now();
     const item: RoomItem = { t: "u", text, ts: now };
     const updated: Room = {
@@ -217,13 +251,13 @@ function ThreadPageInner() {
         kind: "unknown",
       });
     }
-    requestReply(updated, targetChar);
+    requestReplies(updated, targets);
   }
 
   async function handleDirectiveSubmit() {
     const text = directiveText.trim();
-    const targetChar = aiParticipants.find((c) => c.id === targetId);
-    if (!text || !thread || !targetChar || loading) return;
+    const targets = aiParticipants.filter((c) => targetIds.includes(c.id));
+    if (!text || !thread || targets.length === 0 || loading) return;
     const now = Date.now();
     const item: RoomItem = { t: "x", text, ts: now };
     const updated: Room = {
@@ -245,13 +279,12 @@ function ThreadPageInner() {
         kind: "unknown",
       });
     }
-    requestReply(updated, targetChar);
+    requestReplies(updated, targets);
   }
 
   function handleRetry() {
-    const targetChar = aiParticipants.find((c) => c.id === lastTargetIdRef.current);
-    if (!thread || !targetChar) return;
-    requestReply(thread, targetChar);
+    if (!thread || pendingTargetsRef.current.length === 0) return;
+    requestReplies(pendingBaseRef.current ?? thread, pendingTargetsRef.current);
   }
 
   function startEdit(i: number) {
@@ -293,8 +326,8 @@ function ThreadPageInner() {
         kind: "unknown",
       });
     }
-    const targetChar = aiParticipants.find((c) => c.id === targetId);
-    if (targetChar) requestReply(updated, targetChar);
+    const targets = aiParticipants.filter((c) => targetIds.includes(c.id));
+    if (targets.length > 0) requestReplies(updated, targets);
   }
 
   async function choosePlayerCharacter(nextId: string) {
@@ -307,11 +340,9 @@ function ThreadPageInner() {
       updatedAt: Date.now(),
     };
     setThread(updated);
-    // 방금 나로 고른 캐릭터가 지금 말 걸던 대상이었다면, 대상을 남은
-    // AI 참가자 중 하나로 다시 잡아준다.
-    if (targetId === nextPlayerId) {
-      const fallback = participants.find((c) => c.id !== nextPlayerId);
-      setTargetId(fallback?.id ?? "");
+    // 방금 나로 고른 캐릭터가 지목 대상에 들어 있었다면 선택에서 뺀다.
+    if (nextPlayerId) {
+      setTargetIds((prev) => prev.filter((id) => id !== nextPlayerId));
     }
     try {
       await saveRoom(updated);
@@ -546,12 +577,12 @@ function ThreadPageInner() {
           {aiParticipants.length >= 1 && (
             <div className="flex gap-2 overflow-x-auto pb-1">
               {aiParticipants.map((c) => {
-                const active = targetId === c.id;
+                const active = targetIds.includes(c.id);
                 return (
                   <button
                     key={c.id}
                     type="button"
-                    onClick={() => setTargetId(c.id)}
+                    onClick={() => toggleTarget(c.id)}
                     className="flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-sm transition-colors"
                     style={
                       active
@@ -583,7 +614,7 @@ function ThreadPageInner() {
               <button
                 type="button"
                 onClick={handleDirectiveSubmit}
-                disabled={loading || !directiveText.trim()}
+                disabled={loading || !directiveText.trim() || targetIds.length === 0}
                 className="shrink-0 rounded-full border border-border px-3 py-2 text-sm font-medium disabled:opacity-40"
               >
                 적용
@@ -608,9 +639,12 @@ function ThreadPageInner() {
               onChange={setInput}
               onFocus={handleInputFocus}
               placeholder={
-                aiParticipants.find((c) => c.id === targetId)
-                  ? `${aiParticipants.find((c) => c.id === targetId)?.name}에게 말하기`
-                  : "메시지를 입력하세요"
+                targetIds.length > 0
+                  ? `${aiParticipants
+                      .filter((c) => targetIds.includes(c.id))
+                      .map((c) => c.name)
+                      .join(", ")}에게 말하기`
+                  : "말 걸 상대를 골라주세요"
               }
               enterKeyHint="enter"
               className="flex-1 resize-none rounded-3xl border border-border bg-background px-4 py-2 text-sm outline-none focus:border-primary/50"
@@ -618,7 +652,7 @@ function ThreadPageInner() {
             <button
               type="button"
               onClick={handleSend}
-              disabled={loading || !input.trim() || aiParticipants.length === 0}
+              disabled={loading || !input.trim() || targetIds.length === 0}
               className="gradient-primary shrink-0 rounded-full px-5 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-40"
             >
               전송

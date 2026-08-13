@@ -258,31 +258,6 @@ const SINGLE_REPLY_SCHEMA = {
   required: ["say"],
 };
 
-// 멀티 대화방 반응(reaction) 단계 전용 스키마. generate()의 기본 배열
-// 스키마는 지문(narration)과 대사(dialogue)를 한 스키마로 같이 받아야 해서
-// "t"만 필수로 두는데(둘 다 만족시키는 required를 걸 수 없어서), 그러면
-// 모델이 "t":"d"만 채우고 who·say는 빈 채로 스키마를 통과시킬 수 있다 —
-// 실제로 Lite 모델이 이렇게 응답해서 parseSceneItems가 전부 걸러내고
-// "장면 내용을 만들어내지 못했어요" 에러로 반응 단계가 매번 실패하는
-// 문제가 있었다. 반응 단계는 지문 없이 대사만 나오게 프롬프트로 못박아
-// 두었으니, 여기서는 t·who·say를 전부 필수로 강제해 애초에 빈 항목이
-// 나올 수 없게 한다.
-const REACTION_ARRAY_SCHEMA = {
-  type: Type.ARRAY,
-  items: {
-    type: Type.OBJECT,
-    properties: {
-      t: { type: Type.STRING, enum: ["d"] },
-      who: { type: Type.STRING },
-      act: { type: Type.STRING },
-      say: { type: Type.STRING },
-    },
-    required: ["t", "who", "say"],
-  },
-  minItems: "1",
-  maxItems: "3",
-};
-
 // 캐릭터 설정 항목별 제안. 대화 근거가 없는 항목은 빈 문자열로 둘 수
 // 있어야 해서 required는 없다.
 const CHARACTER_PROFILE_SCHEMA = {
@@ -459,32 +434,6 @@ export async function generateSceneJson(params: {
     json: true,
     itemRange: { min: 10, max: 14 },
     models: DIALOGUE_MODEL_CHAIN,
-  });
-}
-
-/**
- * 멀티 대화방에서, 지정한 대상 말고 다른 등장인물 중 최소 한 명이
- * 상황을 보고 추가로 반응하는 부분. 처음엔 가볍고 빠른 Lite만 썼는데,
- * 지정 대상은 Flash로 답하고 반응한 인물만 Lite 말투로 답해서 같은
- * 장면 안에서 캐릭터 품질이 어색하게 갈렸다. 그래서 지정 대상의
- * generateChatReply와 똑같이 Flash 체인을 우선 쓰고, 전부 소진됐을
- * 때만 Lite로 내려가게 한다.
- *
- * 기본 타임아웃(25초)으로는 Flash가 그 안에 못 끝내는 경우가 10번 중
- * 2~3번꼴로 있었다(지정 대상 응답 다음에 부르는 두 번째 호출이라
- * 실제로 걸리는 시간이 더 들쭉날쭉한 듯하다) — 그래서 이 호출만 조금
- * 더 여유를 준다.
- */
-export async function generateThreadReactions(params: {
-  systemInstruction: string;
-  contents: Content[];
-}): Promise<{ text: string; model: string; keyIndex: number }> {
-  return generate({
-    ...params,
-    json: true,
-    responseSchema: REACTION_ARRAY_SCHEMA,
-    models: DIALOGUE_MODEL_CHAIN,
-    timeoutMs: 35_000,
   });
 }
 
