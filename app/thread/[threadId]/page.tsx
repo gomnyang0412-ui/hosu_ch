@@ -6,7 +6,10 @@ import AutoGrowTextarea from "@/components/AutoGrowTextarea";
 import CharacterAvatar from "@/components/CharacterAvatar";
 import ChatListPane from "@/components/ChatListPane";
 import TopBar from "@/components/TopBar";
-import { sourceLabel } from "@/lib/modelLabel";
+import DialogueBubble from "@/components/chat/DialogueBubble";
+import ErrorRetryBanner from "@/components/chat/ErrorRetryBanner";
+import NarrationBubble from "@/components/chat/NarrationBubble";
+import { useKeyboardScrollFix } from "@/hooks/useKeyboardScrollFix";
 import {
   deleteThread,
   getCharacters,
@@ -83,14 +86,11 @@ function ThreadPageInner() {
   const [editingText, setEditingText] = useState("");
   const [pickingPlayer, setPickingPlayer] = useState(false);
   const [leaving, setLeaving] = useState(false);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const { bottomRef, handleInputFocus } = useKeyboardScrollFix([
+    thread?.items.length,
+    loading,
+  ]);
   const lastTargetIdRef = useRef("");
-
-  function handleInputFocus() {
-    setTimeout(() => {
-      bottomRef.current?.scrollIntoView({ block: "end" });
-    }, 300);
-  }
 
   useEffect(() => {
     (async () => {
@@ -119,10 +119,6 @@ function ThreadPageInner() {
       }
     })();
   }, [threadId, universeId, router]);
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ block: "end" });
-  }, [thread?.items.length, loading]);
 
   const participants = thread
     ? thread.characterIds
@@ -505,39 +501,19 @@ function ThreadPageInner() {
             );
           }
           if (item.t === "n") {
-            return (
-              <p
-                key={i}
-                className="border-l-2 border-border pl-3 text-[13px] italic leading-relaxed text-muted"
-              >
-                {item.text}
-              </p>
-            );
+            return <NarrationBubble key={i} text={item.text} />;
           }
           const c = findParticipant(participants, item.who);
           return (
-            <div key={i} className="flex items-end gap-2">
-              <CharacterAvatar character={c} size="sm" />
-              <div className="flex max-w-[75%] flex-col gap-0.5 md:max-w-[420px]">
-                <div className="card-shadow whitespace-pre-wrap rounded-2xl rounded-bl-sm bg-card px-3 py-2 text-sm leading-relaxed">
-                  <p
-                    className="mb-0.5 text-xs font-semibold"
-                    style={{ color: c.accentColor }}
-                  >
-                    {item.who}
-                  </p>
-                  {item.act && (
-                    <p className="mb-1 text-xs italic text-muted">{item.act}</p>
-                  )}
-                  {item.say}
-                </div>
-                {sourceLabel(item.model, item.keyIndex) && (
-                  <span className="pl-1 text-[10px] text-muted/70">
-                    {sourceLabel(item.model, item.keyIndex)}
-                  </span>
-                )}
-              </div>
-            </div>
+            <DialogueBubble
+              key={i}
+              speaker={c}
+              act={item.act}
+              say={item.say}
+              model={item.model}
+              keyIndex={item.keyIndex}
+              showName
+            />
           );
         })}
 
@@ -546,16 +522,7 @@ function ThreadPageInner() {
         )}
 
         {error && (
-          <div className="flex flex-col items-start gap-2 rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-            <span>{error.message}</span>
-            <button
-              type="button"
-              onClick={handleRetry}
-              className="rounded-full border border-red-300 px-3 py-1 text-xs font-medium"
-            >
-              다시 시도
-            </button>
-          </div>
+          <ErrorRetryBanner message={error.message} onRetry={handleRetry} />
         )}
 
         {/*

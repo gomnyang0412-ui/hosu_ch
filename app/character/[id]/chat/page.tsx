@@ -2,13 +2,16 @@
 
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import AutoGrowTextarea from "@/components/AutoGrowTextarea";
 import CharacterAvatar from "@/components/CharacterAvatar";
 import ChatListPane from "@/components/ChatListPane";
 import TopBar from "@/components/TopBar";
 import BackupPanel from "@/components/chat/BackupPanel";
 import ChatMenu from "@/components/chat/ChatMenu";
+import DialogueBubble from "@/components/chat/DialogueBubble";
+import ErrorRetryBanner from "@/components/chat/ErrorRetryBanner";
+import NarrationBubble from "@/components/chat/NarrationBubble";
 import RenamePanel from "@/components/chat/RenamePanel";
 import RolePickerPanel from "@/components/chat/RolePickerPanel";
 import TimelinePanel from "@/components/chat/TimelinePanel";
@@ -17,8 +20,8 @@ import {
   formatDateLabel,
   groupMessagesByDate,
 } from "@/lib/chatDates";
-import { sourceLabel } from "@/lib/modelLabel";
 import { kstDateString, todayKST } from "@/lib/memory";
+import { useKeyboardScrollFix } from "@/hooks/useKeyboardScrollFix";
 import {
   getCharacter,
   getCharacters,
@@ -107,23 +110,10 @@ function ChatPageInner() {
     { value: ChatMessage[]; ts: number }[] | null
   >(null);
   const [restoring, setRestoring] = useState(false);
-  const bottomRef = useRef<HTMLDivElement>(null);
-
-  // 키보드 높이를 CSS(dvh)나 JS API(visualViewport, VirtualKeyboard)로
-  // 알아내 컨테이너를 줄이거나 입력창을 띄우는 방법을 전부 시도해봤지만,
-  // 이 기기·브라우저 조합에서는 어떤 신호도 오지 않아 전부 실패했다.
-  // 그래서 이제 키보드를 감지하려는 시도 자체를 하지 않는다. 대신
-  // 컨테이너에 인위적인 높이 제한(h-dvh 등)을 아예 두지 않고 페이지가
-  // 원래 브라우저의 기본 스크롤을 그대로 쓰게 둔다 — 이건 어떤 실험적
-  // API에도 기대지 않는, 모든 모바일 브라우저가 예전부터 지원해온
-  // 가장 기본적인 동작이라 여기서마저 안 되지는 않을 것이다. 입력창도
-  // 화면에 떠 있게 만들지 않고 대화 목록의 마지막 항목으로 그냥 두어,
-  // 페이지를 끝까지 내리면 항상 보이게 한다.
-  function handleInputFocus() {
-    setTimeout(() => {
-      bottomRef.current?.scrollIntoView({ block: "end" });
-    }, 300);
-  }
+  const { bottomRef, handleInputFocus } = useKeyboardScrollFix([
+    messages.length,
+    loading,
+  ]);
 
   useEffect(() => {
     (async () => {
@@ -218,10 +208,6 @@ function ChatPageInner() {
       }
     })();
   }, [id, universeId, router]);
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ block: "end" });
-  }, [messages.length, loading]);
 
   async function sendToAI(
     chatCharacter: Character,
@@ -763,31 +749,16 @@ function ChatPageInner() {
               <div className="flex flex-col gap-2">
                 {modelItems(m, resolveVoiceCharacter(character, allCharacters).name).map((item, j) =>
                   item.t === "n" ? (
-                    <p
-                      key={j}
-                      className="border-l-2 border-border pl-3 text-[13px] italic leading-relaxed text-muted"
-                    >
-                      {item.text}
-                    </p>
+                    <NarrationBubble key={j} text={item.text} />
                   ) : (
-                    <div key={j} className="flex items-end gap-2">
-                      <CharacterAvatar character={speakerFor(item.who)} size="sm" />
-                      <div className="flex max-w-[75%] flex-col gap-0.5 md:max-w-[420px]">
-                        <div className="card-shadow whitespace-pre-wrap rounded-2xl rounded-bl-sm bg-card px-3 py-2 text-sm leading-relaxed">
-                          {item.act && (
-                            <p className="mb-1 text-xs italic text-muted">
-                              {item.act}
-                            </p>
-                          )}
-                          {item.say}
-                        </div>
-                        {sourceLabel(item.model, item.keyIndex) && (
-                          <span className="pl-1 text-[10px] text-muted/70">
-                            {sourceLabel(item.model, item.keyIndex)}
-                          </span>
-                        )}
-                      </div>
-                    </div>
+                    <DialogueBubble
+                      key={j}
+                      speaker={speakerFor(item.who)}
+                      act={item.act}
+                      say={item.say}
+                      model={item.model}
+                      keyIndex={item.keyIndex}
+                    />
                   )
                 )}
               </div>
@@ -900,16 +871,7 @@ function ChatPageInner() {
         )}
 
         {error && (
-          <div className="flex flex-col items-start gap-2 rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-            <span>{error.message}</span>
-            <button
-              type="button"
-              onClick={handleRetry}
-              className="rounded-full border border-red-300 px-3 py-1 text-xs font-medium"
-            >
-              다시 시도
-            </button>
-          </div>
+          <ErrorRetryBanner message={error.message} onRetry={handleRetry} />
         )}
 
         {/*
