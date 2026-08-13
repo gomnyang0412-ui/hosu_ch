@@ -138,11 +138,11 @@ function ThreadPageInner() {
     setError(null);
     lastTargetIdRef.current = targetChar.id;
     try {
-      const res = await fetch("/api/thread-chat", {
+      const res = await fetch("/api/room-chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          characters: aiParticipants.map(toCharacterProfile),
+          aiCharacters: aiParticipants.map(toCharacterProfile),
           universe: resolveUniverseTemplate(universe, allCharacters),
           targetName: targetChar.name,
           targetId: targetChar.id,

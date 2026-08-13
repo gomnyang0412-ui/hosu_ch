@@ -45,6 +45,7 @@ import {
   resolveVoiceCharacter,
 } from "@/lib/character";
 import { serializeItems } from "@/lib/scene";
+import { chatMessagesToThreadItems } from "@/lib/roomBridge";
 import { resolveUniverseTemplate } from "@/lib/template";
 import {
   ORG_UNIVERSE_ID,
@@ -221,23 +222,25 @@ function ChatPageInner() {
       allCharacters,
       voiceOverride
     );
-    const playerName =
-      resolveActivePlayerCharacter(
-        chatCharacter,
-        allCharacters,
-        voiceCharacter,
-        playerOverride
-      )?.name ?? undefined;
+    const activePlayerCharacter = resolveActivePlayerCharacter(
+      chatCharacter,
+      allCharacters,
+      voiceCharacter,
+      playerOverride
+    );
     try {
-      const res = await fetch("/api/chat", {
+      const res = await fetch("/api/room-chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          character: toCharacterProfile(voiceCharacter),
-          characterId: voiceCharacter.id,
+          aiCharacters: [toCharacterProfile(voiceCharacter)],
           universe: chatUniverse,
-          history,
-          playerName,
+          targetName: voiceCharacter.name,
+          targetId: voiceCharacter.id,
+          items: chatMessagesToThreadItems(history, voiceCharacter.name),
+          playerCharacter: activePlayerCharacter
+            ? toCharacterProfile(activePlayerCharacter)
+            : undefined,
         }),
       });
       const data = await res.json();
@@ -248,12 +251,14 @@ function ChatPageInner() {
         });
         return;
       }
-      const items: SceneItem[] = data.items;
+      const items: SceneItem[] = (data.items as SceneItem[]).filter(
+        (it) => it.t === "n" || it.t === "d"
+      );
       const next: ChatMessage[] = [
         ...history,
         {
           role: "model",
-          text: data.text ?? serializeItems(items),
+          text: serializeItems(items),
           items,
           ts: Date.now(),
         },
