@@ -12,7 +12,7 @@ import {
   getUniverse,
   saveStory,
   deleteStory,
-  saveThread,
+  saveRoom,
 } from "@/lib/storage";
 import { resolveUniverseTemplate } from "@/lib/template";
 import {
@@ -20,8 +20,8 @@ import {
   createOrgUniverse,
   toCharacterProfile,
   type Character,
-  type MultiThread,
   type ObservationSession,
+  type Room,
   type StoryEpisode,
   type Universe,
 } from "@/lib/types";
@@ -325,16 +325,17 @@ function ObservePageInner() {
 
       const names = sceneCharacters.map((c) => c.name).join(" X ");
       const now = Date.now();
-      const thread: MultiThread = {
+      const thread: Room = {
         id: crypto.randomUUID(),
         universeId,
+        kind: "group",
         characterIds: session.characterIds,
         title: `상황 대화방 · ${names}`,
-        items: [{ t: "n", text: data.summary.trim() }],
+        items: [{ t: "n", text: data.summary.trim(), ts: now }],
         createdAt: now,
         updatedAt: now,
       };
-      await saveThread(thread);
+      await saveRoom(thread);
       router.push(`/thread/${thread.id}?universe=${universeId}`);
     } catch {
       setStartChatError("네트워크 문제로 대화방을 만들지 못했어요.");

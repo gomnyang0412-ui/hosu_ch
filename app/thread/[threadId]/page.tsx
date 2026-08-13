@@ -11,11 +11,11 @@ import ErrorRetryBanner from "@/components/chat/ErrorRetryBanner";
 import NarrationBubble from "@/components/chat/NarrationBubble";
 import { useKeyboardScrollFix } from "@/hooks/useKeyboardScrollFix";
 import {
-  deleteThread,
+  deleteRoom,
   getCharacters,
-  getThread,
+  getRoom,
   getUniverse,
-  saveThread,
+  saveRoom,
   StorageError,
 } from "@/lib/storage";
 import { resolveUniverseTemplate } from "@/lib/template";
@@ -25,7 +25,8 @@ import {
   createOrgUniverse,
   toCharacterProfile,
   type Character,
-  type MultiThread,
+  type Room,
+  type RoomItem,
   type ThreadItem,
   type Universe,
 } from "@/lib/types";
@@ -47,7 +48,7 @@ function findParticipant(
 /** "나"로 고를 수 있는 값. 빈 문자열 = 이름 없는 참가자(기본) */
 const NO_PLAYER = "";
 
-function initialTargetId(items: ThreadItem[], participants: Character[]): string {
+function initialTargetId(items: RoomItem[], participants: Character[]): string {
   for (let i = items.length - 1; i >= 0; i--) {
     const item = items[i];
     if (item.t === "d") {
@@ -72,7 +73,7 @@ function ThreadPageInner() {
   const universeId = searchParams.get("universe") || ORG_UNIVERSE_ID;
   const router = useRouter();
 
-  const [thread, setThread] = useState<MultiThread | null>(null);
+  const [thread, setThread] = useState<Room | null>(null);
   const [universe, setUniverse] = useState<Universe | null>(null);
   const [allCharacters, setAllCharacters] = useState<Character[]>([]);
   const [targetId, setTargetId] = useState("");
@@ -96,7 +97,7 @@ function ThreadPageInner() {
     (async () => {
       try {
         const [foundThread, characters, foundUniverse] = await Promise.all([
-          getThread(universeId, threadId),
+          getRoom(universeId, threadId),
           getCharacters(),
           getUniverse(universeId).catch(() => undefined),
         ]);
@@ -132,7 +133,7 @@ function ThreadPageInner() {
     (c) => c.id !== thread?.playerCharacterId
   );
 
-  async function requestReply(base: MultiThread, targetChar: Character) {
+  async function requestReply(base: Room, targetChar: Character) {
     if (!universe) return;
     setLoading(true);
     setError(null);
@@ -161,14 +162,18 @@ function ThreadPageInner() {
         return;
       }
       const now = Date.now();
-      const updated: MultiThread = {
+      const newItems: RoomItem[] = (data.items as ThreadItem[]).map((it) => ({
+        ...it,
+        ts: now,
+      }));
+      const updated: Room = {
         ...base,
-        items: [...base.items, ...(data.items as ThreadItem[])],
+        items: [...base.items, ...newItems],
         updatedAt: now,
       };
       setThread(updated);
       try {
-        await saveThread(updated);
+        await saveRoom(updated);
       } catch (err) {
         setError({
           message:
@@ -192,9 +197,9 @@ function ThreadPageInner() {
     const text = input.trim();
     const targetChar = aiParticipants.find((c) => c.id === targetId);
     if (!text || !thread || !targetChar || loading) return;
-    const item: ThreadItem = { t: "u", text };
     const now = Date.now();
-    const updated: MultiThread = {
+    const item: RoomItem = { t: "u", text, ts: now };
+    const updated: Room = {
       ...thread,
       items: [...thread.items, item],
       updatedAt: now,
@@ -202,7 +207,7 @@ function ThreadPageInner() {
     setThread(updated);
     setInput("");
     try {
-      await saveThread(updated);
+      await saveRoom(updated);
     } catch (err) {
       setError({
         message:
@@ -219,9 +224,9 @@ function ThreadPageInner() {
     const text = directiveText.trim();
     const targetChar = aiParticipants.find((c) => c.id === targetId);
     if (!text || !thread || !targetChar || loading) return;
-    const item: ThreadItem = { t: "x", text };
     const now = Date.now();
-    const updated: MultiThread = {
+    const item: RoomItem = { t: "x", text, ts: now };
+    const updated: Room = {
       ...thread,
       items: [...thread.items, item],
       updatedAt: now,
@@ -230,7 +235,7 @@ function ThreadPageInner() {
     setDirectiveText("");
     setShowDirective(false);
     try {
-      await saveThread(updated);
+      await saveRoom(updated);
     } catch (err) {
       setError({
         message:
@@ -267,9 +272,9 @@ function ThreadPageInner() {
     if (!text || editingIndex === null || !thread) return;
     const original = thread.items[editingIndex];
     if (original.t !== "u" && original.t !== "x") return;
-    const editedItem: ThreadItem = { t: original.t, text };
     const now = Date.now();
-    const updated: MultiThread = {
+    const editedItem: RoomItem = { t: original.t, text, ts: now };
+    const updated: Room = {
       ...thread,
       items: [...thread.items.slice(0, editingIndex), editedItem],
       updatedAt: now,
@@ -278,7 +283,7 @@ function ThreadPageInner() {
     setEditingIndex(null);
     setEditingText("");
     try {
-      await saveThread(updated);
+      await saveRoom(updated);
     } catch (err) {
       setError({
         message:
@@ -296,7 +301,11 @@ function ThreadPageInner() {
     if (!thread) return;
     const nextPlayerId = nextId || undefined;
     if (nextPlayerId === thread.playerCharacterId) return;
-    const updated: MultiThread = { ...thread, playerCharacterId: nextPlayerId };
+    const updated: Room = {
+      ...thread,
+      playerCharacterId: nextPlayerId,
+      updatedAt: Date.now(),
+    };
     setThread(updated);
     // 방금 나로 고른 캐릭터가 지금 말 걸던 대상이었다면, 대상을 남은
     // AI 참가자 중 하나로 다시 잡아준다.
@@ -305,7 +314,7 @@ function ThreadPageInner() {
       setTargetId(fallback?.id ?? "");
     }
     try {
-      await saveThread(updated);
+      await saveRoom(updated);
     } catch (err) {
       setError({
         message:
@@ -324,7 +333,7 @@ function ThreadPageInner() {
     }
     setLeaving(true);
     try {
-      await deleteThread(universeId, thread.id);
+      await deleteRoom(universeId, thread.id);
       router.replace("/chats");
     } catch (err) {
       setError({

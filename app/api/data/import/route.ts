@@ -16,13 +16,19 @@ export async function POST(request: Request) {
     );
   }
 
+  // rooms(현재 형식) 또는 chats+threads(통합 이전 예전 형식) 둘 중
+  //하나는 있어야 한다 — 예전에 받은 백업 파일도 계속 불러올 수 있어야
+  // 진짜 롤백 경로가 된다.
+  const hasCurrentShape = Array.isArray(body?.rooms);
+  const hasLegacyShape =
+    Array.isArray(body?.chats) && Array.isArray(body?.threads);
+
   if (
     !body ||
     !Array.isArray(body.characters) ||
     !Array.isArray(body.universes) ||
-    !Array.isArray(body.chats) ||
-    !Array.isArray(body.threads) ||
-    !Array.isArray(body.memories)
+    !Array.isArray(body.memories) ||
+    (!hasCurrentShape && !hasLegacyShape)
   ) {
     return NextResponse.json(
       { error: "백업 파일 형식이 아니에요." },

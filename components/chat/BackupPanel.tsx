@@ -1,6 +1,6 @@
 "use client";
 
-import type { ChatMessage } from "@/lib/types";
+import type { Room } from "@/lib/types";
 
 export default function BackupPanel({
   backups,
@@ -8,7 +8,7 @@ export default function BackupPanel({
   onRestore,
   onClose,
 }: {
-  backups: { value: ChatMessage[]; ts: number }[] | null;
+  backups: { value: Room; ts: number }[] | null;
   restoring: boolean;
   onRestore: (index: number) => void;
   onClose: () => void;
@@ -40,7 +40,7 @@ export default function BackupPanel({
                   })}
                 </span>
                 <span className="text-xs text-muted">
-                  메시지 {b.value.length}개 · 되돌리기
+                  메시지 {b.value.items.length}개 · 되돌리기
                 </span>
               </button>
             </li>

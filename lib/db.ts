@@ -1,5 +1,10 @@
 // Redis(Upstash) 기반 저장 로직. 이 파일은 서버(Route Handler)에서만 import한다.
 import { Redis } from "@upstash/redis";
+import {
+  chatHistoryToRoom,
+  roomItemsToChatMessages,
+  threadToRoom,
+} from "./roomBridge";
 import { serializeThreadItems } from "./thread";
 import {
   ORG_UNIVERSE_ID,
@@ -11,6 +16,7 @@ import {
   type FullExport,
   type MultiThread,
   type ObservationSession,
+  type Room,
   type RoomSummary,
   type Universe,
 } from "./types";
@@ -50,14 +56,17 @@ const KEYS = {
   universes: "cc:universes",
   /** 예전 버전(단일 세계관)이 쓰던 키. ORG 마이그레이션에만 읽는다. */
   legacyWorld: "cc:world",
-  chatPrefix: "cc:chat:",
+  /** 예전 버전(1:1 채팅 전용)이 쓰던 키. Room 마이그레이션에만 읽는다. */
+  legacyChatPrefix: "cc:chat:",
+  legacyChatVoicePrefix: "cc:chatvoice:",
+  legacyChatPlayerPrefix: "cc:chatplayer:",
+  /** 예전 버전(멀티 대화방 전용)이 쓰던 키. Room 마이그레이션에만 읽는다. */
+  legacyThreadsPrefix: "cc:threads:",
   /** 예전 버전(유니버스당 진행 중인 이야기 1개)이 쓰던 키. 목록 형식 마이그레이션에만 읽는다. */
   observationPrefix: "cc:observation:",
   storiesPrefix: "cc:stories:",
-  threadsPrefix: "cc:threads:",
+  roomsPrefix: "cc:rooms:",
   memoryPrefix: "cc:memory:",
-  chatVoicePrefix: "cc:chatvoice:",
-  chatPlayerPrefix: "cc:chatplayer:",
   backupPrefix: "cc:backup:",
 } as const;
 
@@ -85,12 +94,24 @@ async function listBackups<T>(
   return raw ?? [];
 }
 
-function chatKey(universeId: string, characterId: string) {
-  return `${KEYS.chatPrefix}${universeId}:${characterId}`;
+function legacyChatKey(universeId: string, characterId: string) {
+  return `${KEYS.legacyChatPrefix}${universeId}:${characterId}`;
 }
 
-function legacyChatKey(characterId: string) {
-  return `${KEYS.chatPrefix}${characterId}`;
+function legacyOrgChatKey(characterId: string) {
+  return `${KEYS.legacyChatPrefix}${characterId}`;
+}
+
+function legacyChatVoiceKey(universeId: string, characterId: string) {
+  return `${KEYS.legacyChatVoicePrefix}${universeId}:${characterId}`;
+}
+
+function legacyChatPlayerKey(universeId: string, characterId: string) {
+  return `${KEYS.legacyChatPlayerPrefix}${universeId}:${characterId}`;
+}
+
+function legacyThreadsKey(universeId: string) {
+  return `${KEYS.legacyThreadsPrefix}${universeId}`;
 }
 
 function observationKey(universeId: string) {
@@ -101,20 +122,16 @@ function storiesKey(universeId: string) {
   return `${KEYS.storiesPrefix}${universeId}`;
 }
 
-function threadsKey(universeId: string) {
-  return `${KEYS.threadsPrefix}${universeId}`;
+function roomsKey(universeId: string) {
+  return `${KEYS.roomsPrefix}${universeId}`;
 }
 
 function memoryKey(characterId: string) {
   return `${KEYS.memoryPrefix}${characterId}`;
 }
 
-function chatVoiceKey(universeId: string, characterId: string) {
-  return `${KEYS.chatVoicePrefix}${universeId}:${characterId}`;
-}
-
-function chatPlayerKey(universeId: string, characterId: string) {
-  return `${KEYS.chatPlayerPrefix}${universeId}:${characterId}`;
+function singleRoomId(characterId: string) {
+  return `single-${characterId}`;
 }
 
 // ---------- 캐릭터 ----------
@@ -230,73 +247,182 @@ export async function deleteUniverse(id: string): Promise<void> {
   );
   await getRedis().del(observationKey(id));
   await getRedis().del(storiesKey(id));
-  await getRedis().del(threadsKey(id));
+  await getRedis().del(roomsKey(id));
 }
 
-// ---------- 1:1 대화 기록 (유니버스별) ----------
+// ---------- 대화방(Room) — 1:1 채팅과 멀티 대화방 통합 ----------
 
-export async function getChatHistory(
+/**
+ * 예전 1:1 채팅 데이터를 원시 Redis 키에서 직접 읽는다. getRooms()의
+ * 마이그레이션에서만 쓴다 — 새로 만드는 코드는 항상 Room을 통해서만
+ * 대화 기록에 접근해야 한다.
+ */
+async function readLegacyChatHistory(
   universeId: string,
   characterId: string
 ): Promise<ChatMessage[]> {
   const existing = await getRedis().get<ChatMessage[]>(
-    chatKey(universeId, characterId)
+    legacyChatKey(universeId, characterId)
   );
   if (existing) return existing;
   if (universeId === ORG_UNIVERSE_ID) {
-    // 예전 버전(유니버스 구분이 없던 시절)의 대화 기록을 그대로 보여준다.
-    // 다음에 저장되면 새 키로 옮겨진다.
+    // 예전 버전(유니버스 구분이 없던 시절)의 대화 기록도 챙긴다.
     const legacy = await getRedis().get<ChatMessage[]>(
-      legacyChatKey(characterId)
+      legacyOrgChatKey(characterId)
     );
     if (legacy) return legacy;
   }
   return [];
 }
 
-export async function saveChatHistory(
-  universeId: string,
-  characterId: string,
-  messages: ChatMessage[]
-): Promise<void> {
-  const key = chatKey(universeId, characterId);
-  const previous = await getRedis().get<ChatMessage[]>(key);
-  await pushBackup(key, previous);
-  await getRedis().set(key, messages);
+/**
+ * 유니버스 하나의 모든 대화방을 Room[]로 반환한다. 저장된 적이 없으면
+ * (cc:rooms:{universeId} 키가 아직 없으면) 예전 1:1 채팅(cc:chat:*)과
+ * 예전 멀티 대화방(cc:threads:{universeId})을 한 번만 자동으로 읽어와
+ * Room으로 합친 뒤 새 키에 저장한다 — 관찰 모드 이야기 목록화 때 쓴
+ * 것과 같은 "첫 읽기 시 자동·지연·멱등 마이그레이션" 패턴이다. 예전
+ * 키들은 지우지 않고 그대로 둔다(유실 위험 0).
+ */
+export async function getRooms(universeId: string): Promise<Room[]> {
+  const existing = await getRedis().get<Room[]>(roomsKey(universeId));
+  if (existing) return existing;
+
+  const [characters, legacyThreads] = await Promise.all([
+    getCharacters(),
+    getRedis().get<MultiThread[]>(legacyThreadsKey(universeId)),
+  ]);
+
+  const singleRooms = (
+    await Promise.all(
+      characters.map(async (c) => {
+        const history = await readLegacyChatHistory(universeId, c.id);
+        if (history.length === 0) return null;
+        const [voice, player] = await Promise.all([
+          getRedis().get<string>(legacyChatVoiceKey(universeId, c.id)),
+          getRedis().get<string>(legacyChatPlayerKey(universeId, c.id)),
+        ]);
+        return chatHistoryToRoom(
+          universeId,
+          c.id,
+          c.name,
+          history,
+          voice ?? null,
+          player ?? null
+        );
+      })
+    )
+  ).filter((r): r is Room => r !== null);
+
+  const groupRooms = (legacyThreads ?? []).map(threadToRoom);
+
+  const migrated = [...singleRooms, ...groupRooms];
+  if (migrated.length > 0) {
+    await getRedis().set(roomsKey(universeId), migrated);
+  }
+  return migrated;
 }
 
-/** 이 1:1 방의 최근 저장 이력(최대 5개, 최신순)을 돌려준다 */
-export async function listChatHistoryBackups(
+export async function getRoom(
+  universeId: string,
+  roomId: string
+): Promise<Room | undefined> {
+  const rooms = await getRooms(universeId);
+  return rooms.find((r) => r.id === roomId);
+}
+
+/** 캐릭터 하나의 1:1 대화방을 찾는다 (id는 항상 `single-{characterId}`) */
+export async function getRoomForCharacter(
   universeId: string,
   characterId: string
-): Promise<{ value: ChatMessage[]; ts: number }[]> {
-  return listBackups<ChatMessage[]>(chatKey(universeId, characterId));
+): Promise<Room | undefined> {
+  return getRoom(universeId, singleRoomId(characterId));
 }
 
-/** 이 1:1 방을 이력 중 하나로 되돌린다. 되돌리기 직전 상태도 이력에 남긴다 */
-export async function restoreChatHistoryBackup(
+/** 대화방 하나를 만들거나 덮어쓴다 (id가 같으면 수정). 방 하나당 백업 이력을 남긴다 */
+export async function saveRoom(room: Room): Promise<void> {
+  const rooms = await getRooms(room.universeId);
+  const idx = rooms.findIndex((r) => r.id === room.id);
+  await pushBackup(
+    `${roomsKey(room.universeId)}:${room.id}`,
+    idx >= 0 ? rooms[idx] : undefined
+  );
+  if (idx >= 0) {
+    rooms[idx] = room;
+  } else {
+    rooms.push(room);
+  }
+  await getRedis().set(roomsKey(room.universeId), rooms);
+}
+
+export async function deleteRoom(
   universeId: string,
-  characterId: string,
+  roomId: string
+): Promise<void> {
+  const rooms = await getRooms(universeId);
+  await getRedis().set(
+    roomsKey(universeId),
+    rooms.filter((r) => r.id !== roomId)
+  );
+}
+
+/** 이 방의 최근 저장 이력(최대 5개, 최신순)을 돌려준다 */
+export async function listRoomBackups(
+  universeId: string,
+  roomId: string
+): Promise<{ value: Room; ts: number }[]> {
+  return listBackups<Room>(`${roomsKey(universeId)}:${roomId}`);
+}
+
+/** 이 방을 이력 중 하나로 되돌린다. 되돌리기 직전 상태도 이력에 남긴다 */
+export async function restoreRoomBackup(
+  universeId: string,
+  roomId: string,
   index: number
-): Promise<ChatMessage[] | null> {
-  const backups = await listChatHistoryBackups(universeId, characterId);
+): Promise<Room | null> {
+  const backups = await listRoomBackups(universeId, roomId);
   const target = backups[index];
   if (!target) return null;
-  const key = chatKey(universeId, characterId);
-  const current = await getRedis().get<ChatMessage[]>(key);
-  await pushBackup(key, current);
-  await getRedis().set(key, target.value);
+  const rooms = await getRooms(universeId);
+  const idx = rooms.findIndex((r) => r.id === roomId);
+  await pushBackup(
+    `${roomsKey(universeId)}:${roomId}`,
+    idx >= 0 ? rooms[idx] : undefined
+  );
+  if (idx >= 0) {
+    rooms[idx] = target.value;
+  } else {
+    rooms.push(target.value);
+  }
+  await getRedis().set(roomsKey(universeId), rooms);
   return target.value;
 }
 
-export async function clearChatHistory(
+/** 캐릭터 삭제 시, 그 유니버스의 모든 그룹 대화방 참가자 목록에서 해당 캐릭터를 뺀다 */
+async function removeCharacterFromRooms(
   universeId: string,
   characterId: string
 ): Promise<void> {
-  await getRedis().del(chatKey(universeId, characterId));
-  if (universeId === ORG_UNIVERSE_ID) {
-    await getRedis().del(legacyChatKey(characterId));
-  }
+  const rooms = await getRooms(universeId);
+  if (rooms.length === 0) return;
+  const updated = rooms.map((r) =>
+    r.kind === "group" && r.characterIds.includes(characterId)
+      ? { ...r, characterIds: r.characterIds.filter((id) => id !== characterId) }
+      : r
+  );
+  await getRedis().set(roomsKey(universeId), updated);
+}
+
+// ---------- 1:1 채팅 호환 함수 ----------
+// Room 저장 위에 얇게 얹은 호환 계층. lib/memoryService.ts처럼 여전히
+// ChatMessage[] 모양을 기대하는 서버 로직이 코드 수정 없이 계속 동작하게
+// 해준다. 새 화면 코드는 이 함수들 대신 getRoom/saveRoom을 직접 쓴다.
+
+export async function getChatHistory(
+  universeId: string,
+  characterId: string
+): Promise<ChatMessage[]> {
+  const room = await getRoomForCharacter(universeId, characterId);
+  return room ? roomItemsToChatMessages(room.items) : [];
 }
 
 /** 캐릭터를 삭제할 때, 모든 세계관에 걸친 그 캐릭터의 대화 기록을 지운다 */
@@ -305,61 +431,10 @@ export async function clearChatHistoryEverywhere(
 ): Promise<void> {
   const universes = await getUniverses();
   await Promise.all([
-    ...universes.map((u) => getRedis().del(chatKey(u.id, characterId))),
-    getRedis().del(legacyChatKey(characterId)),
-    ...universes.map((u) => removeCharacterFromThreads(u.id, characterId)),
+    ...universes.map((u) => deleteRoom(u.id, singleRoomId(characterId))),
+    ...universes.map((u) => removeCharacterFromRooms(u.id, characterId)),
     getRedis().del(memoryKey(characterId)),
-    ...universes.map((u) => getRedis().del(chatVoiceKey(u.id, characterId))),
-    ...universes.map((u) => getRedis().del(chatPlayerKey(u.id, characterId))),
   ]);
-}
-
-// ---------- 1:1 방 안에서 지금 AI가 누구를 연기 중인지(기본값 임시 덮어쓰기) ----------
-
-export async function getChatVoiceOverride(
-  universeId: string,
-  characterId: string
-): Promise<string | null> {
-  return (
-    (await getRedis().get<string>(chatVoiceKey(universeId, characterId))) ??
-    null
-  );
-}
-
-export async function saveChatVoiceOverride(
-  universeId: string,
-  characterId: string,
-  voiceCharacterId: string | null
-): Promise<void> {
-  if (voiceCharacterId) {
-    await getRedis().set(chatVoiceKey(universeId, characterId), voiceCharacterId);
-  } else {
-    await getRedis().del(chatVoiceKey(universeId, characterId));
-  }
-}
-
-// ---------- 1:1 방 안에서 지금 내가 누구로 대화 중인지(AI 배역과 별개) ----------
-
-export async function getChatPlayerOverride(
-  universeId: string,
-  characterId: string
-): Promise<string | null> {
-  return (
-    (await getRedis().get<string>(chatPlayerKey(universeId, characterId))) ??
-    null
-  );
-}
-
-export async function saveChatPlayerOverride(
-  universeId: string,
-  characterId: string,
-  playerCharacterId: string | null
-): Promise<void> {
-  if (playerCharacterId) {
-    await getRedis().set(chatPlayerKey(universeId, characterId), playerCharacterId);
-  } else {
-    await getRedis().del(chatPlayerKey(universeId, characterId));
-  }
 }
 
 // ---------- 캐릭터별 누적 기억 ----------
@@ -435,61 +510,22 @@ export async function deleteStory(
   );
 }
 
-// ---------- 멀티 캐릭터 대화방 (유니버스별, 여러 개 가능) ----------
-
-export async function getThreads(universeId: string): Promise<MultiThread[]> {
-  return (await getRedis().get<MultiThread[]>(threadsKey(universeId))) ?? [];
-}
-
-export async function getThread(
-  universeId: string,
-  threadId: string
-): Promise<MultiThread | undefined> {
-  const threads = await getThreads(universeId);
-  return threads.find((t) => t.id === threadId);
-}
-
-/** 대화방 하나를 만들거나 덮어쓴다 (id가 같으면 수정) */
-export async function saveThread(thread: MultiThread): Promise<void> {
-  const threads = await getThreads(thread.universeId);
-  const key = threadsKey(thread.universeId);
-  await pushBackup(key, threads);
-  const idx = threads.findIndex((t) => t.id === thread.id);
-  if (idx >= 0) {
-    threads[idx] = thread;
-  } else {
-    threads.push(thread);
-  }
-  await getRedis().set(key, threads);
-}
-
-export async function deleteThread(
-  universeId: string,
-  threadId: string
-): Promise<void> {
-  const threads = await getThreads(universeId);
-  await getRedis().set(
-    threadsKey(universeId),
-    threads.filter((t) => t.id !== threadId)
-  );
-}
-
-/** 캐릭터 삭제 시, 그 유니버스의 모든 대화방 참가자 목록에서 해당 캐릭터를 뺀다 */
-async function removeCharacterFromThreads(
-  universeId: string,
-  characterId: string
-): Promise<void> {
-  const threads = await getThreads(universeId);
-  if (threads.length === 0) return;
-  const updated = threads.map((t) =>
-    t.characterIds.includes(characterId)
-      ? { ...t, characterIds: t.characterIds.filter((id) => id !== characterId) }
-      : t
-  );
-  await getRedis().set(threadsKey(universeId), updated);
-}
-
 // ---------- 채팅 목록 (1:1 + 멀티 대화방 통합) ----------
+
+/** 방 하나의 미리보기 텍스트. single 방은 마지막 AI 턴(같은 ts) 전체를,
+ *  group 방은 마지막 아이템 하나만 보여준다 — 예전 ChatMessage 기반
+ *  1:1과 ThreadItem 기반 멀티가 각각 보여주던 것과 동일하다. */
+function roomPreview(room: Room): string {
+  const last = room.items[room.items.length - 1];
+  if (!last) return "";
+  if (room.kind === "single" && last.t !== "u") {
+    const turn = room.items.filter(
+      (it) => it.ts === last.ts && it.t !== "u"
+    );
+    return serializeThreadItems(turn);
+  }
+  return serializeThreadItems([last]);
+}
 
 /** 기록이 있는 1:1 방 + 멀티 대화방을 전부 모아 최근 순으로 반환한다 */
 export async function getRoomSummaries(): Promise<RoomSummary[]> {
@@ -498,50 +534,44 @@ export async function getRoomSummaries(): Promise<RoomSummary[]> {
     getUniverses(),
   ]);
 
-  const rooms: RoomSummary[] = [];
-
-  await Promise.all(
-    universes.flatMap((u) =>
-      characters.map(async (c) => {
-        const history = await getChatHistory(u.id, c.id);
-        if (history.length === 0) return;
-        const last = history[history.length - 1];
-        rooms.push({
-          kind: "single",
-          universeId: u.id,
-          characterId: c.id,
-          title: u.type === "au" ? `${c.name} · ${u.title}` : c.name,
-          preview: last.text,
-          updatedAt: last.ts,
-        });
-      })
-    )
-  );
+  const summaries: RoomSummary[] = [];
 
   await Promise.all(
     universes.map(async (u) => {
-      const threads = await getThreads(u.id);
-      for (const t of threads) {
-        if (t.items.length === 0) continue;
-        const names = t.characterIds
+      const rooms = await getRooms(u.id);
+      for (const room of rooms) {
+        if (room.items.length === 0) continue;
+        const names = room.characterIds
           .map((id) => characters.find((c) => c.id === id)?.name)
           .filter((n): n is string => !!n);
-        rooms.push({
-          kind: "group",
-          universeId: u.id,
-          threadId: t.id,
-          title:
-            (t.title?.trim() || names.join(" · ") || "대화방") +
-            (u.type === "au" ? ` · ${u.title}` : ""),
-          preview: serializeThreadItems([t.items[t.items.length - 1]]),
-          updatedAt: t.updatedAt,
-        });
+        if (room.kind === "single") {
+          summaries.push({
+            kind: "single",
+            universeId: u.id,
+            characterId: room.characterIds[0],
+            title:
+              u.type === "au" ? `${names[0] ?? ""} · ${u.title}` : names[0] ?? "",
+            preview: roomPreview(room),
+            updatedAt: room.updatedAt,
+          });
+        } else {
+          summaries.push({
+            kind: "group",
+            universeId: u.id,
+            threadId: room.id,
+            title:
+              (room.title?.trim() || names.join(" · ") || "대화방") +
+              (u.type === "au" ? ` · ${u.title}` : ""),
+            preview: roomPreview(room),
+            updatedAt: room.updatedAt,
+          });
+        }
       }
     })
   );
 
-  rooms.sort((a, b) => b.updatedAt - a.updatedAt);
-  return rooms;
+  summaries.sort((a, b) => b.updatedAt - a.updatedAt);
+  return summaries;
 }
 
 export async function getAllData(): Promise<FullExport> {
@@ -550,30 +580,8 @@ export async function getAllData(): Promise<FullExport> {
     getUniverses(),
   ]);
 
-  const chats = (
-    await Promise.all(
-      universes.flatMap((u) =>
-        characters.map(async (c) => {
-          const [history, voiceOverride, playerOverride] = await Promise.all([
-            getChatHistory(u.id, c.id),
-            getChatVoiceOverride(u.id, c.id),
-            getChatPlayerOverride(u.id, c.id),
-          ]);
-          if (history.length === 0) return null;
-          return {
-            universeId: u.id,
-            characterId: c.id,
-            history,
-            voiceOverride,
-            playerOverride,
-          };
-        })
-      )
-    )
-  ).filter((c): c is NonNullable<typeof c> => c !== null);
-
-  const threads = (
-    await Promise.all(universes.map((u) => getThreads(u.id)))
+  const rooms = (
+    await Promise.all(universes.map((u) => getRooms(u.id)))
   ).flat();
 
   const stories = (
@@ -588,18 +596,36 @@ export async function getAllData(): Promise<FullExport> {
     exportedAt: Date.now(),
     characters,
     universes,
-    chats,
-    threads,
+    rooms,
     stories,
     memories,
   };
+}
+
+/** 예전(rooms 통합 이전) 백업 파일 형식을 Room[]로 변환한다 */
+function normalizeImportedRooms(data: FullExport): Room[] {
+  if (Array.isArray(data.rooms)) return data.rooms;
+  const chatRooms = (data.chats ?? []).map((c) => {
+    const character = data.characters.find((ch) => ch.id === c.characterId);
+    return chatHistoryToRoom(
+      c.universeId,
+      c.characterId,
+      character?.name ?? "",
+      c.history,
+      c.voiceOverride,
+      c.playerOverride
+    );
+  });
+  const groupRooms = (data.threads ?? []).map(threadToRoom);
+  return [...chatRooms, ...groupRooms];
 }
 
 /**
  * 내보내기 파일 하나로 지금 저장된 모든 데이터를 완전히 대체한다.
  * 백업 시점 이후에 생긴 데이터(백업에 없는 캐릭터·세계관·대화방 등)까지
  * 포함해서 "지금 있는 모든 것"을 지우고 백업 내용만 남기는 되돌리기
- * 전용 동작이다 — 부분 병합이 아니다.
+ * 전용 동작이다 — 부분 병합이 아니다. rooms 통합 이전의 예전 백업
+ * 파일(chats+threads 형식)도 그대로 불러올 수 있다.
  */
 export async function importAllData(data: FullExport): Promise<void> {
   const [oldCharacters, oldUniverses] = await Promise.all([
@@ -607,27 +633,18 @@ export async function importAllData(data: FullExport): Promise<void> {
     getUniverses(),
   ]);
 
-  const oldThreadUniverseIds = new Set(oldUniverses.map((u) => u.id));
-  const newThreadUniverseIds = new Set(data.universes.map((u) => u.id));
   const allUniverseIds = new Set([
-    ...oldThreadUniverseIds,
-    ...newThreadUniverseIds,
+    ...oldUniverses.map((u) => u.id),
+    ...data.universes.map((u) => u.id),
   ]);
 
+  const importedRooms = normalizeImportedRooms(data);
+  const roomsByUniverse = groupByUniverseId(importedRooms);
+
   await Promise.all([
-    // 캐릭터별 부가 데이터(1:1 기록·기억·음성/플레이어 오버라이드)를
-    // 예전 캐릭터 x 예전 세계관 조합 전부에 대해 지운다.
-    ...oldCharacters.flatMap((c) => [
-      ...oldUniverses.map((u) => getRedis().del(chatKey(u.id, c.id))),
-      getRedis().del(legacyChatKey(c.id)),
-      ...oldUniverses.map((u) => getRedis().del(chatVoiceKey(u.id, c.id))),
-      ...oldUniverses.map((u) => getRedis().del(chatPlayerKey(u.id, c.id))),
-      getRedis().del(memoryKey(c.id)),
-    ]),
-    // 세계관 스코프 데이터(대화방·관찰 이야기)는 예전+새 세계관 id를
-    // 합친 전체 범위에서 지운다.
+    ...oldCharacters.map((c) => getRedis().del(memoryKey(c.id))),
     ...Array.from(allUniverseIds).flatMap((id) => [
-      getRedis().del(threadsKey(id)),
+      getRedis().del(roomsKey(id)),
       getRedis().del(storiesKey(id)),
       getRedis().del(observationKey(id)),
     ]),
@@ -636,21 +653,10 @@ export async function importAllData(data: FullExport): Promise<void> {
   await Promise.all([
     saveCharacters(data.characters),
     getRedis().set(KEYS.universes, data.universes),
-    ...data.chats.map((c) =>
-      getRedis().set(chatKey(c.universeId, c.characterId), c.history)
-    ),
-    ...data.chats
-      .filter((c) => c.voiceOverride)
-      .map((c) =>
-        getRedis().set(chatVoiceKey(c.universeId, c.characterId), c.voiceOverride)
-      ),
-    ...data.chats
-      .filter((c) => c.playerOverride)
-      .map((c) =>
-        getRedis().set(chatPlayerKey(c.universeId, c.characterId), c.playerOverride)
-      ),
-    ...Object.entries(groupByUniverseId(data.threads)).map(([universeId, list]) =>
-      getRedis().set(threadsKey(universeId), list)
+    // 방이 하나도 없는 유니버스도 빈 배열을 명시적으로 써서, getRooms()가
+    // 다시는 예전 레거시 키에서 마이그레이션을 시도하지 않게 한다.
+    ...data.universes.map((u) =>
+      getRedis().set(roomsKey(u.id), roomsByUniverse[u.id] ?? [])
     ),
     ...Object.entries(groupByUniverseId(data.stories ?? [])).map(
       ([universeId, list]) => getRedis().set(storiesKey(universeId), list)

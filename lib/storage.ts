@@ -1,12 +1,13 @@
 // 서버(Redis) 저장소를 호출하는 클라이언트 모듈.
 // 다른 화면에서는 이 모듈의 함수만 통해 데이터를 읽고 쓰게 한다.
 
+import { chatMessagesToRoomItems, roomItemsToChatMessages } from "./roomBridge";
 import type {
   Character,
   ChatMessage,
   FullExport,
-  MultiThread,
   ObservationSession,
+  Room,
   RoomSummary,
   Universe,
 } from "./types";
@@ -36,6 +37,10 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
     );
   }
   return data as T;
+}
+
+function singleRoomId(characterId: string) {
+  return `single-${characterId}`;
 }
 
 // ---------- 캐릭터 ----------
@@ -88,16 +93,103 @@ export async function deleteUniverse(id: string): Promise<void> {
   await request(`/api/data/universes/${id}`, { method: "DELETE" });
 }
 
-// ---------- 1:1 대화 기록 ----------
+// ---------- 대화방(Room) — 1:1 채팅과 멀티 대화방 통합 ----------
+
+/** 한 유니버스의 모든 대화방(1:1 + 멀티) */
+export async function listRooms(universeId: string): Promise<Room[]> {
+  const data = await request<{ rooms: Room[] }>(`/api/data/rooms/${universeId}`);
+  return data.rooms;
+}
+
+export async function getRoom(
+  universeId: string,
+  roomId: string
+): Promise<Room | null> {
+  const data = await request<{ room: Room | null }>(
+    `/api/data/rooms/${universeId}/${roomId}`
+  );
+  return data.room;
+}
+
+/** 캐릭터 하나의 1:1 대화방을 찾는다 (id는 항상 `single-{characterId}`) */
+export async function getRoomForCharacter(
+  universeId: string,
+  characterId: string
+): Promise<Room | null> {
+  return getRoom(universeId, singleRoomId(characterId));
+}
+
+export async function saveRoom(room: Room): Promise<void> {
+  await request(`/api/data/rooms/${room.universeId}`, {
+    method: "POST",
+    body: JSON.stringify(room),
+  });
+}
+
+export async function deleteRoom(
+  universeId: string,
+  roomId: string
+): Promise<void> {
+  await request(`/api/data/rooms/${universeId}/${roomId}`, {
+    method: "DELETE",
+  });
+}
+
+/** 이 방의 최근 저장 이력(최대 5개, 최신순) */
+export async function getRoomBackups(
+  universeId: string,
+  roomId: string
+): Promise<{ value: Room; ts: number }[]> {
+  const data = await request<{ backups: { value: Room; ts: number }[] }>(
+    `/api/data/rooms/${universeId}/${roomId}/backup`
+  );
+  return data.backups;
+}
+
+/** 이 방을 이력 중 하나로 되돌린다 */
+export async function restoreRoomBackup(
+  universeId: string,
+  roomId: string,
+  index: number
+): Promise<Room> {
+  const data = await request<{ room: Room }>(
+    `/api/data/rooms/${universeId}/${roomId}/backup`,
+    { method: "POST", body: JSON.stringify({ index }) }
+  );
+  return data.room;
+}
+
+// ---------- 1:1 채팅 호환 함수 ----------
+// Room 저장 위에 얇게 얹은 호환 계층. CharacterForm의 "대화 참고해서
+// 다듬기", 새 1:1 대화방 만들기 화면, 예전 localStorage 마이그레이션처럼
+// 여전히 ChatMessage[]/개별 오버라이드 모양을 기대하는 코드가 수정 없이
+// 계속 동작하게 해준다. 채팅 화면 자체는 이 함수들 대신 getRoom/saveRoom을
+// 직접 쓴다.
+
+async function getOrCreateSingleRoom(
+  universeId: string,
+  characterId: string
+): Promise<Room> {
+  const existing = await getRoom(universeId, singleRoomId(characterId));
+  if (existing) return existing;
+  const now = Date.now();
+  return {
+    id: singleRoomId(characterId),
+    universeId,
+    kind: "single",
+    characterIds: [characterId],
+    items: [],
+    createdAt: now,
+    updatedAt: now,
+  };
+}
 
 export async function getChatHistory(
   universeId: string,
   characterId: string
 ): Promise<ChatMessage[]> {
-  const data = await request<{ messages: ChatMessage[] }>(
-    `/api/data/chat/${universeId}/${characterId}`
-  );
-  return data.messages;
+  const room = await getRoom(universeId, singleRoomId(characterId));
+  return room ? roomItemsToChatMessages(room.items) : [];
 }
 
 export async function saveChatHistory(
@@ -105,9 +197,14 @@ export async function saveChatHistory(
   characterId: string,
   messages: ChatMessage[]
 ): Promise<void> {
-  await request(`/api/data/chat/${universeId}/${characterId}`, {
-    method: "POST",
-    body: JSON.stringify({ messages }),
+  const [room, character] = await Promise.all([
+    getOrCreateSingleRoom(universeId, characterId),
+    getCharacter(characterId),
+  ]);
+  await saveRoom({
+    ...room,
+    items: chatMessagesToRoomItems(messages, character?.name ?? ""),
+    updatedAt: Date.now(),
   });
 }
 
@@ -115,33 +212,9 @@ export async function clearChatHistory(
   universeId: string,
   characterId: string
 ): Promise<void> {
-  await request(`/api/data/chat/${universeId}/${characterId}`, {
-    method: "DELETE",
-  });
-}
-
-/** 이 1:1 방의 최근 저장 이력(최대 5개, 최신순) */
-export async function getChatHistoryBackups(
-  universeId: string,
-  characterId: string
-): Promise<{ value: ChatMessage[]; ts: number }[]> {
-  const data = await request<{ backups: { value: ChatMessage[]; ts: number }[] }>(
-    `/api/data/chat-backup/${universeId}/${characterId}`
-  );
-  return data.backups;
-}
-
-/** 이 1:1 방을 이력 중 하나로 되돌린다 */
-export async function restoreChatHistoryBackup(
-  universeId: string,
-  characterId: string,
-  index: number
-): Promise<ChatMessage[]> {
-  const data = await request<{ messages: ChatMessage[] }>(
-    `/api/data/chat-backup/${universeId}/${characterId}`,
-    { method: "POST", body: JSON.stringify({ index }) }
-  );
-  return data.messages;
+  const room = await getRoom(universeId, singleRoomId(characterId));
+  if (!room) return;
+  await saveRoom({ ...room, items: [], updatedAt: Date.now() });
 }
 
 /** 이 1:1 방에서 지금 AI가 누구를 연기 중인지(기본값을 임시로 뒤바꾼 값) */
@@ -149,10 +222,8 @@ export async function getChatVoiceOverride(
   universeId: string,
   characterId: string
 ): Promise<string | null> {
-  const data = await request<{ voiceCharacterId: string | null }>(
-    `/api/data/chat-voice/${universeId}/${characterId}`
-  );
-  return data.voiceCharacterId;
+  const room = await getRoom(universeId, singleRoomId(characterId));
+  return room?.aiVoiceOverrideId ?? null;
 }
 
 export async function saveChatVoiceOverride(
@@ -160,9 +231,11 @@ export async function saveChatVoiceOverride(
   characterId: string,
   voiceCharacterId: string | null
 ): Promise<void> {
-  await request(`/api/data/chat-voice/${universeId}/${characterId}`, {
-    method: "POST",
-    body: JSON.stringify({ voiceCharacterId }),
+  const room = await getOrCreateSingleRoom(universeId, characterId);
+  await saveRoom({
+    ...room,
+    aiVoiceOverrideId: voiceCharacterId ?? undefined,
+    updatedAt: Date.now(),
   });
 }
 
@@ -171,10 +244,8 @@ export async function getChatPlayerOverride(
   universeId: string,
   characterId: string
 ): Promise<string | null> {
-  const data = await request<{ playerCharacterId: string | null }>(
-    `/api/data/chat-player/${universeId}/${characterId}`
-  );
-  return data.playerCharacterId;
+  const room = await getRoom(universeId, singleRoomId(characterId));
+  return room?.playerCharacterId ?? null;
 }
 
 export async function saveChatPlayerOverride(
@@ -182,9 +253,11 @@ export async function saveChatPlayerOverride(
   characterId: string,
   playerCharacterId: string | null
 ): Promise<void> {
-  await request(`/api/data/chat-player/${universeId}/${characterId}`, {
-    method: "POST",
-    body: JSON.stringify({ playerCharacterId }),
+  const room = await getOrCreateSingleRoom(universeId, characterId);
+  await saveRoom({
+    ...room,
+    playerCharacterId: playerCharacterId ?? undefined,
+    updatedAt: Date.now(),
   });
 }
 
@@ -221,41 +294,6 @@ export async function deleteStory(
   storyId: string
 ): Promise<void> {
   await request(`/api/data/stories/${universeId}/${storyId}`, {
-    method: "DELETE",
-  });
-}
-
-// ---------- 멀티 캐릭터 대화방 ----------
-
-export async function getThreads(universeId: string): Promise<MultiThread[]> {
-  const data = await request<{ threads: MultiThread[] }>(
-    `/api/data/threads/${universeId}`
-  );
-  return data.threads;
-}
-
-export async function getThread(
-  universeId: string,
-  threadId: string
-): Promise<MultiThread | null> {
-  const data = await request<{ thread: MultiThread | null }>(
-    `/api/data/threads/${universeId}/${threadId}`
-  );
-  return data.thread;
-}
-
-export async function saveThread(thread: MultiThread): Promise<void> {
-  await request(`/api/data/threads/${thread.universeId}`, {
-    method: "POST",
-    body: JSON.stringify(thread),
-  });
-}
-
-export async function deleteThread(
-  universeId: string,
-  threadId: string
-): Promise<void> {
-  await request(`/api/data/threads/${universeId}/${threadId}`, {
     method: "DELETE",
   });
 }

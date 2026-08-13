@@ -1,19 +1,19 @@
 import { NextResponse } from "next/server";
 import {
   DbConfigError,
-  listChatHistoryBackups,
-  restoreChatHistoryBackup,
+  listRoomBackups,
+  restoreRoomBackup,
 } from "@/lib/db";
 
 export const runtime = "nodejs";
 
 export async function GET(
   _request: Request,
-  { params }: { params: Promise<{ universeId: string; characterId: string }> }
+  { params }: { params: Promise<{ universeId: string; roomId: string }> }
 ) {
-  const { universeId, characterId } = await params;
+  const { universeId, roomId } = await params;
   try {
-    const backups = await listChatHistoryBackups(universeId, characterId);
+    const backups = await listRoomBackups(universeId, roomId);
     return NextResponse.json({ backups });
   } catch (err) {
     return NextResponse.json(
@@ -30,9 +30,9 @@ export async function GET(
 
 export async function POST(
   request: Request,
-  { params }: { params: Promise<{ universeId: string; characterId: string }> }
+  { params }: { params: Promise<{ universeId: string; roomId: string }> }
 ) {
-  const { universeId, characterId } = await params;
+  const { universeId, roomId } = await params;
   let index: number;
   try {
     ({ index } = await request.json());
@@ -41,18 +41,14 @@ export async function POST(
     return NextResponse.json({ error: "잘못된 요청이에요." }, { status: 400 });
   }
   try {
-    const messages = await restoreChatHistoryBackup(
-      universeId,
-      characterId,
-      index
-    );
-    if (!messages) {
+    const room = await restoreRoomBackup(universeId, roomId, index);
+    if (!room) {
       return NextResponse.json(
         { error: "그 시점의 기록을 찾지 못했어요." },
         { status: 404 }
       );
     }
-    return NextResponse.json({ messages });
+    return NextResponse.json({ room });
   } catch (err) {
     return NextResponse.json(
       {

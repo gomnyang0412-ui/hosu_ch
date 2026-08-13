@@ -226,6 +226,9 @@ export type ThreadItem = SceneItem | UserItem | DirectiveItem;
  * 여러 캐릭터 + 나가 참가자인 연속 대화방.
  * 캐릭터를 바꿔가며 이야기해도 하나의 items 배열을 공유하므로
  * 모든 참가 캐릭터가 지금까지의 흐름을 알고 있다.
+ *
+ * @deprecated 1:1 채팅과 통합된 Room으로 대체됐다. 이 타입은 예전 백업
+ * 파일을 읽거나 한 번뿐인 마이그레이션 코드에서만 계속 쓰인다.
  */
 export interface MultiThread {
   id: string;
@@ -241,6 +244,45 @@ export interface MultiThread {
    */
   playerCharacterId?: string;
   items: ThreadItem[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+/**
+ * 통합 대화방 아이템. ThreadItem(지문/대사/사용자 발화/상황 전환)에
+ * ts(생성 시각)만 더한 것 — 한 번의 AI 턴(또는 사용자 발화 1건)에 속한
+ * 아이템들은 같은 ts를 공유한다(예전 ChatMessage.ts와 같은 단위).
+ */
+export type RoomItem = ThreadItem & { ts: number };
+
+/**
+ * 1:1 채팅과 멀티 대화방을 하나로 합친 대화방. characterIds가 1개면
+ * 예전 1:1 채팅(id는 항상 `single-{characterId}`), 2개 이상이면 예전
+ * 멀티 대화방과 같은 것이다 — 종류에 따라 저장·API·화면 로직이 갈라지지
+ * 않고, 항상 같은 코드 경로로 처리된다.
+ */
+export interface Room {
+  id: string;
+  universeId: string;
+  kind: "single" | "group";
+  /** 참가 캐릭터 id 목록. single은 항상 1개, group은 2개 이상 */
+  characterIds: string[];
+  /** 목록 화면에 보여줄 제목 (없으면 참가자 이름으로 대신 표시) */
+  title?: string;
+  /**
+   * "나"가 characterIds 중 누구인지. kind가 "group"이면 참가자 중에서만
+   * 고를 수 있고(그 캐릭터는 AI가 연기하는 대상에서 빠진다), kind가
+   * "single"이면 로스터 전체에서 고를 수 있다(1:1 방의 역할 반전 상대
+   * 역할 — 예전 chatPlayerOverride와 같다). 이 제약은 스키마가 아니라
+   * 화면(UI)에서 건다.
+   */
+  playerCharacterId?: string;
+  /**
+   * 1:1 전용: 이 방에서 AI가 실제로 연기 중인 캐릭터를 임시로 바꾼 값
+   * (예전 chatVoiceOverride). group 방에는 해당 개념이 없다.
+   */
+  aiVoiceOverrideId?: string;
+  items: RoomItem[];
   createdAt: number;
   updatedAt: number;
 }
@@ -279,19 +321,30 @@ export interface CharacterMemory {
   updatedAt: number;
 }
 
-/** 전체 데이터 내보내기용 스냅샷. 캐릭터/세계관 전부와, 그 조합마다 있는 모든 대화 기록·기억·설정을 담는다 */
+/**
+ * 전체 데이터 내보내기용 스냅샷. 캐릭터/세계관 전부와, 그 조합마다 있는
+ * 모든 대화 기록·기억·설정을 담는다.
+ *
+ * rooms는 현재 형식(1:1+멀티 통합)이고, chats/threads는 통합 이전에
+ * 받은 백업 파일과의 호환을 위해 남겨둔 예전 형식이다 — 불러오기는 둘
+ * 중 있는 쪽을 읽는다(새 백업엔 rooms만, 예전 백업엔 chats/threads만
+ * 있다).
+ */
 export interface FullExport {
   exportedAt: number;
   characters: Character[];
   universes: Universe[];
-  chats: {
+  /** @deprecated rooms로 대체됨. 예전 백업 파일을 불러올 때만 쓰인다 */
+  chats?: {
     universeId: string;
     characterId: string;
     history: ChatMessage[];
     voiceOverride: string | null;
     playerOverride: string | null;
   }[];
-  threads: MultiThread[];
+  /** @deprecated rooms로 대체됨. 예전 백업 파일을 불러올 때만 쓰인다 */
+  threads?: MultiThread[];
+  rooms?: Room[];
   /** 관찰 모드 이야기. 이 필드가 생기기 전에 받은 예전 백업 파일에는 없을 수 있다 */
   stories?: ObservationSession[];
   memories: CharacterMemory[];

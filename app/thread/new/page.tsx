@@ -8,7 +8,7 @@ import {
   getCharacters,
   getChatHistory,
   getUniverse,
-  saveThread,
+  saveRoom,
   StorageError,
 } from "@/lib/storage";
 import { resolveUniverseTemplate } from "@/lib/template";
@@ -17,8 +17,8 @@ import {
   createOrgUniverse,
   toCharacterProfile,
   type Character,
-  type MultiThread,
-  type ThreadItem,
+  type Room,
+  type RoomItem,
   type Universe,
 } from "@/lib/types";
 
@@ -88,7 +88,7 @@ function NewThreadPageInner() {
     try {
       const resolvedUniverse = resolveUniverseTemplate(universe, characters);
 
-      const importedItems: ThreadItem[] = [];
+      const importedItems: RoomItem[] = [];
       for (const id of importIds) {
         if (!selectedIds.includes(id)) continue;
         const character = characters.find((c) => c.id === id);
@@ -107,20 +107,21 @@ function NewThreadPageInner() {
         });
         const data = await res.json().catch(() => ({}));
         if (res.ok && typeof data.summary === "string" && data.summary.trim()) {
-          importedItems.push({ t: "n", text: data.summary.trim() });
+          importedItems.push({ t: "n", text: data.summary.trim(), ts: Date.now() });
         }
       }
 
       const now = Date.now();
-      const thread: MultiThread = {
+      const thread: Room = {
         id: crypto.randomUUID(),
         universeId,
+        kind: "group",
         characterIds: selectedIds,
         items: importedItems,
         createdAt: now,
         updatedAt: now,
       };
-      await saveThread(thread);
+      await saveRoom(thread);
       router.replace(`/thread/${thread.id}?universe=${universeId}`);
     } catch (err) {
       setError(

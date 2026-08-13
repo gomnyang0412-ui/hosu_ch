@@ -1,16 +1,16 @@
 import { NextResponse } from "next/server";
-import { DbConfigError, deleteThread, getThread } from "@/lib/db";
+import { DbConfigError, deleteRoom, getRoom } from "@/lib/db";
 
 export const runtime = "nodejs";
 
 export async function GET(
   _request: Request,
-  { params }: { params: Promise<{ universeId: string; threadId: string }> }
+  { params }: { params: Promise<{ universeId: string; roomId: string }> }
 ) {
-  const { universeId, threadId } = await params;
+  const { universeId, roomId } = await params;
   try {
-    const thread = await getThread(universeId, threadId);
-    return NextResponse.json({ thread: thread ?? null });
+    const room = await getRoom(universeId, roomId);
+    return NextResponse.json({ room: room ?? null });
   } catch (err) {
     return NextResponse.json(
       {
@@ -26,11 +26,11 @@ export async function GET(
 
 export async function DELETE(
   _request: Request,
-  { params }: { params: Promise<{ universeId: string; threadId: string }> }
+  { params }: { params: Promise<{ universeId: string; roomId: string }> }
 ) {
-  const { universeId, threadId } = await params;
+  const { universeId, roomId } = await params;
   try {
-    await deleteThread(universeId, threadId);
+    await deleteRoom(universeId, roomId);
     return NextResponse.json({ ok: true });
   } catch (err) {
     return NextResponse.json(

@@ -22,20 +22,16 @@ import {
 } from "@/lib/chatDates";
 import { kstDateString, todayKST } from "@/lib/memory";
 import { useKeyboardScrollFix } from "@/hooks/useKeyboardScrollFix";
+import { roomItemsToChatMessages } from "@/lib/roomBridge";
 import {
   getCharacter,
   getCharacters,
-  getChatHistory,
-  getChatHistoryBackups,
-  getChatPlayerOverride,
-  getChatVoiceOverride,
+  getRoomBackups,
+  getRoomForCharacter,
   getUniverse,
-  restoreChatHistoryBackup,
+  restoreRoomBackup,
   saveCharacter,
-  saveChatHistory,
-  saveChatPlayerOverride,
-  saveChatVoiceOverride,
-  clearChatHistory,
+  saveRoom,
   StorageError,
 } from "@/lib/storage";
 import {
@@ -44,16 +40,15 @@ import {
   resolveActiveVoiceCharacter,
   resolveVoiceCharacter,
 } from "@/lib/character";
-import { serializeItems } from "@/lib/scene";
-import { chatMessagesToThreadItems } from "@/lib/roomBridge";
 import { resolveUniverseTemplate } from "@/lib/template";
 import {
   ORG_UNIVERSE_ID,
   createOrgUniverse,
   toCharacterProfile,
   type Character,
-  type ChatMessage,
-  type SceneItem,
+  type Room,
+  type RoomItem,
+  type ThreadItem,
   type Universe,
 } from "@/lib/types";
 
@@ -62,10 +57,30 @@ interface ChatErrorState {
   kind: "quota" | "network" | "overloaded" | "unknown" | "parse";
 }
 
-/** items가 없는 예전 메시지는 대사 1개짜리로 감싸서 보여준다 */
-function modelItems(m: ChatMessage, characterName: string): SceneItem[] {
-  if (m.items && m.items.length > 0) return m.items;
-  return [{ t: "d", who: characterName, say: m.text }];
+function singleRoomId(characterId: string) {
+  return `single-${characterId}`;
+}
+
+/** 화면 렌더링·수정·나누기 기준 단위. 사용자 발화 1건은 항상 혼자,
+ *  AI 한 턴(지문+대사 여러 개)은 같은 ts를 공유하는 것끼리 묶는다. */
+function groupByTurn(
+  items: RoomItem[]
+): { startIndex: number; items: RoomItem[] }[] {
+  const turns: { startIndex: number; items: RoomItem[] }[] = [];
+  items.forEach((item, i) => {
+    const last = turns[turns.length - 1];
+    if (
+      last &&
+      item.t !== "u" &&
+      last.items[0].t !== "u" &&
+      last.items[0].ts === item.ts
+    ) {
+      last.items.push(item);
+    } else {
+      turns.push({ startIndex: i, items: [item] });
+    }
+  });
+  return turns;
 }
 
 export default function ChatPage() {
@@ -85,7 +100,7 @@ function ChatPageInner() {
   const [character, setCharacter] = useState<Character | null>(null);
   const [universe, setUniverse] = useState<Universe | null>(null);
   const [allCharacters, setAllCharacters] = useState<Character[]>([]);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [room, setRoom] = useState<Room | null>(null);
   const [loadError, setLoadError] = useState("");
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -103,16 +118,14 @@ function ChatPageInner() {
   const [renameText, setRenameText] = useState("");
   const [savingName, setSavingName] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [voiceOverride, setVoiceOverride] = useState<string | null>(null);
-  const [playerOverride, setPlayerOverride] = useState<string | null>(null);
   const [pickingVoice, setPickingVoice] = useState(false);
   const [showTimeline, setShowTimeline] = useState(false);
   const [backups, setBackups] = useState<
-    { value: ChatMessage[]; ts: number }[] | null
+    { value: Room; ts: number }[] | null
   >(null);
   const [restoring, setRestoring] = useState(false);
   const { bottomRef, handleInputFocus } = useKeyboardScrollFix([
-    messages.length,
+    room?.items.length,
     loading,
   ]);
 
@@ -134,42 +147,40 @@ function ChatPageInner() {
       setAllCharacters(characters);
       const voiceCharacter = resolveVoiceCharacter(found, characters);
 
-      getChatVoiceOverride(universeId, id)
-        .then(setVoiceOverride)
-        .catch(() => {
-          // 저장된 값을 못 불러오면 캐릭터의 기본 역할 반전 설정을 그대로 쓴다
-        });
-      getChatPlayerOverride(universeId, id)
-        .then(setPlayerOverride)
-        .catch(() => {
-          // 저장된 값을 못 불러오면 기존 암묵적 기본값을 그대로 쓴다
-        });
-
       try {
-        const history = await getChatHistory(universeId, id);
-        if (history.length === 0 && voiceCharacter.firstMessage.trim()) {
+        const existingRoom = await getRoomForCharacter(universeId, id);
+        if (!existingRoom || existingRoom.items.length === 0) {
           const firstText = voiceCharacter.firstMessage.trim();
-          const seeded: ChatMessage[] = [
-            {
-              role: "model",
-              text: firstText,
-              items: [{ t: "d", who: voiceCharacter.name, say: firstText }],
-              ts: Date.now(),
-            },
-          ];
-          setMessages(seeded);
-          try {
-            await saveChatHistory(universeId, id, seeded);
-          } catch {
-            // 저장 실패해도 화면에는 첫 인사를 보여준다
+          const now = Date.now();
+          const seededItems: RoomItem[] = firstText
+            ? [{ t: "d", who: voiceCharacter.name, say: firstText, ts: now }]
+            : [];
+          const seededRoom: Room = existingRoom
+            ? { ...existingRoom, items: seededItems, updatedAt: now }
+            : {
+                id: singleRoomId(id),
+                universeId,
+                kind: "single",
+                characterIds: [id],
+                items: seededItems,
+                createdAt: now,
+                updatedAt: now,
+              };
+          setRoom(seededRoom);
+          if (seededItems.length > 0) {
+            try {
+              await saveRoom(seededRoom);
+            } catch {
+              // 저장 실패해도 화면에는 첫 인사를 보여준다
+            }
           }
         } else {
-          setMessages(history);
+          setRoom(existingRoom);
           // 날짜가 넘어간(KST 자정 기준) 뒤 이 방에 처음 들어온 거라면,
           // 지금까지의 대화를 "가져오기"와 같은 방식(최근 100개 상세 +
           // 그 이전 기억 한 줄씩)으로 자동 요약해서 지문으로 남겨둔다.
-          const lastMsg = history[history.length - 1];
-          if (lastMsg && kstDateString(lastMsg.ts) !== todayKST()) {
+          const lastItem = existingRoom.items[existingRoom.items.length - 1];
+          if (lastItem && kstDateString(lastItem.ts) !== todayKST()) {
             try {
               const res = await fetch("/api/summarize", {
                 method: "POST",
@@ -181,23 +192,23 @@ function ChatPageInner() {
                     foundUniverse ?? createOrgUniverse(),
                     characters
                   ),
-                  history,
+                  history: roomItemsToChatMessages(existingRoom.items),
                 }),
               });
               const data = await res.json().catch(() => ({}));
               if (res.ok && typeof data.summary === "string" && data.summary.trim()) {
                 const recapText = data.summary.trim();
-                const withRecap: ChatMessage[] = [
-                  ...history,
-                  {
-                    role: "model",
-                    text: recapText,
-                    items: [{ t: "n", text: recapText }],
-                    ts: Date.now(),
-                  },
-                ];
-                setMessages(withRecap);
-                await saveChatHistory(universeId, id, withRecap).catch(() => {});
+                const now = Date.now();
+                const withRecap: Room = {
+                  ...existingRoom,
+                  items: [
+                    ...existingRoom.items,
+                    { t: "n", text: recapText, ts: now },
+                  ],
+                  updatedAt: now,
+                };
+                setRoom(withRecap);
+                await saveRoom(withRecap).catch(() => {});
               }
             } catch {
               // 자동 요약은 부가 기능이라 실패해도 방 진입 자체는 막지 않는다
@@ -210,23 +221,19 @@ function ChatPageInner() {
     })();
   }, [id, universeId, router]);
 
-  async function sendToAI(
-    chatCharacter: Character,
-    chatUniverse: Universe,
-    history: ChatMessage[]
-  ) {
+  async function sendToAI(chatCharacter: Character, chatUniverse: Universe, baseRoom: Room) {
     setLoading(true);
     setError(null);
     const voiceCharacter = resolveActiveVoiceCharacter(
       chatCharacter,
       allCharacters,
-      voiceOverride
+      baseRoom.aiVoiceOverrideId ?? null
     );
     const activePlayerCharacter = resolveActivePlayerCharacter(
       chatCharacter,
       allCharacters,
       voiceCharacter,
-      playerOverride
+      baseRoom.playerCharacterId ?? null
     );
     try {
       const res = await fetch("/api/room-chat", {
@@ -237,7 +244,7 @@ function ChatPageInner() {
           universe: chatUniverse,
           targetName: voiceCharacter.name,
           targetId: voiceCharacter.id,
-          items: chatMessagesToThreadItems(history, voiceCharacter.name),
+          items: baseRoom.items,
           playerCharacter: activePlayerCharacter
             ? toCharacterProfile(activePlayerCharacter)
             : undefined,
@@ -251,21 +258,18 @@ function ChatPageInner() {
         });
         return;
       }
-      const items: SceneItem[] = (data.items as SceneItem[]).filter(
-        (it) => it.t === "n" || it.t === "d"
-      );
-      const next: ChatMessage[] = [
-        ...history,
-        {
-          role: "model",
-          text: serializeItems(items),
-          items,
-          ts: Date.now(),
-        },
-      ];
-      setMessages(next);
+      const now = Date.now();
+      const newItems: RoomItem[] = (data.items as ThreadItem[])
+        .filter((it) => it.t === "n" || it.t === "d")
+        .map((it) => ({ ...it, ts: now }));
+      const next: Room = {
+        ...baseRoom,
+        items: [...baseRoom.items, ...newItems],
+        updatedAt: now,
+      };
+      setRoom(next);
       try {
-        await saveChatHistory(universeId, id, next);
+        await saveRoom(next);
       } catch (err) {
         setError({
           message:
@@ -285,32 +289,19 @@ function ChatPageInner() {
     }
   }
 
-  /** 지금 이 방에서 내가 입력하는 메시지가 실제로 누구의 말인지 (기억 정리 시 정확히 구분하기 위해 메시지에 같이 저장해둔다) */
-  function currentPlayerName(): string {
-    if (!character) return "나";
-    const voice = resolveActiveVoiceCharacter(character, allCharacters, voiceOverride);
-    return (
-      resolveActivePlayerCharacter(character, allCharacters, voice, playerOverride)
-        ?.name ?? "나"
-    );
-  }
-
   async function handleSend() {
     const text = input.trim();
-    if (!text || !character || !universe || loading) return;
-    const next: ChatMessage[] = [
-      ...messages,
-      {
-        role: "user",
-        text,
-        items: [{ t: "d", who: currentPlayerName(), say: text }],
-        ts: Date.now(),
-      },
-    ];
-    setMessages(next);
+    if (!text || !character || !universe || !room || loading) return;
+    const now = Date.now();
+    const next: Room = {
+      ...room,
+      items: [...room.items, { t: "u", text, ts: now }],
+      updatedAt: now,
+    };
+    setRoom(next);
     setInput("");
     try {
-      await saveChatHistory(universeId, id, next);
+      await saveRoom(next);
     } catch (err) {
       setError({
         message:
@@ -324,18 +315,16 @@ function ChatPageInner() {
   }
 
   function handleRetry() {
-    if (!character || !universe) return;
-    sendToAI(
-      character,
-      resolveUniverseTemplate(universe, allCharacters),
-      messages
-    );
+    if (!character || !universe || !room) return;
+    sendToAI(character, resolveUniverseTemplate(universe, allCharacters), room);
   }
 
   function startEdit(i: number) {
-    if (loading) return;
+    if (loading || !room) return;
+    const item = room.items[i];
+    if (item.t !== "u") return;
     setEditingIndex(i);
-    setEditingText(messages[i].text);
+    setEditingText(item.text);
   }
 
   function cancelEdit() {
@@ -345,21 +334,18 @@ function ChatPageInner() {
 
   async function submitEdit() {
     const text = editingText.trim();
-    if (!text || editingIndex === null || !character || !universe) return;
-    const next: ChatMessage[] = [
-      ...messages.slice(0, editingIndex),
-      {
-        role: "user",
-        text,
-        items: [{ t: "d", who: currentPlayerName(), say: text }],
-        ts: Date.now(),
-      },
-    ];
-    setMessages(next);
+    if (!text || editingIndex === null || !character || !universe || !room) return;
+    const now = Date.now();
+    const next: Room = {
+      ...room,
+      items: [...room.items.slice(0, editingIndex), { t: "u", text, ts: now }],
+      updatedAt: now,
+    };
+    setRoom(next);
     setEditingIndex(null);
     setEditingText("");
     try {
-      await saveChatHistory(universeId, id, next);
+      await saveRoom(next);
     } catch (err) {
       setError({
         message:
@@ -373,28 +359,22 @@ function ChatPageInner() {
   }
 
   async function handleReset() {
-    if (!character) return;
+    if (!character || !room) return;
     if (!window.confirm("이 캐릭터와의 대화 기록을 모두 지울까요?")) return;
     try {
-      await clearChatHistory(universeId, id);
       const voiceCharacter = resolveActiveVoiceCharacter(
         character,
         allCharacters,
-        voiceOverride
+        room.aiVoiceOverrideId ?? null
       );
       const firstText = voiceCharacter.firstMessage.trim();
-      const seeded: ChatMessage[] = firstText
-        ? [
-            {
-              role: "model",
-              text: firstText,
-              items: [{ t: "d", who: voiceCharacter.name, say: firstText }],
-              ts: Date.now(),
-            },
-          ]
+      const now = Date.now();
+      const seededItems: RoomItem[] = firstText
+        ? [{ t: "d", who: voiceCharacter.name, say: firstText, ts: now }]
         : [];
-      setMessages(seeded);
-      if (seeded.length) await saveChatHistory(universeId, id, seeded);
+      const next: Room = { ...room, items: seededItems, updatedAt: now };
+      setRoom(next);
+      await saveRoom(next);
       setError(null);
     } catch (err) {
       setError({
@@ -420,20 +400,34 @@ function ChatPageInner() {
   }
 
   async function confirmSplit() {
-    if (splitIndex === null || !splitTargetId || splitting) return;
+    if (splitIndex === null || !splitTargetId || splitting || !room) return;
     const target = allCharacters.find((c) => c.id === splitTargetId);
     if (!target) return;
     setSplitting(true);
     setError(null);
     try {
-      const head = messages.slice(0, splitIndex);
-      const tail = messages.slice(splitIndex);
-      const targetExisting = await getChatHistory(universeId, splitTargetId).catch(
-        () => []
-      );
-      await saveChatHistory(universeId, splitTargetId, [...targetExisting, ...tail]);
-      await saveChatHistory(universeId, id, head);
-      setMessages(head);
+      const head = room.items.slice(0, splitIndex);
+      const tail = room.items.slice(splitIndex);
+      const now = Date.now();
+      const targetExisting = await getRoomForCharacter(
+        universeId,
+        splitTargetId
+      ).catch(() => null);
+      const targetRoom: Room = targetExisting
+        ? { ...targetExisting, items: [...targetExisting.items, ...tail], updatedAt: now }
+        : {
+            id: singleRoomId(splitTargetId),
+            universeId,
+            kind: "single",
+            characterIds: [splitTargetId],
+            items: tail,
+            createdAt: now,
+            updatedAt: now,
+          };
+      await saveRoom(targetRoom);
+      const updatedOwnRoom: Room = { ...room, items: head, updatedAt: now };
+      await saveRoom(updatedOwnRoom);
+      setRoom(updatedOwnRoom);
       setSplitIndex(null);
       setSplitTargetId("");
       setSplitMode(false);
@@ -514,10 +508,12 @@ function ChatPageInner() {
   }
 
   async function chooseVoice(nextVoiceId: string) {
-    if (!character || nextVoiceId === voiceCharacter.id) return;
-    setVoiceOverride(nextVoiceId);
+    if (!character || !room || nextVoiceId === voiceCharacter.id) return;
+    const now = Date.now();
+    const updated: Room = { ...room, aiVoiceOverrideId: nextVoiceId, updatedAt: now };
+    setRoom(updated);
     try {
-      await saveChatVoiceOverride(universeId, id, nextVoiceId);
+      await saveRoom(updated);
     } catch (err) {
       setError({
         message:
@@ -530,12 +526,14 @@ function ChatPageInner() {
   }
 
   async function choosePlayer(nextPlayerId: string) {
-    if (!character) return;
+    if (!character || !room) return;
     const current = playerCharacter?.id ?? PLAYER_ANONYMOUS;
     if (nextPlayerId === current) return;
-    setPlayerOverride(nextPlayerId);
+    const now = Date.now();
+    const updated: Room = { ...room, playerCharacterId: nextPlayerId, updatedAt: now };
+    setRoom(updated);
     try {
-      await saveChatPlayerOverride(universeId, id, nextPlayerId);
+      await saveRoom(updated);
     } catch (err) {
       setError({
         message:
@@ -552,7 +550,7 @@ function ChatPageInner() {
     setError(null);
     scrollToTop();
     try {
-      const list = await getChatHistoryBackups(universeId, id);
+      const list = await getRoomBackups(universeId, singleRoomId(id));
       setBackups(list);
     } catch (err) {
       setError({
@@ -570,8 +568,8 @@ function ChatPageInner() {
     setRestoring(true);
     setError(null);
     try {
-      const restored = await restoreChatHistoryBackup(universeId, id, index);
-      setMessages(restored);
+      const restored = await restoreRoomBackup(universeId, singleRoomId(id), index);
+      setRoom(restored);
       setBackups(null);
     } catch (err) {
       setError({
@@ -615,7 +613,7 @@ function ChatPageInner() {
     handleReset();
   }
 
-  if (!character) {
+  if (!character || !room) {
     return loadError ? (
       <p className="p-4 text-sm text-red-600">{loadError}</p>
     ) : null;
@@ -625,19 +623,23 @@ function ChatPageInner() {
   const voiceCharacter = resolveActiveVoiceCharacter(
     character,
     allCharacters,
-    voiceOverride
+    room.aiVoiceOverrideId ?? null
   );
   const playerCharacter = resolveActivePlayerCharacter(
     character,
     allCharacters,
     voiceCharacter,
-    playerOverride
+    room.playerCharacterId ?? null
   );
   const isReversed = voiceCharacter.id !== character.id;
   const speakerFor = (name: string) =>
     allCharacters.find((c) => c.name === name) ?? voiceCharacter;
 
   const roomHref = `/character/${id}/chat?universe=${universeId}`;
+  const turns = groupByTurn(room.items);
+  const messagesForTimeline = groupMessagesByDate(
+    roomItemsToChatMessages(room.items)
+  );
 
   return (
     <div className="flex flex-1 lg:gap-6">
@@ -708,7 +710,7 @@ function ChatPageInner() {
 
       <TimelinePanel
         open={showTimeline}
-        groups={groupMessagesByDate(messages)}
+        groups={messagesForTimeline}
         onJump={jumpToDate}
         onClose={() => setShowTimeline(false)}
       />
@@ -734,12 +736,13 @@ function ChatPageInner() {
           </p>
         )}
 
-        {messages.map((m, i) => {
-          const date = kstDateString(m.ts);
+        {turns.map((turn, turnIndex) => {
+          const first = turn.items[0];
+          const date = kstDateString(first.ts);
           const showDateDivider =
-            i === 0 || kstDateString(messages[i - 1].ts) !== date;
+            turnIndex === 0 || kstDateString(turns[turnIndex - 1].items[0].ts) !== date;
           return (
-          <div key={`${m.ts}-${i}`} className="flex flex-col gap-1.5">
+          <div key={`${first.ts}-${turn.startIndex}`} className="flex flex-col gap-1.5">
             {showDateDivider && (
               <div
                 id={dateAnchorId(date)}
@@ -750,12 +753,12 @@ function ChatPageInner() {
                 </span>
               </div>
             )}
-            {m.role === "model" ? (
+            {first.t !== "u" ? (
               <div className="flex flex-col gap-2">
-                {modelItems(m, resolveVoiceCharacter(character, allCharacters).name).map((item, j) =>
+                {turn.items.map((item, j) =>
                   item.t === "n" ? (
                     <NarrationBubble key={j} text={item.text} />
-                  ) : (
+                  ) : item.t === "d" ? (
                     <DialogueBubble
                       key={j}
                       speaker={speakerFor(item.who)}
@@ -764,10 +767,10 @@ function ChatPageInner() {
                       model={item.model}
                       keyIndex={item.keyIndex}
                     />
-                  )
+                  ) : null
                 )}
               </div>
-            ) : editingIndex === i ? (
+            ) : editingIndex === turn.startIndex ? (
               <div className="flex flex-col items-end gap-1.5">
                 <textarea
                   value={editingText}
@@ -798,7 +801,7 @@ function ChatPageInner() {
               <div className="flex items-center justify-end gap-1.5">
                 <button
                   type="button"
-                  onClick={() => startEdit(i)}
+                  onClick={() => startEdit(turn.startIndex)}
                   disabled={loading}
                   aria-label="메시지 수정"
                   className="shrink-0 text-xs text-muted hover:text-foreground disabled:opacity-40"
@@ -809,22 +812,22 @@ function ChatPageInner() {
                   className="max-w-[75%] whitespace-pre-wrap rounded-2xl rounded-br-sm px-3 py-2 text-sm leading-relaxed text-white md:max-w-[420px]"
                   style={{ backgroundColor: character.accentColor }}
                 >
-                  {m.text}
+                  {first.text}
                 </div>
               </div>
             )}
 
-            {splitMode && splitIndex !== i && (
+            {splitMode && splitIndex !== turn.startIndex && (
               <button
                 type="button"
-                onClick={() => pickSplitPoint(i)}
+                onClick={() => pickSplitPoint(turn.startIndex)}
                 className="self-center rounded-full border border-dashed border-border px-3 py-1 text-xs text-muted hover:text-foreground"
               >
                 ▸ 여기서부터 나누기
               </button>
             )}
 
-            {splitIndex === i && (
+            {splitIndex === turn.startIndex && (
               <div className="card-shadow flex flex-col items-center gap-2 rounded-xl bg-card p-3">
                 <p className="text-xs text-muted">
                   이 메시지부터 끝까지를 어느 캐릭터 방으로 옮길까요?

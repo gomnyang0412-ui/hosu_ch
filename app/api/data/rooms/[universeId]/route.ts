@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { DbConfigError, getThreads, saveThread } from "@/lib/db";
-import type { MultiThread } from "@/lib/types";
+import { DbConfigError, getRooms, saveRoom } from "@/lib/db";
+import type { Room } from "@/lib/types";
 
 export const runtime = "nodejs";
 
@@ -10,8 +10,8 @@ export async function GET(
 ) {
   const { universeId } = await params;
   try {
-    const threads = await getThreads(universeId);
-    return NextResponse.json({ threads });
+    const rooms = await getRooms(universeId);
+    return NextResponse.json({ rooms });
   } catch (err) {
     return NextResponse.json(
       {
@@ -30,18 +30,23 @@ export async function POST(
   { params }: { params: Promise<{ universeId: string }> }
 ) {
   const { universeId } = await params;
-  let thread: MultiThread;
+  let room: Room;
   try {
-    thread = await request.json();
+    room = await request.json();
   } catch {
     return NextResponse.json({ error: "잘못된 요청이에요." }, { status: 400 });
   }
-  if (!thread?.id || !Array.isArray(thread.characterIds)) {
+  if (
+    !room?.id ||
+    (room.kind !== "single" && room.kind !== "group") ||
+    !Array.isArray(room.characterIds) ||
+    !Array.isArray(room.items)
+  ) {
     return NextResponse.json({ error: "잘못된 요청이에요." }, { status: 400 });
   }
 
   try {
-    await saveThread({ ...thread, universeId });
+    await saveRoom({ ...room, universeId });
     return NextResponse.json({ ok: true });
   } catch (err) {
     return NextResponse.json(
