@@ -469,6 +469,11 @@ export async function generateSceneJson(params: {
  * 장면 안에서 캐릭터 품질이 어색하게 갈렸다. 그래서 지정 대상의
  * generateChatReply와 똑같이 Flash 체인을 우선 쓰고, 전부 소진됐을
  * 때만 Lite로 내려가게 한다.
+ *
+ * 기본 타임아웃(25초)으로는 Flash가 그 안에 못 끝내는 경우가 10번 중
+ * 2~3번꼴로 있었다(지정 대상 응답 다음에 부르는 두 번째 호출이라
+ * 실제로 걸리는 시간이 더 들쭉날쭉한 듯하다) — 그래서 이 호출만 조금
+ * 더 여유를 준다.
  */
 export async function generateThreadReactions(params: {
   systemInstruction: string;
@@ -479,6 +484,7 @@ export async function generateThreadReactions(params: {
     json: true,
     responseSchema: REACTION_ARRAY_SCHEMA,
     models: DIALOGUE_MODEL_CHAIN,
+    timeoutMs: 35_000,
   });
 }
 
