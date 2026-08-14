@@ -220,6 +220,18 @@ export default function CharacterForm({
 
   function applySuggestion(key: ProfileFieldKey, value: string) {
     profileFieldState[key][1](value);
+    // 적용한 항목은 목록에서 바로 지워서 "눌렀다"는 걸 확인할 수 있게 한다 —
+    // 안 그러면 카드는 그대로 있고 실제로 바뀐 입력창은 화면 아래로 스크롤해야
+    // 보여서, 클릭이 씹힌 것처럼 느껴진다.
+    setSuggestions((prev) => {
+      if (!prev) return prev;
+      const rest = { ...prev };
+      delete rest[key];
+      const hasRemaining = (
+        Object.keys(PROFILE_FIELD_LABELS) as ProfileFieldKey[]
+      ).some((k) => rest[k]);
+      return hasRemaining ? rest : null;
+    });
   }
 
   function applyAllSuggestions() {
