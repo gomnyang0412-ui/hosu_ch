@@ -209,10 +209,17 @@ export interface ObservationSession {
   updatedAt: number;
 }
 
+/** 사진을 몇 ms 동안만 보관할지 (2일). 지나면 image만 비우고 text 등 기록은 남긴다 */
+export const IMAGE_RETENTION_MS = 2 * 24 * 60 * 60 * 1000;
+
 /** 멀티 대화방에서 사용자가 직접 보낸 한 마디 */
 export interface UserItem {
   t: "u";
   text: string;
+  /** 함께 보낸 사진 (base64 dataURL, 중간 화질로 리사이즈됨). 없으면 undefined */
+  image?: string;
+  /** image가 지워질 시각(ts + IMAGE_RETENTION_MS) */
+  imageExpiresAt?: number;
 }
 
 /** 멀티 대화방에서 사용자가 넣는 "상황 전환" 지시문 (화면엔 구분선처럼 표시) */

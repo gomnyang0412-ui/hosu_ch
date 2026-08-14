@@ -18,6 +18,7 @@ import {
   formatDateLabel,
   groupRoomItemsByDate,
 } from "@/lib/chatDates";
+import { resizeImageFile } from "@/lib/image";
 import { kstDateString } from "@/lib/memory";
 import {
   deleteRoom,
@@ -32,6 +33,7 @@ import {
 import { resolveUniverseTemplate } from "@/lib/template";
 import {
   ACCENT_COLORS,
+  IMAGE_RETENTION_MS,
   ORG_UNIVERSE_ID,
   createOrgUniverse,
   toCharacterProfile,
@@ -92,6 +94,8 @@ function ThreadPageInner() {
   const [allCharacters, setAllCharacters] = useState<Character[]>([]);
   const [targetIds, setTargetIds] = useState<string[]>([]);
   const [input, setInput] = useState("");
+  const [pendingImage, setPendingImage] = useState<string | undefined>(undefined);
+  const [pendingImageLoading, setPendingImageLoading] = useState(false);
   const [showDirective, setShowDirective] = useState(false);
   const [directiveText, setDirectiveText] = useState("");
   const [loading, setLoading] = useState(false);
@@ -243,12 +247,38 @@ function ThreadPageInner() {
     setLoading(false);
   }
 
+  async function handleAttachImage(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setPendingImageLoading(true);
+    try {
+      // 중간 화질로 — 원본 그대로 저장하면 방마다 용량이 금방 불어난다
+      const dataUrl = await resizeImageFile(file, 768, 0.7);
+      setPendingImage(dataUrl);
+    } catch (err) {
+      setError({
+        message: err instanceof Error ? err.message : "이미지 처리에 실패했어요.",
+        kind: "unknown",
+      });
+    } finally {
+      setPendingImageLoading(false);
+    }
+  }
+
   async function handleSend() {
     const text = input.trim();
     const targets = aiParticipants.filter((c) => targetIds.includes(c.id));
-    if (!text || !thread || targets.length === 0 || loading) return;
+    if ((!text && !pendingImage) || !thread || targets.length === 0 || loading) return;
     const now = Date.now();
-    const item: RoomItem = { t: "u", text, ts: now };
+    const item: RoomItem = {
+      t: "u",
+      text,
+      ts: now,
+      ...(pendingImage
+        ? { image: pendingImage, imageExpiresAt: now + IMAGE_RETENTION_MS }
+        : {}),
+    };
     const updated: Room = {
       ...thread,
       items: [...thread.items, item],
@@ -256,6 +286,7 @@ function ThreadPageInner() {
     };
     setThread(updated);
     setInput("");
+    setPendingImage(undefined);
     try {
       await saveRoom(updated);
     } catch (err) {
@@ -611,8 +642,20 @@ function ThreadPageInner() {
                 >
                   ✎
                 </button>
-                <div className="gradient-primary max-w-[75%] whitespace-pre-wrap rounded-2xl rounded-br-sm px-3 py-2 text-sm leading-relaxed text-primary-foreground md:max-w-[420px]">
-                  {item.text}
+                <div className="flex max-w-[75%] flex-col items-end gap-1 md:max-w-[420px]">
+                  {item.image && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={item.image}
+                      alt="보낸 사진"
+                      className="max-h-48 w-auto rounded-2xl rounded-br-sm object-cover"
+                    />
+                  )}
+                  {item.text && (
+                    <div className="gradient-primary whitespace-pre-wrap rounded-2xl rounded-br-sm px-3 py-2 text-sm leading-relaxed text-primary-foreground">
+                      {item.text}
+                    </div>
+                  )}
                 </div>
               </div>
             );
@@ -730,6 +773,23 @@ function ThreadPageInner() {
               </button>
             </div>
           )}
+          {pendingImage && (
+            <div className="flex items-center gap-2">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={pendingImage}
+                alt="첨부할 사진"
+                className="h-14 w-14 rounded-lg object-cover"
+              />
+              <button
+                type="button"
+                onClick={() => setPendingImage(undefined)}
+                className="text-xs text-red-600"
+              >
+                사진 제거
+              </button>
+            </div>
+          )}
           <div className="flex items-end gap-2">
             <button
               type="button"
@@ -743,6 +803,18 @@ function ThreadPageInner() {
             >
               🎬
             </button>
+            <label
+              className="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full border border-border text-sm text-muted"
+              aria-label="사진 첨부"
+            >
+              {pendingImageLoading ? "…" : "📷"}
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleAttachImage}
+                className="hidden"
+              />
+            </label>
             <AutoGrowTextarea
               value={input}
               onChange={setInput}
@@ -761,7 +833,9 @@ function ThreadPageInner() {
             <button
               type="button"
               onClick={handleSend}
-              disabled={loading || !input.trim() || targetIds.length === 0}
+              disabled={
+                loading || (!input.trim() && !pendingImage) || targetIds.length === 0
+              }
               className="gradient-primary shrink-0 rounded-full px-5 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-40"
             >
               전송

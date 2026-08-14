@@ -22,6 +22,7 @@ import {
 } from "@/lib/chatDates";
 import { kstDateString, todayKST } from "@/lib/memory";
 import { useKeyboardScrollFix } from "@/hooks/useKeyboardScrollFix";
+import { resizeImageFile } from "@/lib/image";
 import { roomItemsToChatMessages } from "@/lib/roomBridge";
 import {
   getCharacter,
@@ -42,6 +43,7 @@ import {
 } from "@/lib/character";
 import { resolveUniverseTemplate } from "@/lib/template";
 import {
+  IMAGE_RETENTION_MS,
   ORG_UNIVERSE_ID,
   createOrgUniverse,
   toCharacterProfile,
@@ -103,6 +105,8 @@ function ChatPageInner() {
   const [room, setRoom] = useState<Room | null>(null);
   const [loadError, setLoadError] = useState("");
   const [input, setInput] = useState("");
+  const [pendingImage, setPendingImage] = useState<string | undefined>(undefined);
+  const [pendingImageLoading, setPendingImageLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<ChatErrorState | null>(null);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
@@ -289,17 +293,45 @@ function ChatPageInner() {
     }
   }
 
+  async function handleAttachImage(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setPendingImageLoading(true);
+    try {
+      // 중간 화질로 — 원본 그대로 저장하면 방마다 용량이 금방 불어난다
+      const dataUrl = await resizeImageFile(file, 768, 0.7);
+      setPendingImage(dataUrl);
+    } catch (err) {
+      setError({
+        message: err instanceof Error ? err.message : "이미지 처리에 실패했어요.",
+        kind: "unknown",
+      });
+    } finally {
+      setPendingImageLoading(false);
+    }
+  }
+
   async function handleSend() {
     const text = input.trim();
-    if (!text || !character || !universe || !room || loading) return;
+    if ((!text && !pendingImage) || !character || !universe || !room || loading) return;
     const now = Date.now();
+    const newItem: RoomItem = {
+      t: "u",
+      text,
+      ts: now,
+      ...(pendingImage
+        ? { image: pendingImage, imageExpiresAt: now + IMAGE_RETENTION_MS }
+        : {}),
+    };
     const next: Room = {
       ...room,
-      items: [...room.items, { t: "u", text, ts: now }],
+      items: [...room.items, newItem],
       updatedAt: now,
     };
     setRoom(next);
     setInput("");
+    setPendingImage(undefined);
     try {
       await saveRoom(next);
     } catch (err) {
@@ -808,11 +840,23 @@ function ChatPageInner() {
                 >
                   ✎
                 </button>
-                <div
-                  className="max-w-[75%] whitespace-pre-wrap rounded-2xl rounded-br-sm px-3 py-2 text-sm leading-relaxed text-white md:max-w-[420px]"
-                  style={{ backgroundColor: character.accentColor }}
-                >
-                  {first.text}
+                <div className="flex max-w-[75%] flex-col items-end gap-1 md:max-w-[420px]">
+                  {first.image && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={first.image}
+                      alt="보낸 사진"
+                      className="max-h-48 w-auto rounded-2xl rounded-br-sm object-cover"
+                    />
+                  )}
+                  {first.text && (
+                    <div
+                      className="whitespace-pre-wrap rounded-2xl rounded-br-sm px-3 py-2 text-sm leading-relaxed text-white"
+                      style={{ backgroundColor: character.accentColor }}
+                    >
+                      {first.text}
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -891,23 +935,54 @@ function ChatPageInner() {
           이 페이지가 얼마나 긴지와 무관하게 끝까지 스크롤했을 때 항상
           화면에 나타난다.
         */}
-        <div className="-mx-3 flex items-end gap-2 border-t border-border bg-card px-3 py-2">
-          <AutoGrowTextarea
-            value={input}
-            onChange={setInput}
-            onFocus={handleInputFocus}
-            placeholder="메시지를 입력하세요"
-            enterKeyHint="enter"
-            className="flex-1 resize-none rounded-3xl border border-border bg-background px-4 py-2 text-sm outline-none focus:border-primary/50"
-          />
-          <button
-            type="button"
-            onClick={handleSend}
-            disabled={loading || !input.trim()}
-            className="gradient-primary shrink-0 rounded-full px-5 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-40"
-          >
-            전송
-          </button>
+        <div className="-mx-3 flex flex-col gap-2 border-t border-border bg-card px-3 py-2">
+          {pendingImage && (
+            <div className="flex items-center gap-2">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={pendingImage}
+                alt="첨부할 사진"
+                className="h-14 w-14 rounded-lg object-cover"
+              />
+              <button
+                type="button"
+                onClick={() => setPendingImage(undefined)}
+                className="text-xs text-red-600"
+              >
+                사진 제거
+              </button>
+            </div>
+          )}
+          <div className="flex items-end gap-2">
+            <label
+              className="shrink-0 cursor-pointer self-stretch rounded-3xl border border-border px-3 py-2 text-sm text-muted"
+              aria-label="사진 첨부"
+            >
+              {pendingImageLoading ? "…" : "📷"}
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleAttachImage}
+                className="hidden"
+              />
+            </label>
+            <AutoGrowTextarea
+              value={input}
+              onChange={setInput}
+              onFocus={handleInputFocus}
+              placeholder="메시지를 입력하세요"
+              enterKeyHint="enter"
+              className="flex-1 resize-none rounded-3xl border border-border bg-background px-4 py-2 text-sm outline-none focus:border-primary/50"
+            />
+            <button
+              type="button"
+              onClick={handleSend}
+              disabled={loading || (!input.trim() && !pendingImage)}
+              className="gradient-primary shrink-0 rounded-full px-5 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-40"
+            >
+              전송
+            </button>
+          </div>
         </div>
 
         <div ref={bottomRef} />

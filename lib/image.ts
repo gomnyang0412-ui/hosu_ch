@@ -2,8 +2,12 @@
 
 const MAX_EDGE = 320;
 
-/** 파일을 받아 긴 변이 maxEdge(기본 320)를 넘지 않도록 축소한 뒤 base64 dataURL로 반환한다 */
-export function resizeImageFile(file: File, maxEdge = MAX_EDGE): Promise<string> {
+/** 파일을 받아 긴 변이 maxEdge(기본 320)를 넘지 않도록 축소하고 quality(기본 0.85)로 압축한 뒤 base64 dataURL로 반환한다 */
+export function resizeImageFile(
+  file: File,
+  maxEdge = MAX_EDGE,
+  quality = 0.85
+): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(new Error("이미지를 읽을 수 없어요."));
@@ -24,7 +28,7 @@ export function resizeImageFile(file: File, maxEdge = MAX_EDGE): Promise<string>
           return;
         }
         ctx.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL("image/jpeg", 0.85));
+        resolve(canvas.toDataURL("image/jpeg", quality));
       };
       img.src = reader.result as string;
     };

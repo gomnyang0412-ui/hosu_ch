@@ -1,4 +1,4 @@
-import type { Content } from "@google/genai";
+import type { Content, Part } from "@google/genai";
 import { NextResponse } from "next/server";
 import { getCharacterMemory } from "@/lib/db";
 import {
@@ -11,6 +11,15 @@ import { buildMemoryBlock } from "@/lib/memory";
 import { hasContent, parseChatReply } from "@/lib/scene";
 import { serializeThreadItems } from "@/lib/thread";
 import type { CharacterProfile, ThreadItem, Universe } from "@/lib/types";
+
+/** "data:image/jpeg;base64,xxx" 형태의 dataURL을 Gemini에 보낼 수 있는 형태로 쪼갠다 */
+function parseImageDataUrl(
+  dataUrl: string
+): { mimeType: string; data: string } | null {
+  const match = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/.exec(dataUrl);
+  if (!match) return null;
+  return { mimeType: match[1], data: match[2] };
+}
 
 export const runtime = "nodejs";
 // 개별 시도 타임아웃(CALL_TIMEOUT_MS, 35초)이 재시도 1회까지 갈 수
@@ -179,6 +188,17 @@ export async function POST(request: Request) {
   const recentItems = body.items.slice(-contextSize);
   const historyText = serializeThreadItems(recentItems);
 
+  // 방금 사용자가 보낸 사진이 있으면(항상 items의 마지막 항목) Gemini가
+  // 실제로 볼 수 있도록 이미지 파트로 함께 보낸다. 지난 턴의 사진은 이미
+  // 텍스트 기록에 "[사진 첨부]"로만 남아 있고 픽셀 자체는 다시 보내지
+  // 않는다 — 매 요청마다 과거 사진까지 전부 재전송하면 비용이 계속
+  // 불어난다.
+  const lastItem = body.items[body.items.length - 1];
+  const attachedImage =
+    lastItem?.t === "u" && lastItem.image
+      ? parseImageDataUrl(lastItem.image)
+      : null;
+
   try {
     const memory = body.targetId
       ? await getCharacterMemory(body.targetId).catch(() => null)
@@ -205,11 +225,18 @@ export async function POST(request: Request) {
         historyText,
         ``,
         `위 이야기에서, 마지막 사용자 발화(또는 지시문)에 대한 "${targetName}"의 반응을 이어서 써줘.`,
+        attachedImage
+          ? `방금 사용자가 사진을 함께 보냈어. 실제로 그 사진을 보고, 사진 속 내용에 대한 "${targetName}"의 반응을 대사에 담아줘.`
+          : "",
         extra ?? "",
       ]
         .filter(Boolean)
         .join("\n");
-      const contents: Content[] = [{ role: "user", parts: [{ text: userText }] }];
+      const parts: Part[] = [{ text: userText }];
+      if (attachedImage) {
+        parts.push({ inlineData: attachedImage });
+      }
+      const contents: Content[] = [{ role: "user", parts }];
       const { text: raw, model, keyIndex } = await generateChatReply({
         systemInstruction: targetSystemInstruction,
         contents,
