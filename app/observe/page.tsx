@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import BottomNav from "@/components/BottomNav";
 import CharacterAvatar from "@/components/CharacterAvatar";
+import EpisodeJumpPanel, { episodeAnchorId } from "@/components/EpisodeJumpPanel";
 import {
   getCharacters,
   getChatHistory,
@@ -74,6 +75,7 @@ function ObservePageInner() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [startingChat, setStartingChat] = useState(false);
   const [startChatError, setStartChatError] = useState("");
+  const [showEpisodeJump, setShowEpisodeJump] = useState(false);
 
   const [loadError, setLoadError] = useState("");
 
@@ -344,6 +346,16 @@ function ObservePageInner() {
     }
   }
 
+  function jumpToEpisode(index: number) {
+    setShowEpisodeJump(false);
+    // 패널 닫힘 리렌더와 겹치지 않게 한 틱 뒤에 스크롤한다.
+    setTimeout(() => {
+      document
+        .getElementById(episodeAnchorId(index))
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 50);
+  }
+
   if (stories === null) return null;
 
   const isAu = universe && universe.type === "au";
@@ -359,10 +371,22 @@ function ObservePageInner() {
           <div className="flex items-center gap-1">
             <Link
               href={`/observe?universe=${universeId}`}
+              onClick={() => setShowEpisodeJump(false)}
               className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted"
             >
               ← 목록
             </Link>
+            {session.episodes.length > 1 && (
+              <button
+                type="button"
+                onClick={() => setShowEpisodeJump(true)}
+                aria-label="화별로 이동"
+                title="화별로 이동"
+                className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted"
+              >
+                📑
+              </button>
+            )}
             <button
               type="button"
               onClick={() => handleDeleteStory(session.id)}
@@ -385,6 +409,13 @@ function ObservePageInner() {
           )
         )}
       </header>
+
+      <EpisodeJumpPanel
+        open={showEpisodeJump}
+        episodes={session?.episodes ?? []}
+        onJump={jumpToEpisode}
+        onClose={() => setShowEpisodeJump(false)}
+      />
 
       <main className="mx-auto w-full max-w-[680px] flex-1 px-4 pb-4">
         {loadError && <p className="mb-3 text-sm text-red-600">{loadError}</p>}
@@ -572,7 +603,11 @@ function ObservePageInner() {
 
             <div className="flex flex-col gap-8">
               {session.episodes.map((ep) => (
-                <article key={ep.index} className="flex flex-col gap-3">
+                <article
+                  key={ep.index}
+                  id={episodeAnchorId(ep.index)}
+                  className="flex scroll-mt-20 flex-col gap-3"
+                >
                   <h2 className="text-sm font-semibold text-muted">
                     {ep.index}화
                   </h2>
