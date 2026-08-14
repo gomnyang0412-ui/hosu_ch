@@ -1,4 +1,4 @@
-import type { SceneItem } from "./types";
+import type { RoomItem, SceneItem } from "./types";
 
 /** Gemini가 코드블록(```json ... ```)이나 설명을 덧붙인 경우를 대비해 정리한 뒤 파싱한다 */
 export function parseSceneItems(raw: string): SceneItem[] {
@@ -123,4 +123,24 @@ export function serializeItems(items: SceneItem[]): string {
         : `${item.who}${item.act ? ` (${item.act})` : ""}: ${item.say}`
     )
     .join("\n");
+}
+
+/** 멀티 대화방 항목 하나를 텍스트 한 줄로 바꾼다. 사용자 발화(t:"u")는
+ *  playerName이 주어지면 그 이름으로, 아니면 "나(사용자)"로 표시한다. */
+export function roomItemLine(item: RoomItem, playerName?: string): string {
+  switch (item.t) {
+    case "n":
+      return `(지문) ${item.text}`;
+    case "x":
+      return `(상황 전환) ${item.text}`;
+    case "d":
+      return `${item.who}${item.act ? ` (${item.act})` : ""}: ${item.say}`;
+    case "u":
+      return `${playerName ?? "나(사용자)"}: ${item.text}`;
+  }
+}
+
+/** 멀티 대화방 items를 통째로 텍스트 하나로 직렬화한다 */
+export function serializeRoomItems(items: RoomItem[], playerName?: string): string {
+  return items.map((item) => roomItemLine(item, playerName)).join("\n");
 }

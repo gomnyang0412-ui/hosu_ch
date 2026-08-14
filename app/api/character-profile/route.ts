@@ -24,6 +24,10 @@ interface CharacterInput {
 interface CharacterProfileRequestBody {
   character: CharacterInput;
   history: ChatMessage[];
+  /** '관찰 모드'로 이 캐릭터가 등장한 이야기 화들의 본문 (ORG 유니버스만) */
+  observationTexts?: string[];
+  /** 이 캐릭터가 참가한 단톡방(그룹 대화방)의 대화 기록 텍스트 (ORG 유니버스만) */
+  groupChatTexts?: string[];
 }
 
 const FIELD_LABELS: Record<keyof Omit<CharacterInput, "name">, string> = {
@@ -42,6 +46,12 @@ const FIELD_LABELS: Record<keyof Omit<CharacterInput, "name">, string> = {
 
 // 참고할 대화가 너무 많으면 느려지니, 최근 대화 위주로 본다.
 const MAX_HISTORY = 150;
+// 관찰/단톡방 자료도 너무 길면 느려지니, 소스별로 최근 분량만 잘라 쓴다.
+const MAX_EXTRA_CHARS = 20000;
+
+function capText(text: string, maxChars: number): string {
+  return text.length > maxChars ? text.slice(-maxChars) : text;
+}
 
 function buildSystemInstruction(character: CharacterInput): string {
   const currentLines = (
@@ -57,15 +67,15 @@ function buildSystemInstruction(character: CharacterInput): string {
     ...currentLines,
     ``,
     `[역할]`,
-    `너는 캐릭터 설정 작가다. 아래는 사용자("나")와 이 캐릭터가 나눈 1:1 대화 기록이다.`,
-    `이 대화 속에서 실제로 드러난 성격·말투·관계·사연을 바탕으로, 위 설정 항목들을 새로 쓰거나 다듬어 제안한다.`,
+    `너는 캐릭터 설정 작가다. 아래는 이 캐릭터에 대해 참고할 수 있는 자료다 — 사용자("나")와 나눈 1:1 대화, '관찰 모드'로 쓰인 이야기 속 이 캐릭터의 모습, 여러 캐릭터가 함께 있는 단톡방(그룹 대화방) 대화 중 실제로 있는 것만 포함되어 있다.`,
+    `이 자료들 속에서 실제로 드러난 성격·말투·관계·사연을 바탕으로, 위 설정 항목들을 새로 쓰거나 다듬어 제안한다.`,
     ``,
     `[규칙]`,
-    `이미 입력된 항목이 있다면 그 방향을 존중하되, 대화에서 드러난 모습과 자연스럽게 통합해 더 구체적이고 풍부하게 다듬는다.`,
-    `대화에서 근거를 찾을 수 없는 항목(예: 대화에 로맨스가 전혀 없었다면 "애정 관계")은 억지로 지어내지 않는다 — 기존 설정이 있으면 그것만 다듬고, 기존 설정도 없고 근거도 없다면 빈 문자열로 둔다.`,
+    `이미 입력된 항목이 있다면 그 방향을 존중하되, 자료에서 드러난 모습과 자연스럽게 통합해 더 구체적이고 풍부하게 다듬는다.`,
+    `자료에서 근거를 찾을 수 없는 항목(예: 로맨스가 전혀 드러나지 않았다면 "애정 관계")은 억지로 지어내지 않는다 — 기존 설정이 있으면 그것만 다듬고, 기존 설정도 없고 근거도 없다면 빈 문자열로 둔다.`,
     `각 항목은 그 카테고리에 맞는 내용만 쓴다. 예를 들어 "성격"에는 성격만, "말투"에는 말투 특징만 쓴다.`,
-    `"첫 인사"는 대화에서 드러난 말투를 반영해 1:1 대화를 처음 열 때 이 캐릭터가 건넬 법한 한두 문장으로 쓴다. 이미 자연스러운 인사가 있다면 억지로 바꾸지 않아도 된다.`,
-    `과장하거나 대화에 없던 설정을 지어내지 말고, 실제로 드러난 모습에 근거해서 쓴다.`,
+    `"첫 인사"는 자료에서 드러난 말투를 반영해 1:1 대화를 처음 열 때 이 캐릭터가 건넬 법한 한두 문장으로 쓴다. 이미 자연스러운 인사가 있다면 억지로 바꾸지 않아도 된다.`,
+    `과장하거나 자료에 없던 설정을 지어내지 말고, 실제로 드러난 모습에 근거해서 쓴다.`,
     `설명 없이 각 항목의 내용만 채운다.`,
   ].join("\n");
 }
@@ -82,18 +92,33 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "잘못된 요청이에요." }, { status: 400 });
   }
 
-  if (body.history.length === 0) {
+  const observationTexts = Array.isArray(body.observationTexts)
+    ? body.observationTexts.filter((t) => typeof t === "string" && t.trim())
+    : [];
+  const groupChatTexts = Array.isArray(body.groupChatTexts)
+    ? body.groupChatTexts.filter((t) => typeof t === "string" && t.trim())
+    : [];
+
+  if (body.history.length === 0 && observationTexts.length === 0 && groupChatTexts.length === 0) {
     return NextResponse.json(
-      { error: "아직 이 캐릭터와 나눈 대화가 없어요." },
+      { error: "아직 이 캐릭터에 대해 참고할 대화나 이야기가 없어요." },
       { status: 400 }
     );
   }
 
   const recentHistory = body.history.slice(-MAX_HISTORY);
-  const userText = recentHistory
+  const historyText = recentHistory
     .map((m) => `${m.role === "user" ? "나" : body.character.name}: ${m.text}`)
     .join("\n");
-  const contents: Content[] = [{ role: "user", parts: [{ text: userText }] }];
+  const observationText = capText(observationTexts.join("\n\n"), MAX_EXTRA_CHARS);
+  const groupChatText = capText(groupChatTexts.join("\n\n---\n\n"), MAX_EXTRA_CHARS);
+
+  const sections: string[] = [];
+  if (historyText) sections.push(`[1:1 대화 기록]\n${historyText}`);
+  if (observationText) sections.push(`[관찰 모드에서 드러난 모습]\n${observationText}`);
+  if (groupChatText) sections.push(`[단톡방(그룹 대화방) 대화 기록]\n${groupChatText}`);
+
+  const contents: Content[] = [{ role: "user", parts: [{ text: sections.join("\n\n") }] }];
 
   try {
     const { text: raw } = await generateCharacterProfile({

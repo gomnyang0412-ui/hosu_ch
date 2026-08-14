@@ -5,14 +5,52 @@ import { useEffect, useState } from "react";
 import CharacterAvatar from "@/components/CharacterAvatar";
 import TopBar from "@/components/TopBar";
 import { resizeImageFile } from "@/lib/image";
+import { serializeRoomItems } from "@/lib/scene";
 import {
   deleteCharacter,
   getChatHistory,
   getCharacters,
+  getStories,
+  listRooms,
   saveCharacter,
   StorageError,
 } from "@/lib/storage";
-import { ACCENT_COLORS, ORG_UNIVERSE_ID, type Character } from "@/lib/types";
+import {
+  ACCENT_COLORS,
+  ORG_UNIVERSE_ID,
+  type Character,
+  type ChatMessage,
+} from "@/lib/types";
+
+/** 이 캐릭터에 대해 참고할 수 있는 자료(1:1 대화·관찰 모드·단톡방)를
+ *  ORG 유니버스에서만 모아온다. AU는 다른 세계관 설정이라 참고 대상에서
+ *  뺀다. */
+async function gatherReferenceMaterial(
+  characterId: string,
+  allCharacters: Character[]
+): Promise<{
+  history: ChatMessage[];
+  observationTexts: string[];
+  groupChatTexts: string[];
+}> {
+  const [history, stories, rooms] = await Promise.all([
+    getChatHistory(ORG_UNIVERSE_ID, characterId).catch(() => []),
+    getStories(ORG_UNIVERSE_ID).catch(() => []),
+    listRooms(ORG_UNIVERSE_ID).catch(() => []),
+  ]);
+  const observationTexts = stories
+    .filter((s) => s.characterIds.includes(characterId))
+    .flatMap((s) => s.episodes.map((e) => e.text));
+  const groupChatTexts = rooms
+    .filter((r) => r.kind === "group" && r.characterIds.includes(characterId))
+    .map((r) => {
+      const playerName = r.playerCharacterId
+        ? allCharacters.find((c) => c.id === r.playerCharacterId)?.name
+        : undefined;
+      return serializeRoomItems(r.items, playerName);
+    });
+  return { history, observationTexts, groupChatTexts };
+}
 
 function pickAccentColor(existing: Character[]): Character["accentColor"] {
   return ACCENT_COLORS[existing.length % ACCENT_COLORS.length];
@@ -81,7 +119,7 @@ export default function CharacterForm({
   );
   const [otherCharacters, setOtherCharacters] = useState<Character[]>([]);
 
-  const [hasHistory, setHasHistory] = useState(false);
+  const [hasReferenceMaterial, setHasReferenceMaterial] = useState(false);
   const [suggesting, setSuggesting] = useState(false);
   const [suggestError, setSuggestError] = useState("");
   const [suggestions, setSuggestions] = useState<ProfileSuggestions | null>(
@@ -93,17 +131,23 @@ export default function CharacterForm({
       .then((existing) => {
         if (!character) setAccentColor(pickAccentColor(existing));
         setOtherCharacters(existing.filter((c) => c.id !== character?.id));
+        if (character) {
+          gatherReferenceMaterial(character.id, existing)
+            .then(({ history, observationTexts, groupChatTexts }) =>
+              setHasReferenceMaterial(
+                history.length > 0 ||
+                  observationTexts.length > 0 ||
+                  groupChatTexts.length > 0
+              )
+            )
+            .catch(() => {
+              // 확인 못 해도 버튼을 숨기기만 할 뿐, 편집 자체는 계속할 수 있다
+            });
+        }
       })
       .catch(() => {
         // 실패해도 기본 색이 이미 지정되어 있으니 조용히 넘어간다
       });
-    if (character) {
-      getChatHistory(ORG_UNIVERSE_ID, character.id)
-        .then((history) => setHasHistory(history.length > 0))
-        .catch(() => {
-          // 확인 못 해도 버튼을 숨기기만 할 뿐, 편집 자체는 계속할 수 있다
-        });
-    }
     // 새 캐릭터일 때만 클라이언트에서 색을 배정한다 (서버 렌더링과의 불일치 방지)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -128,11 +172,14 @@ export default function CharacterForm({
     setSuggestError("");
     setSuggestions(null);
     try {
-      const history = await getChatHistory(ORG_UNIVERSE_ID, character.id).catch(
-        () => []
-      );
-      if (history.length === 0) {
-        setSuggestError("아직 이 캐릭터와 나눈 대화가 없어요.");
+      const { history, observationTexts, groupChatTexts } =
+        await gatherReferenceMaterial(character.id, [...otherCharacters, character]);
+      if (
+        history.length === 0 &&
+        observationTexts.length === 0 &&
+        groupChatTexts.length === 0
+      ) {
+        setSuggestError("아직 이 캐릭터에 대해 참고할 대화나 이야기가 없어요.");
         return;
       }
       const res = await fetch("/api/character-profile", {
@@ -154,6 +201,8 @@ export default function CharacterForm({
             firstMessage,
           },
           history,
+          observationTexts,
+          groupChatTexts,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -302,14 +351,14 @@ export default function CharacterForm({
             <button
               type="button"
               onClick={handleSuggestProfile}
-              disabled={suggesting || !hasHistory}
+              disabled={suggesting || !hasReferenceMaterial}
               className="self-start rounded-full border border-border bg-card px-3 py-2 text-xs font-medium disabled:opacity-40"
             >
               {suggesting ? "대화 참고해서 다듬는 중…" : "✨ 대화 참고해서 설정 다듬기"}
             </button>
-            {!hasHistory && (
+            {!hasReferenceMaterial && (
               <p className="text-xs text-muted">
-                아직 이 캐릭터와 나눈 1:1 대화가 없어요.
+                아직 이 캐릭터에 대해 참고할 1:1 대화·관찰 기록·단톡방 대화가 없어요.
               </p>
             )}
             {suggestError && (
