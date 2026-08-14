@@ -392,7 +392,7 @@ export default function CharacterForm({
             <img
               src={referenceImage}
               alt="참고 이미지"
-              className="max-h-64 w-auto self-start rounded-xl border border-border object-contain"
+              className="w-full rounded-xl border border-border"
             />
           )}
           <div className="flex items-center gap-3">
