@@ -346,6 +346,24 @@ function ObservePageInner() {
     }
   }
 
+  async function toggleBookmark(index: number) {
+    if (!session) return;
+    const updated: ObservationSession = {
+      ...session,
+      episodes: session.episodes.map((ep) =>
+        ep.index === index ? { ...ep, bookmarked: !ep.bookmarked } : ep
+      ),
+    };
+    setStories((prev) =>
+      (prev ?? []).map((s) => (s.id === updated.id ? updated : s))
+    );
+    try {
+      await saveStory(updated);
+    } catch {
+      setError({ message: "북마크를 저장하지 못했어요.", kind: "unknown" });
+    }
+  }
+
   function jumpToEpisode(index: number) {
     setShowEpisodeJump(false);
     // 패널 닫힘 리렌더와 겹치지 않게 한 틱 뒤에 스크롤한다.
@@ -608,9 +626,22 @@ function ObservePageInner() {
                   id={episodeAnchorId(ep.index)}
                   className="flex scroll-mt-20 flex-col gap-3"
                 >
-                  <h2 className="text-sm font-semibold text-muted">
-                    {ep.index}화
-                  </h2>
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-sm font-semibold text-muted">
+                      {ep.index}화
+                    </h2>
+                    <button
+                      type="button"
+                      onClick={() => toggleBookmark(ep.index)}
+                      aria-label={ep.bookmarked ? "북마크 해제" : "북마크 하기"}
+                      title={ep.bookmarked ? "북마크 해제" : "북마크 하기"}
+                      className={`text-base leading-none ${
+                        ep.bookmarked ? "" : "text-muted opacity-40 hover:opacity-70"
+                      }`}
+                    >
+                      {ep.bookmarked ? "⭐" : "☆"}
+                    </button>
+                  </div>
                   {ep.directive && (
                     <p className="text-xs italic text-muted">
                       🎬 지시: {ep.directive}
