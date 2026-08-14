@@ -342,10 +342,10 @@ export default function CharacterForm({
       <TopBar title={isEdit ? "캐릭터 편집" : "캐릭터 추가"} />
 
       <main className="flex flex-1 flex-col gap-4 px-4 py-4">
-        <div className="flex flex-col items-center gap-2">
+        <div className="flex flex-col items-center gap-3">
           <CharacterAvatar
             character={{ name: name || "?", image, accentColor }}
-            size="lg"
+            size="xl"
           />
           <label className="cursor-pointer text-sm font-medium text-muted">
             {imageLoading ? "처리 중..." : "프로필 이미지 선택"}
