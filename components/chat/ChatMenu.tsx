@@ -32,7 +32,7 @@ export default function ChatMenu({
         onClick={onClose}
         className="fixed inset-0 z-10 cursor-default"
       />
-      <div className="card-shadow fixed right-3 top-14 z-20 flex w-56 flex-col overflow-hidden rounded-2xl bg-card">
+      <div className="card-shadow fixed right-3 top-14 z-20 flex w-56 flex-col overflow-hidden rounded-2xl glass">
         <button
           type="button"
           onClick={onRename}

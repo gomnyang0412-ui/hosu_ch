@@ -18,7 +18,7 @@ export default function RenamePanel({
   if (!open) return null;
 
   return (
-    <div className="flex items-center gap-2 border-b border-border bg-card px-3 py-2">
+    <div className="flex items-center gap-2 border-b border-border glass px-3 py-2">
       <input
         value={value}
         onChange={(e) => onChange(e.target.value)}

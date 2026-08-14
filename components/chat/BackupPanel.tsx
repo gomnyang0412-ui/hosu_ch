@@ -16,7 +16,7 @@ export default function BackupPanel({
   if (!backups) return null;
 
   return (
-    <div className="flex flex-col gap-2 border-b border-border bg-card px-3 py-3">
+    <div className="flex flex-col gap-2 border-b border-border glass px-3 py-3">
       <p className="text-xs text-muted">
         저장될 때마다 직전 상태가 최근 5개까지 남아요. 되돌리고 싶은 시점을
         골라주세요.

@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import AppBackground from "@/components/AppBackground";
 import MemorySync from "@/components/MemorySync";
 import PageShell from "@/components/PageShell";
 import Sidebar from "@/components/Sidebar";
@@ -30,6 +31,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         />
       </head>
       <body className="min-h-full flex flex-col bg-background text-foreground lg:flex-row">
+        <AppBackground />
         <MemorySync />
         <Sidebar />
         <PageShell>{children}</PageShell>

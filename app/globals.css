@@ -1,27 +1,32 @@
 @import "tailwindcss";
 
 :root {
-  /* ui-ux-pro-max 스킬의 "Couple & Relationship App" 팔레트 기반.
-     핵심 색은 딱 4개(배경/글자/포인트/보조 포인트)로 제한하고,
-     카드·보더·muted는 전부 그 4색에서 파생된 명도 차이일 뿐이다. */
-  --background: #fdf6f8;
-  --foreground: #241820;
-  --card: #ffffff;
-  --border: #f3d9e4;
-  --muted: #8a6b76;
-  /* 브랜드 포인트 컬러 (전송 버튼, 주요 액션, 활성 탭 등) */
-  --primary: #be185d;
-  --primary-strong: #9d174d;
-  --primary-foreground: #ffffff;
-  --primary-soft: #fbe4ed;
-  /* 참고 레퍼런스(Dribbble 챗 UI들)의 그라디언트 포인트 + 그림자 기반 카드
-     스타일을 이 팔레트 위에 얹기 위한 보조 토큰. 기존 4색 원칙은 유지하고,
-     primary 계열 안에서만 밝은 쪽 끝(gradient-from)을 하나 더 둔다. */
-  --primary-gradient-from: #f472b6;
-  --card-shadow: 0 1px 2px rgba(36, 24, 32, 0.04),
-    0 10px 24px -12px rgba(36, 24, 32, 0.16);
-  --card-shadow-sm: 0 1px 2px rgba(36, 24, 32, 0.05),
-    0 4px 10px -4px rgba(36, 24, 32, 0.12);
+  /* "Ivory Glass" 톤 — 아이보리 바탕 + 잉크블랙 액션 + 테라코타 포인트 하나.
+     라이트/다크를 나누지 않고 이 한 가지 무드로 통일한다(사용자 확정). */
+  --background: #faf6f0;
+  --foreground: #221d1a;
+  --card: #fffdf9;
+  --border: #ece2d6;
+  --muted: #746358;
+  /* 액션(전송 버튼, 활성 탭 등)에 쓰는 잉크블랙 — 예전의 핑크 primary를 대체 */
+  --primary: #1c1917;
+  --primary-strong: #100e0d;
+  --primary-foreground: #fdfbf7;
+  --primary-soft: #efe9e2;
+  --primary-gradient-from: #3a332e;
+  /* "다듬기"류, 딱 한 곳에만 아껴 쓰는 웜 테라코타 포인트 */
+  --accent: #d9662e;
+  --accent-strong: #b8501f;
+  --accent-foreground: #fffdf9;
+  --card-shadow: 0 1px 2px rgba(34, 29, 26, 0.05),
+    0 10px 24px -12px rgba(34, 29, 26, 0.18);
+  --card-shadow-sm: 0 1px 2px rgba(34, 29, 26, 0.05),
+    0 4px 10px -4px rgba(34, 29, 26, 0.14);
+  /* 반투명 유리 표면(상단바·패널·목록 카드 등 "여백 있는 곳"에만 씀 —
+     대화 말풍선·입력창처럼 읽고 쓰는 표면은 card(불투명)를 그대로 쓴다) */
+  --glass: rgba(255, 253, 248, 0.6);
+  --glass-strong: rgba(255, 253, 248, 0.82);
+  --glass-border: rgba(34, 29, 26, 0.08);
 }
 
 @theme inline {
@@ -34,6 +39,9 @@
   --color-primary-strong: var(--primary-strong);
   --color-primary-foreground: var(--primary-foreground);
   --color-primary-soft: var(--primary-soft);
+  --color-accent: var(--accent);
+  --color-accent-strong: var(--accent-strong);
+  --color-accent-foreground: var(--accent-foreground);
   --font-sans: "Pretendard Variable", Pretendard, -apple-system,
     BlinkMacSystemFont, "Segoe UI", system-ui, Roboto, "Apple SD Gothic Neo",
     "Noto Sans KR", "Malgun Gothic", sans-serif;
@@ -66,6 +74,25 @@ body {
     var(--primary-gradient-from),
     var(--primary-strong)
   );
+}
+
+/* 반투명 유리 표면. 상단바·사이드바·모달형 패널·목록 카드처럼 여백이
+   있는 "장식적" 표면에만 쓴다 — 대화 말풍선처럼 빽빽하게 읽는 표면에
+   쓰면 글자 대비가 흔들리니 거기엔 쓰지 않는다(bg-card 유지). 배경
+   이미지를 깔았을 때 이 틈으로 비쳐 보이는 게 핵심이라, 배경이 없을
+   때도 자연스럽도록 --background와 가까운 톤으로 잡았다. */
+.glass {
+  background: var(--glass);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--glass-border);
+}
+
+.glass-strong {
+  background: var(--glass-strong);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--glass-border);
 }
 
 @media (prefers-reduced-motion: reduce) {

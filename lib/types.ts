@@ -330,6 +330,13 @@ export interface CharacterMemory {
   updatedAt: number;
 }
 
+/** 앱 전체에 적용되는 개인화 설정 (유니버스·캐릭터와 무관하게 딱 하나) */
+export interface AppSettings {
+  /** 앱 전체 배경으로 까는 이미지 (base64 dataURL). 없으면 기본 아이보리 배경 */
+  backgroundImage?: string;
+  updatedAt: number;
+}
+
 /**
  * 전체 데이터 내보내기용 스냅샷. 캐릭터/세계관 전부와, 그 조합마다 있는
  * 모든 대화 기록·기억·설정을 담는다.
@@ -357,4 +364,6 @@ export interface FullExport {
   /** 관찰 모드 이야기. 이 필드가 생기기 전에 받은 예전 백업 파일에는 없을 수 있다 */
   stories?: ObservationSession[];
   memories: CharacterMemory[];
+  /** 앱 개인화 설정(배경 이미지 등). 이 필드가 생기기 전 백업 파일에는 없을 수 있다 */
+  appSettings?: AppSettings;
 }

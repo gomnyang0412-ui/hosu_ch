@@ -427,7 +427,7 @@ export default function CharacterForm({
               type="button"
               onClick={handleSuggestProfile}
               disabled={suggesting || !hasReferenceMaterial}
-              className="self-start rounded-full border border-border bg-card px-3 py-2 text-xs font-medium disabled:opacity-40"
+              className="self-start rounded-full bg-accent px-3 py-2 text-xs font-medium text-accent-foreground disabled:opacity-40"
             >
               {suggesting ? "대화 참고해서 다듬는 중…" : "✨ 대화 참고해서 설정 다듬기"}
             </button>

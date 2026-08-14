@@ -197,7 +197,7 @@ export default function ChatListPane({
                   onClick={() => setNewMenuOpen(false)}
                   className="fixed inset-0 z-10 cursor-default"
                 />
-                <div className="card-shadow absolute right-0 top-9 z-20 flex w-48 flex-col overflow-hidden rounded-2xl bg-card">
+                <div className="glass card-shadow absolute right-0 top-9 z-20 flex w-48 flex-col overflow-hidden rounded-2xl">
                   <Link
                     href="/chats/new"
                     onClick={() => setNewMenuOpen(false)}
@@ -245,7 +245,7 @@ export default function ChatListPane({
               <li key={key}>
                 <Link
                   href={href}
-                  className={`card-shadow flex items-center gap-3 rounded-2xl bg-card p-3 transition-colors ${
+                  className={`glass card-shadow flex items-center gap-3 rounded-2xl p-3 transition-colors ${
                     active ? "ring-2 ring-primary/60" : ""
                   }`}
                 >

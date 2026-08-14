@@ -94,7 +94,7 @@ export default function AuListPage() {
         {org && (
           <Link
             href={`/au/${org.id}/edit`}
-            className="mb-5 flex items-center gap-3 rounded-2xl border border-border bg-card p-3"
+            className="glass mb-5 flex items-center gap-3 rounded-2xl p-3"
           >
             <UniverseThumb universe={org} />
             <div className="min-w-0 flex-1">
@@ -118,7 +118,7 @@ export default function AuListPage() {
               <li key={u.id}>
                 <Link
                   href={`/au/${u.id}/edit`}
-                  className="flex items-center gap-3 rounded-2xl border border-border bg-card p-3"
+                  className="glass flex items-center gap-3 rounded-2xl p-3"
                 >
                   <UniverseThumb universe={u} />
                   <div className="min-w-0 flex-1">

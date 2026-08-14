@@ -29,12 +29,21 @@ export default function CharacterListPage() {
     <div className="flex flex-1 flex-col">
       <header className="flex items-center justify-between px-4 pt-5 pb-3">
         <h1 className="text-xl font-bold">내 캐릭터</h1>
-        <Link
-          href="/au"
-          className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted"
-        >
-          🌍 세계관
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/settings"
+            aria-label="설정"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-card text-sm text-muted"
+          >
+            ⚙️
+          </Link>
+          <Link
+            href="/au"
+            className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted"
+          >
+            🌍 세계관
+          </Link>
+        </div>
       </header>
 
       <main className="flex-1 px-4 pb-4">
@@ -55,7 +64,7 @@ export default function CharacterListPage() {
                   onKeyDown={(e) => {
                     if (e.key === "Enter") router.push(`/character/${c.id}/chat`);
                   }}
-                  className="card-shadow flex cursor-pointer items-center gap-3 rounded-2xl bg-card p-3"
+                  className="glass card-shadow flex cursor-pointer items-center gap-3 rounded-2xl p-3"
                 >
                   <CharacterAvatar character={c} size="md" />
                   <div className="min-w-0 flex-1">

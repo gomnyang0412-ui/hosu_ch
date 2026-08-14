@@ -14,7 +14,7 @@ export default function BottomNav() {
   const pathname = usePathname();
 
   return (
-    <nav className="card-shadow sticky bottom-0 z-10 flex bg-card lg:hidden">
+    <nav className="glass card-shadow sticky bottom-0 z-10 flex lg:hidden">
       {TABS.map((tab) => {
         const active =
           tab.href === "/" ? pathname === "/" : pathname.startsWith(tab.href);

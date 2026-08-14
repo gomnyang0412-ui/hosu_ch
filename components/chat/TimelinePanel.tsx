@@ -23,7 +23,7 @@ export default function TimelinePanel({
         onClick={onClose}
         className="fixed inset-0 z-30 bg-black/30"
       />
-      <div className="card-shadow fixed inset-x-3 top-16 bottom-16 z-40 flex flex-col overflow-hidden rounded-2xl bg-card lg:inset-x-auto lg:left-1/2 lg:w-96 lg:-translate-x-1/2">
+      <div className="card-shadow fixed inset-x-3 top-16 bottom-16 z-40 flex flex-col overflow-hidden rounded-2xl glass lg:inset-x-auto lg:left-1/2 lg:w-96 lg:-translate-x-1/2">
         <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
           <p className="text-sm font-semibold">날짜별로 이동</p>
           <button type="button" onClick={onClose} className="text-sm text-muted">

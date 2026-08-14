@@ -25,7 +25,7 @@ export default function RolePickerPanel({
   if (!open) return null;
 
   return (
-    <div className="flex flex-col gap-2 border-b border-border bg-card px-3 py-3">
+    <div className="flex flex-col gap-2 border-b border-border glass px-3 py-3">
       <label className="flex flex-col gap-1 text-xs text-muted">
         AI가 연기
         <select

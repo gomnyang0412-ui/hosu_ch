@@ -10,6 +10,7 @@ import {
   ORG_UNIVERSE_ID,
   RELATION_SLOT_COUNT,
   createOrgUniverse,
+  type AppSettings,
   type Character,
   type CharacterMemory,
   type ChatMessage,
@@ -69,6 +70,8 @@ const KEYS = {
   roomsPrefix: "cc:rooms:",
   memoryPrefix: "cc:memory:",
   backupPrefix: "cc:backup:",
+  /** 유니버스·캐릭터와 무관한, 앱 전체에 딱 하나뿐인 개인화 설정(배경 이미지 등) */
+  appSettings: "cc:settings",
 } as const;
 
 // 대화 기록처럼 "통째로 덮어쓰는" 저장은 실수(버그·오조작)로 기존 내용을
@@ -481,6 +484,17 @@ export async function saveCharacterMemory(
   await getRedis().set(memoryKey(memory.characterId), memory);
 }
 
+// ---------- 앱 개인화 설정 (배경 이미지 등, 유니버스 무관 전역 하나) ----------
+
+export async function getAppSettings(): Promise<AppSettings> {
+  const existing = await getRedis().get<AppSettings>(KEYS.appSettings);
+  return existing ?? { updatedAt: 0 };
+}
+
+export async function saveAppSettings(settings: AppSettings): Promise<void> {
+  await getRedis().set(KEYS.appSettings, settings);
+}
+
 // ---------- 관찰 모드 이야기 (유니버스별, 여러 편 저장) ----------
 
 export async function getStories(
@@ -622,6 +636,8 @@ export async function getAllData(): Promise<FullExport> {
     await Promise.all(characters.map((c) => getCharacterMemory(c.id)))
   ).filter((m): m is CharacterMemory => m !== null);
 
+  const appSettings = await getAppSettings();
+
   return {
     exportedAt: Date.now(),
     characters,
@@ -629,6 +645,7 @@ export async function getAllData(): Promise<FullExport> {
     rooms,
     stories,
     memories,
+    appSettings,
   };
 }
 
@@ -692,6 +709,9 @@ export async function importAllData(data: FullExport): Promise<void> {
       ([universeId, list]) => getRedis().set(storiesKey(universeId), list)
     ),
     ...data.memories.map((m) => saveCharacterMemory(m)),
+    // 예전 백업 파일에는 이 필드가 없을 수 있다 — 그럴 땐 지금 설정을
+    // 그대로 둔다(복원한다고 배경 이미지까지 지워질 이유는 없다).
+    ...(data.appSettings ? [saveAppSettings(data.appSettings)] : []),
   ]);
 }
 

@@ -3,6 +3,7 @@
 
 import { chatMessagesToRoomItems, roomItemsToChatMessages } from "./roomBridge";
 import type {
+  AppSettings,
   Character,
   ChatMessage,
   FullExport,
@@ -303,6 +304,20 @@ export async function deleteStory(
 export async function getRooms(): Promise<RoomSummary[]> {
   const data = await request<{ rooms: RoomSummary[] }>("/api/data/rooms");
   return data.rooms;
+}
+
+// ---------- 앱 개인화 설정 (배경 이미지 등) ----------
+
+export async function getAppSettings(): Promise<AppSettings> {
+  const data = await request<{ settings: AppSettings }>("/api/data/settings");
+  return data.settings;
+}
+
+export async function saveAppSettings(settings: AppSettings): Promise<void> {
+  await request("/api/data/settings", {
+    method: "POST",
+    body: JSON.stringify(settings),
+  });
 }
 
 // ---------- 전체 데이터 내보내기/불러오기 ----------
