@@ -34,8 +34,10 @@ export interface Character {
   /** 애정 관계 */
   romance?: string;
   firstMessage: string;
-  /** 리사이즈된 프로필 이미지 (base64 dataURL). 없으면 undefined */
+  /** 리사이즈된 프로필 이미지 (base64 dataURL). 대화 화면 등에 표시되는 아바타. 없으면 undefined */
   image?: string;
+  /** 참고용 전신 사진 등 추가 이미지 (base64 dataURL). 대화 아바타로는 쓰이지 않고 편집 화면에서만 보여준다 */
+  referenceImage?: string;
   accentColor: AccentColor;
   /**
    * 역할 반전: 이 값이 있으면 이 캐릭터의 1:1 방에서 AI는 이 캐릭터가

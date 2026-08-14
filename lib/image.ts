@@ -2,8 +2,8 @@
 
 const MAX_EDGE = 320;
 
-/** 파일을 받아 긴 변이 MAX_EDGE를 넘지 않도록 축소한 뒤 base64 dataURL로 반환한다 */
-export function resizeImageFile(file: File): Promise<string> {
+/** 파일을 받아 긴 변이 maxEdge(기본 320)를 넘지 않도록 축소한 뒤 base64 dataURL로 반환한다 */
+export function resizeImageFile(file: File, maxEdge = MAX_EDGE): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(new Error("이미지를 읽을 수 없어요."));
@@ -11,7 +11,7 @@ export function resizeImageFile(file: File): Promise<string> {
       const img = new Image();
       img.onerror = () => reject(new Error("이미지 형식을 처리할 수 없어요."));
       img.onload = () => {
-        const scale = Math.min(1, MAX_EDGE / Math.max(img.width, img.height));
+        const scale = Math.min(1, maxEdge / Math.max(img.width, img.height));
         const width = Math.round(img.width * scale);
         const height = Math.round(img.height * scale);
 

@@ -108,8 +108,12 @@ export default function CharacterForm({
   const [romance, setRomance] = useState(character?.romance ?? "");
   const [firstMessage, setFirstMessage] = useState(character?.firstMessage ?? "");
   const [image, setImage] = useState<string | undefined>(character?.image);
+  const [referenceImage, setReferenceImage] = useState<string | undefined>(
+    character?.referenceImage
+  );
   const [error, setError] = useState("");
   const [imageLoading, setImageLoading] = useState(false);
+  const [referenceImageLoading, setReferenceImageLoading] = useState(false);
 
   const [accentColor, setAccentColor] = useState<Character["accentColor"]>(
     character?.accentColor ?? ACCENT_COLORS[0]
@@ -258,6 +262,24 @@ export default function CharacterForm({
     }
   }
 
+  async function handleReferenceImageChange(
+    e: React.ChangeEvent<HTMLInputElement>
+  ) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setReferenceImageLoading(true);
+    setError("");
+    try {
+      // 전신 사진 등 참고용이라 아바타(320px)보다 좀 더 크게 남겨둔다
+      const dataUrl = await resizeImageFile(file, 640);
+      setReferenceImage(dataUrl);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "이미지 처리에 실패했어요.");
+    } finally {
+      setReferenceImageLoading(false);
+    }
+  }
+
   async function handleSave() {
     setError("");
     if (!name.trim()) {
@@ -280,6 +302,7 @@ export default function CharacterForm({
       romance,
       firstMessage,
       image,
+      referenceImage,
       accentColor,
       aiVoiceCharacterId: aiVoiceCharacterId || undefined,
       createdAt: character?.createdAt ?? now,
@@ -355,6 +378,46 @@ export default function CharacterForm({
                 }}
               />
             ))}
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-2 rounded-2xl border border-border bg-card p-3">
+          <span className="text-sm font-medium">참고 이미지 (전신 사진 등)</span>
+          <p className="text-xs text-muted">
+            대화 화면 등에 보이는 프로필 사진과는 별개예요. 이 편집 화면에서만
+            보여지는 참고용이에요.
+          </p>
+          {referenceImage && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={referenceImage}
+              alt="참고 이미지"
+              className="max-h-64 w-auto self-start rounded-xl border border-border object-contain"
+            />
+          )}
+          <div className="flex items-center gap-3">
+            <label className="cursor-pointer text-sm font-medium text-muted">
+              {referenceImageLoading
+                ? "처리 중..."
+                : referenceImage
+                  ? "이미지 변경"
+                  : "이미지 추가"}
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleReferenceImageChange}
+                className="hidden"
+              />
+            </label>
+            {referenceImage && (
+              <button
+                type="button"
+                onClick={() => setReferenceImage(undefined)}
+                className="text-xs text-red-600"
+              >
+                삭제
+              </button>
+            )}
           </div>
         </div>
 
