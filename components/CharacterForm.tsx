@@ -358,50 +358,19 @@ export default function CharacterForm({
           </label>
         </div>
 
-        <div className="flex flex-col items-center gap-2">
-          <span className="text-sm font-medium">강조색</span>
-          <div className="flex gap-2">
-            {ACCENT_COLORS.map((color) => (
-              <button
-                key={color}
-                type="button"
-                aria-label={`강조색 ${color}`}
-                onClick={() => setAccentColor(color)}
-                className="h-8 w-8 shrink-0 rounded-full transition-transform"
-                style={{
-                  backgroundColor: color,
-                  outline:
-                    accentColor === color
-                      ? "2px solid var(--foreground)"
-                      : "2px solid transparent",
-                  outlineOffset: 2,
-                }}
-              />
-            ))}
-          </div>
-        </div>
-
-        <div className="flex flex-col gap-2 rounded-2xl border border-border bg-card p-3">
-          <span className="text-sm font-medium">참고 이미지 (전신 사진 등)</span>
-          <p className="text-xs text-muted">
-            대화 화면 등에 보이는 프로필 사진과는 별개예요. 이 편집 화면에서만
-            보여지는 참고용이에요.
-          </p>
-          {referenceImage && (
-            // eslint-disable-next-line @next/next/no-img-element
+        {referenceImage ? (
+          <div className="relative">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={referenceImage}
-              alt="참고 이미지"
-              className="w-full rounded-xl border border-border"
+              alt=""
+              className="w-full rounded-2xl"
             />
-          )}
-          <div className="flex items-center gap-3">
-            <label className="cursor-pointer text-sm font-medium text-muted">
-              {referenceImageLoading
-                ? "처리 중..."
-                : referenceImage
-                  ? "이미지 변경"
-                  : "이미지 추가"}
+            <label
+              aria-label="이미지 변경"
+              className="glass absolute right-2 top-2 flex h-9 w-9 cursor-pointer items-center justify-center rounded-full text-lg font-medium"
+            >
+              {referenceImageLoading ? "…" : "+"}
               <input
                 type="file"
                 accept="image/*"
@@ -409,17 +378,26 @@ export default function CharacterForm({
                 className="hidden"
               />
             </label>
-            {referenceImage && (
-              <button
-                type="button"
-                onClick={() => setReferenceImage(undefined)}
-                className="text-xs text-red-600"
-              >
-                삭제
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => setReferenceImage(undefined)}
+              aria-label="이미지 삭제"
+              className="glass absolute right-2 top-14 flex h-9 w-9 items-center justify-center rounded-full text-sm text-red-600"
+            >
+              ✕
+            </button>
           </div>
-        </div>
+        ) : (
+          <label className="flex aspect-[3/4] w-full cursor-pointer items-center justify-center rounded-2xl border border-dashed border-border text-3xl text-muted">
+            {referenceImageLoading ? "…" : "+"}
+            <input
+              type="file"
+              accept="image/*"
+              onChange={handleReferenceImageChange}
+              className="hidden"
+            />
+          </label>
+        )}
 
         {isEdit && (
           <div className="flex flex-col gap-2">
