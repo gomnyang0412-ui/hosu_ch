@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
+import AutoGrowTextarea from "@/components/AutoGrowTextarea";
 import BottomNav from "@/components/BottomNav";
 import CharacterAvatar from "@/components/CharacterAvatar";
 import EpisodeJumpPanel, { episodeAnchorId } from "@/components/EpisodeJumpPanel";
@@ -807,12 +808,12 @@ function ObservePageInner() {
                   <span className="text-xs font-medium text-muted">
                     다음 화 지시 (선택)
                   </span>
-                  <input
-                    type="text"
+                  <AutoGrowTextarea
                     value={directive}
-                    onChange={(e) => setDirective(e.target.value)}
+                    onChange={setDirective}
                     placeholder="예: 민준은 서연과 함께 도서관으로 이동한다"
-                    className="rounded-xl border border-border bg-card p-2.5 text-sm outline-none focus:border-primary/50"
+                    maxHeightPx={200}
+                    className="resize-none rounded-xl border border-border bg-card p-2.5 text-sm outline-none focus:border-primary/50"
                   />
                 </label>
                 <button
