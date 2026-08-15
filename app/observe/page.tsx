@@ -346,6 +346,24 @@ function ObservePageInner() {
     }
   }
 
+  async function deleteLatestEpisode() {
+    if (!session || session.episodes.length === 0) return;
+    if (!window.confirm("가장 최근 화를 지울까요? 되돌릴 수 없어요.")) return;
+    const updated: ObservationSession = {
+      ...session,
+      episodes: session.episodes.slice(0, -1),
+      updatedAt: Date.now(),
+    };
+    setStories((prev) =>
+      (prev ?? []).map((s) => (s.id === updated.id ? updated : s))
+    );
+    try {
+      await saveStory(updated);
+    } catch {
+      setError({ message: "화를 지우지 못했어요.", kind: "unknown" });
+    }
+  }
+
   async function toggleBookmark(index: number) {
     if (!session) return;
     const updated: ObservationSession = {
@@ -630,17 +648,30 @@ function ObservePageInner() {
                     <h2 className="text-sm font-semibold text-muted">
                       {ep.index}화
                     </h2>
-                    <button
-                      type="button"
-                      onClick={() => toggleBookmark(ep.index)}
-                      aria-label={ep.bookmarked ? "북마크 해제" : "북마크 하기"}
-                      title={ep.bookmarked ? "북마크 해제" : "북마크 하기"}
-                      className={`text-base leading-none ${
-                        ep.bookmarked ? "" : "text-muted opacity-40 hover:opacity-70"
-                      }`}
-                    >
-                      {ep.bookmarked ? "⭐" : "☆"}
-                    </button>
+                    <div className="flex items-center gap-3">
+                      {ep.index === session.episodes.length && (
+                        <button
+                          type="button"
+                          onClick={deleteLatestEpisode}
+                          aria-label="이 화 삭제"
+                          title="가장 최근 화만 지울 수 있어요"
+                          className="text-sm leading-none text-muted opacity-60 hover:text-red-600 hover:opacity-100"
+                        >
+                          🗑
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => toggleBookmark(ep.index)}
+                        aria-label={ep.bookmarked ? "북마크 해제" : "북마크 하기"}
+                        title={ep.bookmarked ? "북마크 해제" : "북마크 하기"}
+                        className={`text-base leading-none ${
+                          ep.bookmarked ? "" : "text-muted opacity-40 hover:opacity-70"
+                        }`}
+                      >
+                        {ep.bookmarked ? "⭐" : "☆"}
+                      </button>
+                    </div>
                   </div>
                   {ep.directive && (
                     <p className="text-xs italic text-muted">
