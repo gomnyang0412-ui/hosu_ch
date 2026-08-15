@@ -76,6 +76,8 @@ function ObservePageInner() {
   const [startingChat, setStartingChat] = useState(false);
   const [startChatError, setStartChatError] = useState("");
   const [showEpisodeJump, setShowEpisodeJump] = useState(false);
+  const [showAddCharacter, setShowAddCharacter] = useState(false);
+  const [addingCharacterId, setAddingCharacterId] = useState<string | null>(null);
 
   const [loadError, setLoadError] = useState("");
 
@@ -146,6 +148,35 @@ function ObservePageInner() {
     );
   }
 
+  /** 캐릭터 한 명의 1:1 대화를 요약해 "- 이름:\n요약" 한 덩어리로 만든다. 나눌
+   *  대화가 없거나 요약에 실패하면 null. */
+  async function summarizeCharacterHistory(
+    c: Character,
+    resolvedUniverse: Universe
+  ): Promise<string | null> {
+    const history = await getChatHistory(universeId, c.id).catch(() => []);
+    if (history.length === 0) return null;
+    try {
+      const res = await fetch("/api/summarize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          character: toCharacterProfile(c),
+          characterId: c.id,
+          universe: resolvedUniverse,
+          history,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && typeof data.summary === "string" && data.summary.trim()) {
+        return `- ${c.name}:\n${data.summary.trim()}`;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
   /** 체크한 캐릭터들의 1:1 대화를 요약해 하나의 맥락 블록으로 합친다 */
   async function buildCharacterContext(
     characters: Character[],
@@ -154,26 +185,8 @@ function ObservePageInner() {
     const parts: string[] = [];
     for (const c of characters) {
       if (!importIds.includes(c.id)) continue;
-      const history = await getChatHistory(universeId, c.id).catch(() => []);
-      if (history.length === 0) continue;
-      try {
-        const res = await fetch("/api/summarize", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            character: toCharacterProfile(c),
-            characterId: c.id,
-            universe: resolvedUniverse,
-            history,
-          }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (res.ok && typeof data.summary === "string" && data.summary.trim()) {
-          parts.push(`- ${c.name}:\n${data.summary.trim()}`);
-        }
-      } catch {
-        // 한 명 요약이 실패해도 나머지는 계속 시도한다
-      }
+      const part = await summarizeCharacterHistory(c, resolvedUniverse);
+      if (part) parts.push(part);
     }
     return parts.join("\n\n");
   }
@@ -343,6 +356,41 @@ function ObservePageInner() {
       setStartChatError("네트워크 문제로 대화방을 만들지 못했어요.");
     } finally {
       setStartingChat(false);
+    }
+  }
+
+  /**
+   * 진행 중인 이야기에 등장하지 않던 인물을 중간에 새로 끌어들인다.
+   * 등장인물 목록에 더하면 그때부터 설정(성격·말투 등)은 다음 화부터
+   * 자동으로 반영되고, 그 인물과 나눈 1:1 대화가 있으면 요약해서
+   * characterContext에 이어붙인다.
+   */
+  async function handleAddCharacter(c: Character) {
+    if (!session || !universe || session.characterIds.includes(c.id)) return;
+    setAddingCharacterId(c.id);
+    try {
+      const part = await summarizeCharacterHistory(
+        c,
+        resolveUniverseTemplate(universe, allCharacters)
+      );
+      const updated: ObservationSession = {
+        ...session,
+        characterIds: [...session.characterIds, c.id],
+        characterContext: [session.characterContext, part]
+          .filter(Boolean)
+          .join("\n\n"),
+      };
+      setStories((prev) =>
+        (prev ?? []).map((s) => (s.id === updated.id ? updated : s))
+      );
+      setShowAddCharacter(false);
+      try {
+        await saveStory(updated);
+      } catch {
+        setError({ message: "인물을 추가하지 못했어요.", kind: "unknown" });
+      }
+    } finally {
+      setAddingCharacterId(null);
     }
   }
 
@@ -612,7 +660,7 @@ function ObservePageInner() {
           <div className="flex flex-col gap-6">
             <div className="flex flex-col gap-2">
               <p className="text-xs text-muted">주제: {session.topic}</p>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 {sceneCharacters.map((c) => (
                   <span
                     key={c.id}
@@ -623,7 +671,45 @@ function ObservePageInner() {
                     {c.name}
                   </span>
                 ))}
+                <button
+                  type="button"
+                  onClick={() => setShowAddCharacter((v) => !v)}
+                  className="rounded-full border border-dashed border-border px-2 py-1 text-xs text-muted"
+                >
+                  + 인물 추가
+                </button>
               </div>
+
+              {showAddCharacter && (
+                <div className="flex flex-col gap-1.5 rounded-2xl border border-border bg-card p-3">
+                  <p className="text-xs text-muted">
+                    등장인물로 더하면 설정은 다음 화부터 바로 반영되고, 1:1
+                    대화가 있으면 요약해서 함께 참고해요.
+                  </p>
+                  {allCharacters.filter((c) => !session.characterIds.includes(c.id))
+                    .length === 0 ? (
+                    <p className="text-xs text-muted">더할 수 있는 인물이 없어요.</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {allCharacters
+                        .filter((c) => !session.characterIds.includes(c.id))
+                        .map((c) => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() => handleAddCharacter(c)}
+                            disabled={addingCharacterId !== null}
+                            className="flex items-center gap-1.5 rounded-full border border-border px-2 py-1 text-xs disabled:opacity-40"
+                          >
+                            <CharacterAvatar character={c} size="sm" />
+                            {addingCharacterId === c.id ? "추가하는 중…" : c.name}
+                          </button>
+                        ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <button
                 type="button"
                 onClick={handleStartSituationChat}
