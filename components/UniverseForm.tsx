@@ -23,12 +23,22 @@ const ROLE_PAIRS: readonly (readonly [RoleLetter, RoleLetter])[] = [
   ["B", "C"],
 ];
 
-/** 캐릭터의 기존 연관 인물/애정 관계를 짧게 잘라 참고용 문구로 만든다 */
-function referenceHint(c: Character): string {
-  const text = [c.relatedCharacters, c.romance]
+/**
+ * 캐릭터의 기존 연관 인물/애정 관계 텍스트에서, 지금 짝지어진 상대의
+ * 이름이 실제로 언급된 문장만 골라 참고용 문구로 만든다. 그 캐릭터의
+ * 연관 인물 칸엔 이 AU에 없는 다른 사람 얘기도 섞여 있을 수 있어서,
+ * 전체를 그대로 보여주면 오히려 헷갈린다 — 이름이 안 걸리면 아예
+ * 보여주지 않는다(엉뚱한 내용을 참고라고 내미는 것보다 낫다).
+ */
+function referenceHint(c: Character, otherName: string): string {
+  const combined = [c.relatedCharacters, c.romance]
     .filter((t) => t?.trim())
-    .join(" · ")
-    .trim();
+    .join(". ");
+  const mentions = combined
+    .split(/[.\n]/)
+    .map((s) => s.trim())
+    .filter((s) => s && s.includes(otherName));
+  const text = mentions.join(". ").trim();
   return text.length > 100 ? `${text.slice(0, 100)}…` : text;
 }
 
@@ -201,8 +211,10 @@ export default function UniverseForm({ universe }: { universe?: Universe }) {
           index: i,
           label: `${charA.name}-${charB.name} 관계`,
           hints: [
-            referenceHint(charA) && `${charA.name}: ${referenceHint(charA)}`,
-            referenceHint(charB) && `${charB.name}: ${referenceHint(charB)}`,
+            referenceHint(charA, charB.name) &&
+              `${charA.name}: ${referenceHint(charA, charB.name)}`,
+            referenceHint(charB, charA.name) &&
+              `${charB.name}: ${referenceHint(charB, charA.name)}`,
           ].filter(Boolean) as string[],
         };
       }
