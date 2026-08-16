@@ -448,7 +448,7 @@ function ObservePageInner() {
 
   return (
     <div className="flex flex-1 flex-col">
-      <header className="flex items-center justify-between px-4 pt-5 pb-3">
+      <header className="glass card-shadow sticky top-0 z-10 flex items-center justify-between px-4 py-3">
         <h1 className="text-xl font-bold">
           관찰 모드{isAu && <span className="text-muted"> · {universe.title}</span>}
         </h1>
@@ -725,11 +725,13 @@ function ObservePageInner() {
             </div>
 
             <div className="flex flex-col gap-8">
-              {session.episodes.map((ep) => (
+              {session.episodes.map((ep, i) => (
                 <article
                   key={ep.index}
                   id={episodeAnchorId(ep.index)}
-                  className="flex scroll-mt-20 flex-col gap-3"
+                  className={`flex scroll-mt-20 flex-col gap-3 ${
+                    i > 0 ? "border-t border-dashed border-border pt-6" : ""
+                  }`}
                 >
                   <div className="flex items-center justify-between">
                     <h2 className="text-sm font-semibold text-muted">
