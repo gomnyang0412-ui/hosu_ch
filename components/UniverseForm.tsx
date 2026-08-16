@@ -14,6 +14,24 @@ import {
 import { hasUnresolvedRoles } from "@/lib/template";
 import { RELATION_SLOT_COUNT, type Character, type Universe } from "@/lib/types";
 
+type RoleLetter = "A" | "B" | "C";
+
+/** 관계 칸 앞쪽 3개는 이 순서대로 역할 쌍(A-B, A-C, B-C)에 대응시킨다 */
+const ROLE_PAIRS: readonly (readonly [RoleLetter, RoleLetter])[] = [
+  ["A", "B"],
+  ["A", "C"],
+  ["B", "C"],
+];
+
+/** 캐릭터의 기존 연관 인물/애정 관계를 짧게 잘라 참고용 문구로 만든다 */
+function referenceHint(c: Character): string {
+  const text = [c.relatedCharacters, c.romance]
+    .filter((t) => t?.trim())
+    .join(" · ")
+    .trim();
+  return text.length > 100 ? `${text.slice(0, 100)}…` : text;
+}
+
 function newAuDraft(): Universe {
   const now = Date.now();
   return {
@@ -162,6 +180,38 @@ export default function UniverseForm({ universe }: { universe?: Universe }) {
       );
     }
   }
+
+  function roleCharacter(letter: RoleLetter): Character | undefined {
+    const id = letter === "A" ? roleA : letter === "B" ? roleB : roleC;
+    return id ? characters.find((c) => c.id === id) : undefined;
+  }
+
+  // 관계 칸을 캐릭터 설정에서 뽑아올 수 있는 만큼만 보여준다 — 배정된
+  // 역할 쌍이 있으면 실제 이름으로 라벨링하고, 각자의 기존 연관
+  // 인물/애정 관계를 참고 문구로 붙인다. 예전에 자유롭게 쓰던 칸에
+  // 이미 내용이 있으면(역할 쌍과 안 맞는 위치라도) 유실 없이 계속
+  // 보여준다.
+  const relationSlots = relations
+    .map((value, i) => {
+      const pair = ROLE_PAIRS[i];
+      const charA = pair ? roleCharacter(pair[0]) : undefined;
+      const charB = pair ? roleCharacter(pair[1]) : undefined;
+      if (charA && charB) {
+        return {
+          index: i,
+          label: `${charA.name}-${charB.name} 관계`,
+          hints: [
+            referenceHint(charA) && `${charA.name}: ${referenceHint(charA)}`,
+            referenceHint(charB) && `${charB.name}: ${referenceHint(charB)}`,
+          ].filter(Boolean) as string[],
+        };
+      }
+      if (value.trim()) {
+        return { index: i, label: `관계 ${i + 1}`, hints: [] as string[] };
+      }
+      return null;
+    })
+    .filter((slot): slot is NonNullable<typeof slot> => slot !== null);
 
   return (
     <div className="flex flex-1 flex-col">
@@ -336,18 +386,30 @@ export default function UniverseForm({ universe }: { universe?: Universe }) {
 
         <div className="flex flex-col gap-3">
           <p className="text-sm font-medium">관계</p>
-          {relations.map((value, i) => (
-            <label key={i} className="flex flex-col gap-1.5">
-              <span className="text-xs text-muted">관계 {i + 1}</span>
-              <textarea
-                value={value}
-                onChange={(e) => updateRelation(i, e.target.value)}
-                placeholder="인물이나 파벌 사이의 관계 하나를 자유롭게 적어주세요."
-                rows={3}
-                className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-primary/50"
-              />
-            </label>
-          ))}
+          {relationSlots.length === 0 ? (
+            <p className="text-xs text-muted">
+              역할을 2명 이상 배정하면, 그 사이 관계를 적을 수 있는 칸이
+              여기 자동으로 생겨요.
+            </p>
+          ) : (
+            relationSlots.map((slot) => (
+              <label key={slot.index} className="flex flex-col gap-1.5">
+                <span className="text-xs text-muted">{slot.label}</span>
+                {slot.hints.length > 0 && (
+                  <p className="rounded-lg bg-background px-2.5 py-1.5 text-[11px] leading-relaxed text-muted">
+                    참고(기존 설정) · {slot.hints.join(" · ")}
+                  </p>
+                )}
+                <textarea
+                  value={relations[slot.index]}
+                  onChange={(e) => updateRelation(slot.index, e.target.value)}
+                  placeholder="이 AU에서는 원래 관계가 어떻게 달라지는지 적어주세요."
+                  rows={3}
+                  className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-primary/50"
+                />
+              </label>
+            ))
+          )}
         </div>
 
         <label className="flex flex-col gap-1.5">
