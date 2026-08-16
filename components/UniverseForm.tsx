@@ -11,6 +11,7 @@ import {
   saveUniverse,
   StorageError,
 } from "@/lib/storage";
+import { hasUnresolvedRoles } from "@/lib/template";
 import { RELATION_SLOT_COUNT, type Character, type Universe } from "@/lib/types";
 
 function newAuDraft(): Universe {
@@ -50,9 +51,27 @@ export default function UniverseForm({ universe }: { universe?: Universe }) {
   const [imageLoading, setImageLoading] = useState(false);
   const [roleA, setRoleA] = useState(base.roleA ?? "");
   const [roleB, setRoleB] = useState(base.roleB ?? "");
+  const [roleC, setRoleC] = useState(base.roleC ?? "");
   const [error, setError] = useState("");
 
   const [characters, setCharacters] = useState<Character[]>([]);
+
+  // 지금 입력 중인 값 기준으로 "{{A}}/{{B}}/{{C}}를 쓰는데 아직 역할을
+  // 다 안 골랐는지" 매 렌더마다 다시 확인한다 — 저장 전에도 경고를
+  // 볼 수 있어야 한다.
+  const draft: Universe = {
+    ...base,
+    tagline,
+    worldSetting,
+    faction,
+    relations,
+    glossary,
+    summary,
+    roleA: roleA || undefined,
+    roleB: roleB || undefined,
+    roleC: roleC || undefined,
+  };
+  const rolesNeeded = !isOrg && hasUnresolvedRoles(draft);
 
   useEffect(() => {
     getCharacters()
@@ -107,6 +126,7 @@ export default function UniverseForm({ universe }: { universe?: Universe }) {
       image,
       roleA: roleA || undefined,
       roleB: roleB || undefined,
+      roleC: roleC || undefined,
       createdAt: base.createdAt,
       updatedAt: Date.now(),
     };
@@ -219,9 +239,18 @@ export default function UniverseForm({ universe }: { universe?: Universe }) {
             <div className="flex flex-col gap-2 rounded-2xl border border-border bg-card p-3">
               <span className="text-sm font-medium">역할 배정</span>
               <p className="text-xs text-muted">
-                세계관 설정 속 {"{{A}}"}, {"{{B}}"}가 실제로 누구인지
-                골라주세요. 대화·관찰을 시작하면 이름으로 바뀌어 들어가요.
+                세계관 설정 속 {"{{A}}"}, {"{{B}}"}, {"{{C}}"}가 실제로
+                누구인지 골라주세요. 대화·관찰을 시작하면 이름으로 바뀌어
+                들어가요. 2인 관계 AU는 A/B만, 3인 이상 얽히는 AU는 C까지
+                써주세요.
               </p>
+              {rolesNeeded && (
+                <p className="rounded-xl bg-red-50 px-2.5 py-2 text-xs text-red-700">
+                  ⚠ 이 세계관 텍스트가 아직 배정 안 된 역할 표시를 쓰고
+                  있어요. 배정하기 전까지는 안전한 임시 이름(인물A 등)으로
+                  대신 나가요.
+                </p>
+              )}
               {characters.length === 0 ? (
                 <p className="text-xs text-muted">
                   아직 캐릭터가 없어요. 캐릭터 탭에서 먼저 추가해 주세요.
@@ -248,6 +277,21 @@ export default function UniverseForm({ universe }: { universe?: Universe }) {
                     <select
                       value={roleB}
                       onChange={(e) => setRoleB(e.target.value)}
+                      className="flex-1 rounded-xl border border-border bg-background p-2.5 text-sm outline-none focus:border-primary/50"
+                    >
+                      <option value="">선택 안 함</option>
+                      {characters.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <span className="w-5 shrink-0 font-semibold">C</span>
+                    <select
+                      value={roleC}
+                      onChange={(e) => setRoleC(e.target.value)}
                       className="flex-1 rounded-xl border border-border bg-background p-2.5 text-sm outline-none focus:border-primary/50"
                     >
                       <option value="">선택 안 함</option>
@@ -318,12 +362,16 @@ export default function UniverseForm({ universe }: { universe?: Universe }) {
         </label>
 
         <label className="flex flex-col gap-1.5">
-          <span className="text-sm font-medium">요약</span>
+          <span className="text-sm font-medium">한 줄 요약</span>
+          <p className="-mt-1 text-xs text-muted">
+            위 세계관 내용을 다시 풀어 쓰지 말고, 무드나 후킹 포인트를
+            한두 문장으로만 적어주세요. 목록 미리보기에도 쓰여요.
+          </p>
           <textarea
             value={summary}
             onChange={(e) => setSummary(e.target.value)}
-            placeholder="세계관 전체를 짧게 요약해 주세요."
-            rows={4}
+            placeholder="예: 서로를 지키려다 서로를 다치게 하는 사람들의 이야기"
+            rows={2}
             className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-primary/50"
           />
         </label>
@@ -356,24 +404,27 @@ export default function UniverseForm({ universe }: { universe?: Universe }) {
               <p className="text-xs text-muted">
                 아직 캐릭터가 없어요. 캐릭터 탭에서 먼저 추가해 주세요.
               </p>
-            ) : roleA && roleB ? (
+            ) : roleA || roleB || roleC ? (
               <>
                 <p className="text-xs text-muted">
                   역할 배정에 맞춰 바로 시작할 수 있어요.
                 </p>
                 <div className="flex flex-wrap gap-2">
-                  <Link
-                    href={`/character/${roleA}/chat?universe=${base.id}`}
-                    className="rounded-full border border-border bg-background px-3 py-1.5 text-sm"
-                  >
-                    A · {characters.find((c) => c.id === roleA)?.name}로 대화하기
-                  </Link>
-                  <Link
-                    href={`/character/${roleB}/chat?universe=${base.id}`}
-                    className="rounded-full border border-border bg-background px-3 py-1.5 text-sm"
-                  >
-                    B · {characters.find((c) => c.id === roleB)?.name}로 대화하기
-                  </Link>
+                  {([
+                    ["A", roleA],
+                    ["B", roleB],
+                    ["C", roleC],
+                  ] as const)
+                    .filter(([, id]) => id)
+                    .map(([label, id]) => (
+                      <Link
+                        key={label}
+                        href={`/character/${id}/chat?universe=${base.id}`}
+                        className="rounded-full border border-border bg-background px-3 py-1.5 text-sm"
+                      >
+                        {label} · {characters.find((c) => c.id === id)?.name}로 대화하기
+                      </Link>
+                    ))}
                 </div>
                 <Link
                   href={`/observe?universe=${base.id}`}

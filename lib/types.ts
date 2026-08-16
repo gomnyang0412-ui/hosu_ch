@@ -102,11 +102,13 @@ export interface Universe {
   /** AU 해시태그 (예: ["느와르", "현대물"]) */
   tags?: string[];
   /**
-   * AU 전용: 세계관 설정 속 {{A}}, {{B}}가 실제로 어떤 캐릭터인지 배정한 값.
-   * 대화·관찰 시작 시 이 캐릭터 이름으로 치환된다.
+   * AU 전용: 세계관 설정 속 {{A}}, {{B}}, {{C}}가 실제로 어떤 캐릭터인지
+   * 배정한 값. 대화·관찰 시작 시 이 캐릭터 이름으로 치환된다. 2인 관계
+   * 중심 AU는 A/B만 쓰고, 3인 이상 얽히는 AU는 C까지 쓸 수 있다.
    */
   roleA?: string;
   roleB?: string;
+  roleC?: string;
   worldSetting: string;
   /** 파벌 */
   faction: string;
@@ -114,7 +116,8 @@ export interface Universe {
   relations: string[];
   /** 용어 및 설정 사전 */
   glossary: string;
-  /** 요약 */
+  /** 한두 문장짜리 핵심 요약(무드·후킹 포인트). 목록 미리보기에도 쓰인다 —
+   *  세계관(worldSetting)의 디테일을 다시 풀어 쓰지 않게 짧게 유지한다 */
   summary: string;
   /** 리사이즈된 표지 이미지 (base64 dataURL). 없으면 undefined */
   image?: string;

@@ -6,6 +6,7 @@ import BottomNav from "@/components/BottomNav";
 import { moodPlaceholderImage } from "@/lib/image";
 import { SAMPLE_AUS } from "@/lib/sampleAus";
 import { getUniverses, saveUniverse, StorageError } from "@/lib/storage";
+import { hasUnresolvedRoles } from "@/lib/template";
 import { RELATION_SLOT_COUNT, type Universe } from "@/lib/types";
 
 function UniverseThumb({ universe }: { universe: Universe }) {
@@ -129,6 +130,11 @@ export default function AuListPage() {
                     {u.tags && u.tags.length > 0 && (
                       <p className="mt-1 truncate text-xs text-muted">
                         {u.tags.map((t) => `#${t}`).join(" ")}
+                      </p>
+                    )}
+                    {hasUnresolvedRoles(u) && (
+                      <p className="mt-1 text-xs text-red-600">
+                        ⚠ 역할 배정이 필요해요
                       </p>
                     )}
                   </div>
