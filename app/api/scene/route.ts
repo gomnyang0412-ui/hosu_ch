@@ -27,9 +27,15 @@ interface SceneRequestBody {
   directive?: string;
 }
 
-/** 앞선 화들을 매번 전문으로 다시 보내면 갈수록 느려지니, 바로 직전 화만
+/** 앞선 화들을 매번 전문으로 다시 보내면 갈수록 느려지니, 최근 몇 화만
  *  전문으로 주고 그 이전 화들은 첫 문장 정도의 줄거리 개요로 압축한다 */
 const RECAP_PREVIEW_CHARS = 80;
+/** 줄거리 개요(요약)에 넣는 화 개수 상한. 이야기가 아주 길어져도 여기서
+ *  더는 늘지 않게 막아 토큰 비용이 무한정 커지지 않게 한다. */
+const RECAP_LIMIT = 50;
+/** 전문 그대로 참고하는 최근 화 개수. 최근 전개의 디테일(말투·분위기
+ *  등)을 놓치지 않으려고 1화가 아니라 여러 화를 통째로 준다. */
+const RECENT_FULL_COUNT = 5;
 
 function buildSystemInstruction(
   characters: CharacterProfile[],
@@ -110,8 +116,9 @@ function buildUserText(
   directive?: string
 ): string {
   const blocks = [`주제: ${topic}`];
-  const earlier = previousEpisodes?.slice(0, -1) ?? [];
-  const last = previousEpisodes?.[previousEpisodes.length - 1];
+  const all = previousEpisodes ?? [];
+  const recentFull = all.slice(-RECENT_FULL_COUNT);
+  const earlier = all.slice(0, -RECENT_FULL_COUNT).slice(-RECAP_LIMIT);
 
   if (earlier.length > 0) {
     blocks.push(
@@ -127,8 +134,11 @@ function buildUserText(
     );
   }
 
-  if (last) {
-    blocks.push(``, `[바로 직전 화 전문 (${last.index}화)]`, last.text);
+  if (recentFull.length > 0) {
+    blocks.push(``, `[최근 ${recentFull.length}화 전문]`);
+    for (const e of recentFull) {
+      blocks.push(``, `(${e.index}화)`, e.text);
+    }
   }
 
   if (directive?.trim()) {
@@ -137,7 +147,7 @@ function buildUserText(
 
   blocks.push(
     ``,
-    last
+    recentFull.length > 0
       ? `위 이야기에 자연스럽게 이어지는 ${nextIndex}화를 써줘.`
       : `위 주제로 1화를 시작해줘.`
   );
