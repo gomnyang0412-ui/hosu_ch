@@ -16,11 +16,13 @@ import {
   deleteStory,
   saveRoom,
 } from "@/lib/storage";
+import { nextArcRange } from "@/lib/story";
 import { resolveUniverseTemplate } from "@/lib/template";
 import {
   ORG_UNIVERSE_ID,
   createOrgUniverse,
   toCharacterProfile,
+  type ArcSummary,
   type Character,
   type ObservationSession,
   type Room,
@@ -197,6 +199,7 @@ function ObservePageInner() {
     topic: string;
     previousEpisodes?: StoryEpisode[];
     characterContext?: string;
+    arcSummaries?: ArcSummary[];
     directive?: string;
   }) {
     if (!universe) return null;
@@ -212,6 +215,7 @@ function ObservePageInner() {
           topic: params.topic,
           previousEpisodes: params.previousEpisodes,
           characterContext: params.characterContext,
+          arcSummaries: params.arcSummaries,
           directive: params.directive,
         }),
       });
@@ -272,19 +276,78 @@ function ObservePageInner() {
     router.push(`/observe?universe=${universeId}&story=${newStory.id}`);
   }
 
+  /**
+   * 전문/한 줄 요약 범위(RECENT_FULL_COUNT+RECAP_LIMIT화) 밖으로 밀려난
+   * 화가 ARC_CHUNK_SIZE만큼 쌓였으면, 그 구간을 압축해 arcSummaries에
+   * 追加한다. 실패해도 다음 화 쓰기 자체는 막지 않는다(다음 이어쓰기
+   * 때 다시 시도됨).
+   */
+  async function compactArcIfNeeded(
+    target: ObservationSession,
+    resolvedUniverse: Universe
+  ): Promise<ObservationSession> {
+    const range = nextArcRange(target.episodes.length, target.arcSummaries);
+    if (!range) return target;
+    const chunk = target.episodes.filter(
+      (e) => e.index >= range.fromIndex && e.index <= range.toIndex
+    );
+    if (chunk.length === 0) return target;
+    try {
+      const res = await fetch("/api/summarize-arc", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          characters: sceneCharacters.map(toCharacterProfile),
+          universe: resolvedUniverse,
+          episodes: chunk,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || typeof data.summary !== "string" || !data.summary.trim()) {
+        return target;
+      }
+      const arc: ArcSummary = {
+        fromIndex: range.fromIndex,
+        toIndex: range.toIndex,
+        summary: data.summary.trim(),
+        createdAt: Date.now(),
+      };
+      return {
+        ...target,
+        arcSummaries: [...(target.arcSummaries ?? []), arc],
+      };
+    } catch {
+      return target;
+    }
+  }
+
   async function handleContinue() {
-    if (!session) return;
+    if (!session || !universe) return;
+    const resolvedUniverse = resolveUniverseTemplate(universe, allCharacters);
+    const current = await compactArcIfNeeded(session, resolvedUniverse);
+    if (current !== session) {
+      setStories((prev) =>
+        (prev ?? []).map((s) => (s.id === current.id ? current : s))
+      );
+      try {
+        await saveStory(current);
+      } catch {
+        // 구간 요약 저장에 실패해도 화 쓰기는 계속 진행한다 — 다음
+        // 이어쓰기 때 다시 시도된다
+      }
+    }
     const episode = await requestEpisode({
       characters: sceneCharacters,
-      topic: session.topic,
-      previousEpisodes: session.episodes,
-      characterContext: session.characterContext,
+      topic: current.topic,
+      previousEpisodes: current.episodes,
+      characterContext: current.characterContext,
+      arcSummaries: current.arcSummaries,
       directive: directive.trim() || undefined,
     });
     if (!episode) return;
     const updated: ObservationSession = {
-      ...session,
-      episodes: [...session.episodes, episode],
+      ...current,
+      episodes: [...current.episodes, episode],
       updatedAt: Date.now(),
     };
     setStories((prev) =>

@@ -6,7 +6,13 @@ import {
   geminiErrorResponse,
   worldBlock,
 } from "@/lib/gemini";
-import type { CharacterProfile, StoryEpisode, Universe } from "@/lib/types";
+import { RECAP_LIMIT, RECENT_FULL_COUNT } from "@/lib/story";
+import type {
+  ArcSummary,
+  CharacterProfile,
+  StoryEpisode,
+  Universe,
+} from "@/lib/types";
 
 export const runtime = "nodejs";
 // generateStoryEpisode 안의 timeoutMs·overallDeadlineMs가 실제 안전판이다.
@@ -23,6 +29,9 @@ interface SceneRequestBody {
   previousEpisodes?: StoryEpisode[];
   /** 시작할 때 한 번 가져온 등장인물들의 1:1 대화 요약 (있으면 매 화 계속 같이 보냄) */
   characterContext?: string;
+  /** RECENT_FULL_COUNT+RECAP_LIMIT화보다 오래돼 컨텍스트에서 빠진 화들을
+   *  묶어 압축한 구간 요약들(오래된 순). lib/story.ts의 nextArcRange 참고 */
+  arcSummaries?: ArcSummary[];
   /** 사용자가 이번 화에 반드시 들어가길 바라는 사건 한 줄 (없으면 자유 전개) */
   directive?: string;
 }
@@ -30,12 +39,6 @@ interface SceneRequestBody {
 /** 앞선 화들을 매번 전문으로 다시 보내면 갈수록 느려지니, 최근 몇 화만
  *  전문으로 주고 그 이전 화들은 첫 문장 정도의 줄거리 개요로 압축한다 */
 const RECAP_PREVIEW_CHARS = 80;
-/** 줄거리 개요(요약)에 넣는 화 개수 상한. 이야기가 아주 길어져도 여기서
- *  더는 늘지 않게 막아 토큰 비용이 무한정 커지지 않게 한다. */
-const RECAP_LIMIT = 50;
-/** 전문 그대로 참고하는 최근 화 개수. 최근 전개의 디테일(말투·분위기
- *  등)을 놓치지 않으려고 1화가 아니라 여러 화를 통째로 준다. */
-const RECENT_FULL_COUNT = 5;
 
 function buildSystemInstruction(
   characters: CharacterProfile[],
@@ -114,12 +117,21 @@ function buildUserText(
   topic: string,
   previousEpisodes: StoryEpisode[] | undefined,
   nextIndex: number,
+  arcSummaries: ArcSummary[] | undefined,
   directive?: string
 ): string {
   const blocks = [`주제: ${topic}`];
   const all = previousEpisodes ?? [];
   const recentFull = all.slice(-RECENT_FULL_COUNT);
   const earlier = all.slice(0, -RECENT_FULL_COUNT).slice(-RECAP_LIMIT);
+
+  if (arcSummaries && arcSummaries.length > 0) {
+    blocks.push(
+      ``,
+      `[지난 구간 요약]`,
+      ...arcSummaries.map((a) => `- ${a.fromIndex}~${a.toIndex}화: ${a.summary}`)
+    );
+  }
 
   if (earlier.length > 0) {
     blocks.push(
@@ -190,6 +202,7 @@ export async function POST(request: Request) {
     body.topic.trim(),
     body.previousEpisodes,
     nextIndex,
+    body.arcSummaries,
     body.directive
   );
   const contents: Content[] = [{ role: "user", parts: [{ text: userText }] }];

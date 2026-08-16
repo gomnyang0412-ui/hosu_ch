@@ -194,6 +194,17 @@ export interface StoryEpisode {
   bookmarked?: boolean;
 }
 
+/**
+ * 오래돼 더는 전문/한 줄 요약으로 안 다루는 화들을 몇 화씩 묶어 압축한
+ * 구간 요약. fromIndex~toIndex는 항상 1화부터 끊김 없이 이어진다.
+ */
+export interface ArcSummary {
+  fromIndex: number;
+  toIndex: number;
+  summary: string;
+  createdAt: number;
+}
+
 /** 관찰 모드로 이어 쓰는 단편소설 하나 (캐릭터 선택 + 주제 + 지금까지 이어 쓴 화들) */
 export interface ObservationSession {
   id: string;
@@ -207,6 +218,9 @@ export interface ObservationSession {
    * 계속 같이 보낸다.
    */
   characterContext?: string;
+  /** 너무 오래돼 전문/한 줄 요약 범위 밖으로 밀려난 화들을 묶어 압축한
+   *  구간 요약들. 오래된 순. lib/story.ts의 nextArcRange가 관리한다. */
+  arcSummaries?: ArcSummary[];
   createdAt: number;
   updatedAt: number;
 }
