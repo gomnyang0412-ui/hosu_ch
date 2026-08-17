@@ -1,23 +1,28 @@
 @import "tailwindcss";
 
 :root {
-  /* "Ivory Glass" 톤 — 아이보리 바탕 + 잉크블랙 액션 + 테라코타 포인트 하나.
-     라이트/다크를 나누지 않고 이 한 가지 무드로 통일한다(사용자 확정). */
+  /* 라이트 = "대담한 웜톤" — 아이보리 바탕은 그대로, 액션 색을 잉크블랙
+     대신 짙은 버건디로 바꿔서 훨씬 과감하게 썼다. 다크는 아래
+     prefers-color-scheme 블록의 "웜 더스크"(따뜻한 다갈색 + 앰버).
+     라이트/다크를 시스템 설정에 맞춰 자동 전환한다(사용자 확정 — 예전엔
+     하나로 통일했다가, 색조 자체를 더 과감하게 바꾸면서 함께 뒤집었다). */
+  color-scheme: light;
   --background: #faf6f0;
   --foreground: #221d1a;
   --card: #fffdf9;
   --border: #ece2d6;
   --muted: #746358;
-  /* 액션(전송 버튼, 활성 탭 등)에 쓰는 잉크블랙 — 예전의 핑크 primary를 대체 */
-  --primary: #1c1917;
-  --primary-strong: #100e0d;
-  --primary-foreground: #fdfbf7;
-  --primary-soft: #efe9e2;
-  --primary-gradient-from: #3a332e;
-  /* "다듬기"류, 딱 한 곳에만 아껴 쓰는 웜 테라코타 포인트 */
-  --accent: #d9662e;
-  --accent-strong: #b8501f;
-  --accent-foreground: #fffdf9;
+  /* 액션(전송 버튼, 활성 탭 등)에 쓰는 짙은 버건디 — 예전의 잉크블랙 primary를 대체 */
+  --primary: #a8283f;
+  --primary-strong: #7d1f30;
+  --primary-foreground: #fff6f2;
+  --primary-soft: #f3e3e6;
+  --primary-gradient-from: #5c2233;
+  /* primary와 같은 웜레드 계열의 옅은 톤 — 뱃지·북마크 등 아주 작은
+     포인트에만 쓴다(두 색이 서로 다른 계열로 부딪히지 않게 한 가족으로) */
+  --accent: #c9536a;
+  --accent-strong: #a8283f;
+  --accent-foreground: #fff6f2;
   --card-shadow: 0 1px 2px rgba(34, 29, 26, 0.05),
     0 10px 24px -12px rgba(34, 29, 26, 0.18);
   --card-shadow-sm: 0 1px 2px rgba(34, 29, 26, 0.05),
@@ -27,12 +32,46 @@
   --glass: rgba(255, 253, 248, 0.6);
   --glass-strong: rgba(255, 253, 248, 0.82);
   --glass-border: rgba(34, 29, 26, 0.08);
+  /* 카드/유리 표면 위쪽 가장자리에 얹는 하이라이트 색. 라이트에서는
+     흰빛이 잘 먹지만, 다크에서는 같은 세기로 넣으면 너무 튀어서
+     테마별로 따로 정의한다(아래 다크 블록 참고). */
+  --surface-highlight: rgba(255, 255, 255, 0.55);
   /* Tailwind 기본 이징(--default-transition-timing-function, ease-in-out
      계열)을 스프링에 가까운 곡선으로 덮어쓴다. transition-colors 등
      transition-* 유틸을 쓰는 곳 전부(버튼 호버, 포커스 등)에 클래스
      하나 안 건드리고 그대로 적용된다 — 관성이 붙어 멈추는 듯한
      느낌으로, 뚝뚝 끊기던 기본 easing보다 자연스럽다. */
   --default-transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* 다크 = "웜 더스크" — 순수 검정 대신 따뜻한 다갈색. 램프 밑에서
+       종이책을 읽는 느낌을 노렸다(차갑고 기술적인 일반 다크모드와
+       구분하려고 일부러 순검정·순회색을 피했다). */
+    color-scheme: dark;
+    --background: #1c1712;
+    --foreground: #f4ece0;
+    --card: #241d16;
+    --border: #362c22;
+    --muted: #a8998a;
+    --primary: #e8783f;
+    --primary-strong: #c85f28;
+    --primary-foreground: #241206;
+    --primary-soft: #3a2415;
+    --primary-gradient-from: #f0a06a;
+    --accent: #f0a06a;
+    --accent-strong: #c85f28;
+    --accent-foreground: #241206;
+    --card-shadow: 0 1px 2px rgba(0, 0, 0, 0.3),
+      0 10px 24px -12px rgba(0, 0, 0, 0.55);
+    --card-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3),
+      0 4px 10px -4px rgba(0, 0, 0, 0.4);
+    --glass: rgba(36, 29, 22, 0.55);
+    --glass-strong: rgba(36, 29, 22, 0.78);
+    --glass-border: rgba(244, 236, 224, 0.1);
+    --surface-highlight: rgba(244, 236, 224, 0.1);
+  }
 }
 
 @theme inline {
@@ -76,7 +115,7 @@ body {
    아니라 얇은 틀에 낀 유리판처럼 보이게 한다(마크업을 겹겹이 쌓는
    "더블 베젤" 대신, 기존 요소 하나에 그림자만 더해 가볍게 흉내낸다). */
 .card-shadow {
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), var(--card-shadow-sm);
+  box-shadow: inset 0 1px 0 var(--surface-highlight), var(--card-shadow-sm);
 }
 
 /* primary 버튼/포인트 요소에 쓰는 그라디언트 */
@@ -98,7 +137,7 @@ body {
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid var(--glass-border);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  box-shadow: inset 0 1px 0 var(--surface-highlight);
 }
 
 .glass-strong {
@@ -106,7 +145,7 @@ body {
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid var(--glass-border);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  box-shadow: inset 0 1px 0 var(--surface-highlight);
 }
 
 @media (prefers-reduced-motion: reduce) {
