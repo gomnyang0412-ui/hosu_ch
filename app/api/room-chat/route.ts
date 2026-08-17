@@ -78,7 +78,9 @@ function buildTargetSystemInstruction(
     blocks.push(
       `[함께 있는 다른 인물]\n` +
         others
-          .map((c) => `- ${c.name}${c.oneLiner ? ` (${c.oneLiner})` : ""}`)
+          .map((c) =>
+            !isAU && c.oneLiner ? `- ${c.name} (${c.oneLiner})` : `- ${c.name}`
+          )
           .join("\n")
     );
   }

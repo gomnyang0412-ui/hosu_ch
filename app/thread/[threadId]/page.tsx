@@ -598,8 +598,8 @@ function ThreadPageInner() {
         ) : (
           aiParticipants.length === 0 && (
             <p className="text-sm text-muted">
-              지금은 대화 상대가 없어요. "나" 설정을 해제하거나 캐릭터를
-              추가해 주세요.
+              지금은 대화 상대가 없어요. &ldquo;나&rdquo; 설정을 해제하거나
+              캐릭터를 추가해 주세요.
             </p>
           )
         )}
