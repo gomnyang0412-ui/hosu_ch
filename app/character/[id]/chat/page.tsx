@@ -22,16 +22,16 @@ import {
   groupMessagesByDate,
 } from "@/lib/chatDates";
 import { kstDateString, todayKST } from "@/lib/memory";
+import { useConversationSplit } from "@/hooks/useConversationSplit";
+import { useImageAttachment } from "@/hooks/useImageAttachment";
 import { useKeyboardScrollFix } from "@/hooks/useKeyboardScrollFix";
-import { resizeImageFile } from "@/lib/image";
+import { useRoomBackups } from "@/hooks/useRoomBackups";
 import { roomItemsToChatMessages } from "@/lib/roomBridge";
 import {
   getCharacter,
   getCharacters,
-  getRoomBackups,
   getRoomForCharacter,
   getUniverse,
-  restoreRoomBackup,
   saveCharacter,
   saveRoom,
   StorageError,
@@ -106,33 +106,48 @@ function ChatPageInner() {
   const [room, setRoom] = useState<Room | null>(null);
   const [loadError, setLoadError] = useState("");
   const [input, setInput] = useState("");
-  const [pendingImage, setPendingImage] = useState<string | undefined>(undefined);
-  const [pendingImageLoading, setPendingImageLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<ChatErrorState | null>(null);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editingText, setEditingText] = useState("");
-  const [splitMode, setSplitMode] = useState(false);
-  const [splitIndex, setSplitIndex] = useState<number | null>(null);
-  const [splitTargetId, setSplitTargetId] = useState("");
-  const [splitting, setSplitting] = useState(false);
-  const [splitDone, setSplitDone] = useState<{ name: string; targetId: string } | null>(
-    null
-  );
   const [renaming, setRenaming] = useState(false);
   const [renameText, setRenameText] = useState("");
   const [savingName, setSavingName] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [pickingVoice, setPickingVoice] = useState(false);
   const [showTimeline, setShowTimeline] = useState(false);
-  const [backups, setBackups] = useState<
-    { value: Room; ts: number }[] | null
-  >(null);
-  const [restoring, setRestoring] = useState(false);
   const { bottomRef, handleInputFocus } = useKeyboardScrollFix([
     room?.items.length,
     loading,
   ]);
+  const {
+    pendingImage,
+    pendingImageLoading,
+    handleAttachImage,
+    clearPendingImage,
+  } = useImageAttachment((message) => setError({ message, kind: "unknown" }));
+  const { backups, restoring, openBackups, restoreBackup, closeBackups } =
+    useRoomBackups(universeId, singleRoomId(id), {
+      onRestored: setRoom,
+      clearError: () => setError(null),
+      onError: (message) => setError({ message, kind: "unknown" }),
+    });
+  const {
+    splitMode,
+    splitIndex,
+    splitTargetId,
+    splitting,
+    splitDone,
+    setSplitTargetId,
+    toggleSplitMode,
+    pickSplitPoint,
+    cancelSplitPoint,
+    confirmSplit,
+  } = useConversationSplit(universeId, room, allCharacters, singleRoomId, {
+    onSplit: setRoom,
+    clearError: () => setError(null),
+    onError: (message) => setError({ message, kind: "unknown" }),
+  });
 
   useEffect(() => {
     (async () => {
@@ -301,25 +316,6 @@ function ChatPageInner() {
     }
   }
 
-  async function handleAttachImage(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
-    setPendingImageLoading(true);
-    try {
-      // 중간 화질로 — 원본 그대로 저장하면 방마다 용량이 금방 불어난다
-      const dataUrl = await resizeImageFile(file, 768, 0.7);
-      setPendingImage(dataUrl);
-    } catch (err) {
-      setError({
-        message: err instanceof Error ? err.message : "이미지 처리에 실패했어요.",
-        kind: "unknown",
-      });
-    } finally {
-      setPendingImageLoading(false);
-    }
-  }
-
   async function handleSend() {
     const text = input.trim();
     if ((!text && !pendingImage) || !character || !universe || !room || loading) return;
@@ -339,7 +335,7 @@ function ChatPageInner() {
     };
     setRoom(next);
     setInput("");
-    setPendingImage(undefined);
+    clearPendingImage();
     try {
       await saveRoom(next);
     } catch (err) {
@@ -451,64 +447,6 @@ function ChatPageInner() {
     }
   }
 
-  function toggleSplitMode() {
-    setSplitMode((v) => !v);
-    setSplitIndex(null);
-    setSplitTargetId("");
-    setSplitDone(null);
-  }
-
-  function pickSplitPoint(i: number) {
-    setSplitIndex(i);
-    setSplitTargetId("");
-  }
-
-  async function confirmSplit() {
-    if (splitIndex === null || !splitTargetId || splitting || !room) return;
-    const target = allCharacters.find((c) => c.id === splitTargetId);
-    if (!target) return;
-    setSplitting(true);
-    setError(null);
-    try {
-      const head = room.items.slice(0, splitIndex);
-      const tail = room.items.slice(splitIndex);
-      const now = Date.now();
-      const targetExisting = await getRoomForCharacter(
-        universeId,
-        splitTargetId
-      ).catch(() => null);
-      const targetRoom: Room = targetExisting
-        ? { ...targetExisting, items: [...targetExisting.items, ...tail], updatedAt: now }
-        : {
-            id: singleRoomId(splitTargetId),
-            universeId,
-            kind: "single",
-            characterIds: [splitTargetId],
-            items: tail,
-            createdAt: now,
-            updatedAt: now,
-          };
-      await saveRoom(targetRoom);
-      const updatedOwnRoom: Room = { ...room, items: head, updatedAt: now };
-      await saveRoom(updatedOwnRoom);
-      setRoom(updatedOwnRoom);
-      setSplitIndex(null);
-      setSplitTargetId("");
-      setSplitMode(false);
-      setSplitDone({ name: target.name, targetId: target.id });
-    } catch (err) {
-      setError({
-        message:
-          err instanceof StorageError
-            ? err.message
-            : "대화를 옮기지 못했어요.",
-        kind: "unknown",
-      });
-    } finally {
-      setSplitting(false);
-    }
-  }
-
   // 채팅방 페이지는 통째로 스크롤되는 구조라(키보드 가림 문제 해결 때
   // 그렇게 바꿨다), 헤더 바로 아래에 끼워 넣는 패널(이름 바꾸기/역할
   // 바꾸기/이전 기록)은 대화 중간까지 스크롤한 상태에서 열면 화면
@@ -609,74 +547,6 @@ function ChatPageInner() {
     }
   }
 
-  async function openBackups() {
-    setMenuOpen(false);
-    setError(null);
-    scrollToTop();
-    try {
-      const list = await getRoomBackups(universeId, singleRoomId(id));
-      setBackups(list);
-    } catch (err) {
-      setError({
-        message:
-          err instanceof StorageError
-            ? err.message
-            : "이전 기록을 불러오지 못했어요.",
-        kind: "unknown",
-      });
-    }
-  }
-
-  async function restoreBackup(index: number) {
-    if (restoring) return;
-    setRestoring(true);
-    setError(null);
-    try {
-      const restored = await restoreRoomBackup(universeId, singleRoomId(id), index);
-      setRoom(restored);
-      setBackups(null);
-    } catch (err) {
-      setError({
-        message:
-          err instanceof StorageError
-            ? err.message
-            : "이전 기록으로 되돌리지 못했어요.",
-        kind: "unknown",
-      });
-    } finally {
-      setRestoring(false);
-    }
-  }
-
-  // ☰ 메뉴 각 항목의 클릭 처리. 원래 JSX 안에 인라인으로 있던 걸
-  // ChatMenu 컴포넌트에 넘겨줄 콜백으로 그대로 옮긴 것뿐이라(동작
-  // 순서까지 원래와 동일하게) 실제 로직은 하나도 안 바뀌었다.
-  function handleRenameMenuClick() {
-    openRename();
-    setMenuOpen(false);
-  }
-
-  function handlePickRoleMenuClick() {
-    setPickingVoice(true);
-    setMenuOpen(false);
-    scrollToTop();
-  }
-
-  function handleTimelineMenuClick() {
-    setShowTimeline(true);
-    setMenuOpen(false);
-  }
-
-  function handleSplitMenuClick() {
-    toggleSplitMode();
-    setMenuOpen(false);
-  }
-
-  function handleResetMenuClick() {
-    setMenuOpen(false);
-    handleReset();
-  }
-
   if (!character || !room) {
     return loadError ? (
       <p className="p-4 text-sm text-red-600">{loadError}</p>
@@ -737,12 +607,32 @@ function ChatPageInner() {
         open={menuOpen}
         onClose={() => setMenuOpen(false)}
         canPickRole={allCharacters.length > 1}
-        onRename={handleRenameMenuClick}
-        onPickRole={handlePickRoleMenuClick}
-        onShowTimeline={handleTimelineMenuClick}
-        onToggleSplit={handleSplitMenuClick}
-        onOpenBackups={openBackups}
-        onReset={handleResetMenuClick}
+        onRename={() => {
+          openRename();
+          setMenuOpen(false);
+        }}
+        onPickRole={() => {
+          setPickingVoice(true);
+          setMenuOpen(false);
+          scrollToTop();
+        }}
+        onShowTimeline={() => {
+          setShowTimeline(true);
+          setMenuOpen(false);
+        }}
+        onToggleSplit={() => {
+          toggleSplitMode();
+          setMenuOpen(false);
+        }}
+        onOpenBackups={() => {
+          setMenuOpen(false);
+          scrollToTop();
+          openBackups();
+        }}
+        onReset={() => {
+          setMenuOpen(false);
+          handleReset();
+        }}
       />
 
       <RenamePanel
@@ -769,7 +659,7 @@ function ChatPageInner() {
         backups={backups}
         restoring={restoring}
         onRestore={restoreBackup}
-        onClose={() => setBackups(null)}
+        onClose={closeBackups}
       />
 
       <TimelinePanel
@@ -929,7 +819,7 @@ function ChatPageInner() {
                 <div className="flex gap-2">
                   <button
                     type="button"
-                    onClick={() => setSplitIndex(null)}
+                    onClick={cancelSplitPoint}
                     className="rounded-full border border-border px-3 py-1 text-xs font-medium text-muted"
                   >
                     취소
@@ -982,7 +872,7 @@ function ChatPageInner() {
               />
               <button
                 type="button"
-                onClick={() => setPendingImage(undefined)}
+                onClick={clearPendingImage}
                 className="text-xs text-red-600"
               >
                 사진 제거

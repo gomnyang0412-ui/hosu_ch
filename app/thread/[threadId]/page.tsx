@@ -21,21 +21,20 @@ import {
   FolderIcon,
   PersonIcon,
 } from "@/components/icons";
+import { useImageAttachment } from "@/hooks/useImageAttachment";
 import { useKeyboardScrollFix } from "@/hooks/useKeyboardScrollFix";
+import { useRoomBackups } from "@/hooks/useRoomBackups";
 import {
   dateAnchorId,
   formatDateLabel,
   groupRoomItemsByDate,
 } from "@/lib/chatDates";
-import { resizeImageFile } from "@/lib/image";
 import { kstDateString } from "@/lib/memory";
 import {
   deleteRoom,
   getCharacters,
   getRoom,
-  getRoomBackups,
   getUniverse,
-  restoreRoomBackup,
   saveRoom,
   StorageError,
 } from "@/lib/storage";
@@ -103,8 +102,6 @@ function ThreadPageInner() {
   const [allCharacters, setAllCharacters] = useState<Character[]>([]);
   const [targetIds, setTargetIds] = useState<string[]>([]);
   const [input, setInput] = useState("");
-  const [pendingImage, setPendingImage] = useState<string | undefined>(undefined);
-  const [pendingImageLoading, setPendingImageLoading] = useState(false);
   const [showDirective, setShowDirective] = useState(false);
   const [directiveText, setDirectiveText] = useState("");
   const [loading, setLoading] = useState(false);
@@ -115,14 +112,22 @@ function ThreadPageInner() {
   const [pickingPlayer, setPickingPlayer] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const [showTimeline, setShowTimeline] = useState(false);
-  const [backups, setBackups] = useState<{ value: Room; ts: number }[] | null>(
-    null
-  );
-  const [restoring, setRestoring] = useState(false);
   const { bottomRef, handleInputFocus } = useKeyboardScrollFix([
     thread?.items.length,
     loading,
   ]);
+  const {
+    pendingImage,
+    pendingImageLoading,
+    handleAttachImage,
+    clearPendingImage,
+  } = useImageAttachment((message) => setError({ message, kind: "unknown" }));
+  const { backups, restoring, openBackups, restoreBackup, closeBackups } =
+    useRoomBackups(universeId, thread?.id ?? "", {
+      onRestored: setThread,
+      clearError: () => setError(null),
+      onError: (message) => setError({ message, kind: "unknown" }),
+    });
   // 여러 명에게 순서대로 답을 요청하다가 중간에 실패하면, 이미 답한
   // 사람은 그대로 두고 남은 대상들만 재시도할 수 있도록 기억해둔다.
   const pendingTargetsRef = useRef<Character[]>([]);
@@ -256,25 +261,6 @@ function ThreadPageInner() {
     setLoading(false);
   }
 
-  async function handleAttachImage(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
-    setPendingImageLoading(true);
-    try {
-      // 중간 화질로 — 원본 그대로 저장하면 방마다 용량이 금방 불어난다
-      const dataUrl = await resizeImageFile(file, 768, 0.7);
-      setPendingImage(dataUrl);
-    } catch (err) {
-      setError({
-        message: err instanceof Error ? err.message : "이미지 처리에 실패했어요.",
-        kind: "unknown",
-      });
-    } finally {
-      setPendingImageLoading(false);
-    }
-  }
-
   async function handleSend() {
     const text = input.trim();
     const targets = aiParticipants.filter((c) => targetIds.includes(c.id));
@@ -295,7 +281,7 @@ function ThreadPageInner() {
     };
     setThread(updated);
     setInput("");
-    setPendingImage(undefined);
+    clearPendingImage();
     try {
       await saveRoom(updated);
     } catch (err) {
@@ -413,44 +399,6 @@ function ThreadPageInner() {
     }
   }
 
-  async function openBackups() {
-    if (!thread) return;
-    setError(null);
-    try {
-      const list = await getRoomBackups(universeId, thread.id);
-      setBackups(list);
-    } catch (err) {
-      setError({
-        message:
-          err instanceof StorageError
-            ? err.message
-            : "이전 기록을 불러오지 못했어요.",
-        kind: "unknown",
-      });
-    }
-  }
-
-  async function restoreBackup(index: number) {
-    if (!thread || restoring) return;
-    setRestoring(true);
-    setError(null);
-    try {
-      const restored = await restoreRoomBackup(universeId, thread.id, index);
-      setThread(restored);
-      setBackups(null);
-    } catch (err) {
-      setError({
-        message:
-          err instanceof StorageError
-            ? err.message
-            : "이전 기록으로 되돌리지 못했어요.",
-        kind: "unknown",
-      });
-    } finally {
-      setRestoring(false);
-    }
-  }
-
   function jumpToDate(date: string) {
     setShowTimeline(false);
     // 패널 닫힘 애니메이션/리렌더와 겹치지 않게 한 틱 뒤에 스크롤한다.
@@ -548,7 +496,7 @@ function ThreadPageInner() {
         backups={backups}
         restoring={restoring}
         onRestore={restoreBackup}
-        onClose={() => setBackups(null)}
+        onClose={closeBackups}
       />
 
       <TimelinePanel
@@ -794,7 +742,7 @@ function ThreadPageInner() {
               />
               <button
                 type="button"
-                onClick={() => setPendingImage(undefined)}
+                onClick={clearPendingImage}
                 className="text-xs text-red-600"
               >
                 사진 제거
