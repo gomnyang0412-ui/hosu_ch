@@ -34,7 +34,9 @@ function buildSystemInstruction(
   const world_ = worldBlock(universe);
   if (world_) blocks.push(world_);
 
-  blocks.push([`[캐릭터]`, ...characterLines(character)].join("\n"));
+  blocks.push(
+    [`[캐릭터]`, ...characterLines(character, universe.type === "au")].join("\n")
+  );
 
   blocks.push(
     [

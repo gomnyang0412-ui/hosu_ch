@@ -71,7 +71,8 @@ function buildTargetSystemInstruction(
   const world_ = worldBlock(universe);
   if (world_) blocks.push(world_);
 
-  blocks.push([`[캐릭터]`, ...characterLines(target)].join("\n"));
+  const isAU = universe.type === "au";
+  blocks.push([`[캐릭터]`, ...characterLines(target, isAU)].join("\n"));
 
   if (others.length > 0) {
     blocks.push(
@@ -85,7 +86,7 @@ function buildTargetSystemInstruction(
   if (playerCharacter) {
     blocks.push(
       `[사용자 캐릭터 — "나"]\n` +
-        characterLines(playerCharacter)
+        characterLines(playerCharacter, isAU)
           .map((line) => `  ${line}`)
           .join("\n")
     );

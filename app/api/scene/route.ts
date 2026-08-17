@@ -53,13 +53,14 @@ function buildSystemInstruction(
   const world_ = worldBlock(universe);
   if (world_) blocks.push(world_);
 
+  const isAU = universe.type === "au";
   blocks.push(
     `[등장 인물]\n` +
       characters
         .map(
           (c) =>
             `- ${c.name} -\n` +
-            characterLines(c)
+            characterLines(c, isAU)
               .map((line) => `  ${line}`)
               .join("\n")
         )

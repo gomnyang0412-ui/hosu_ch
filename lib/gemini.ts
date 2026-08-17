@@ -190,8 +190,24 @@ function toGeminiError(err: unknown): GeminiRequestError {
   );
 }
 
-/** 캐릭터 설정을 시스템 프롬프트용 줄 단위 텍스트로 바꾼다 (빈 항목은 제외) */
-export function characterLines(c: CharacterProfile): string[] {
+/**
+ * 캐릭터 설정을 시스템 프롬프트용 줄 단위 텍스트로 바꾼다 (빈 항목은 제외).
+ *
+ * isAU가 true면(원작이 아닌 다른 세계관) 목표·배경 이야기·살아온 궤적·연관
+ * 인물·애정 관계처럼 "원작 맥락"에 묶인 항목은 뺀다 — worldBlock()이 이미
+ * AU 세계관에 맞게 상황과 관계를 재해석해서 연기하라고 지시하는데, 원작의
+ * 구체적인 인생사·인간관계까지 같이 던져주면 그 지시와 충돌해서 캐릭터가
+ * 원작 설정과 AU 설정 사이에서 어색하게 겹쳐 보인다. 이름과 근본적인
+ * 성격·말투만 유지한 채 나머지는 AU 세계관 쪽 설정(worldBlock)이 채우게 한다.
+ */
+export function characterLines(c: CharacterProfile, isAU = false): string[] {
+  if (isAU) {
+    return [
+      `이름: ${c.name}`,
+      c.personality ? `성격: ${c.personality}` : "",
+      c.speechStyle ? `말투: ${c.speechStyle}` : "",
+    ].filter(Boolean);
+  }
   return [
     `이름: ${c.name}`,
     c.oneLiner ? `한 줄 소개: ${c.oneLiner}` : "",
