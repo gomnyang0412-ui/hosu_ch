@@ -7,6 +7,15 @@ import AutoGrowTextarea from "@/components/AutoGrowTextarea";
 import BottomNav from "@/components/BottomNav";
 import CharacterAvatar from "@/components/CharacterAvatar";
 import EpisodeJumpPanel, { episodeAnchorId } from "@/components/EpisodeJumpPanel";
+import {
+  BackArrowIcon,
+  BookmarkRibbonIcon,
+  ChatBubbleIcon,
+  ChevronRightIcon,
+  ClapperIcon,
+  StarIcon,
+  TrashIcon,
+} from "@/components/icons";
 import { sourceLabel } from "@/lib/modelLabel";
 import {
   getCharacters,
@@ -562,9 +571,9 @@ function ObservePageInner() {
             <Link
               href={`/observe?universe=${universeId}`}
               onClick={() => setShowEpisodeJump(false)}
-              className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted"
+              className="flex items-center gap-1 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted transition-transform hover:scale-[1.03] active:scale-[0.97]"
             >
-              ← 목록
+              <BackArrowIcon /> 목록
             </Link>
             {session.episodes.length > 1 && (
               <button
@@ -572,18 +581,18 @@ function ObservePageInner() {
                 onClick={() => setShowEpisodeJump(true)}
                 aria-label="화별로 이동"
                 title="화별로 이동"
-                className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted"
+                className="rounded-full border border-border bg-card px-3 py-1.5 text-sm text-muted transition-transform hover:scale-[1.03] active:scale-[0.97]"
               >
-                📑
+                <BookmarkRibbonIcon />
               </button>
             )}
             <button
               type="button"
               onClick={() => handleDeleteStory(session.id)}
               disabled={deletingId === session.id}
-              className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-red-600 disabled:opacity-40"
+              className="flex items-center gap-1 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-red-600 transition-transform hover:scale-[1.03] active:scale-[0.97] disabled:opacity-40"
             >
-              🗑 삭제
+              <TrashIcon /> 삭제
             </button>
           </div>
         ) : (
@@ -592,7 +601,7 @@ function ObservePageInner() {
             <button
               type="button"
               onClick={() => setShowNewForm(true)}
-              className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground"
+              className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition-transform hover:scale-[1.03] active:scale-[0.97]"
             >
               + 새 이야기
             </button>
@@ -708,22 +717,29 @@ function ObservePageInner() {
                   type="button"
                   onClick={handleStart}
                   disabled={selectedIds.length < 2 || !topic.trim() || loading}
-                  className="rounded-xl bg-primary py-3 text-sm font-semibold text-primary-foreground disabled:opacity-40"
+                  className="group flex items-center justify-center gap-2 rounded-xl bg-primary py-3 pr-3 pl-5 text-sm font-semibold text-primary-foreground transition-transform hover:scale-[1.01] active:scale-[0.98] disabled:opacity-40 disabled:hover:scale-100"
                 >
                   {loading
                     ? importIds.length > 0
                       ? "이전 대화 요약하는 중…"
                       : "1화를 쓰는 중…"
-                    : "이야기 시작"}
+                    : (
+                      <>
+                        이야기 시작
+                        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary-foreground/20 transition-transform group-hover:translate-x-0.5">
+                          <ChevronRightIcon />
+                        </span>
+                      </>
+                    )}
                 </button>
 
                 {browseSessions.length > 0 && (
                   <button
                     type="button"
                     onClick={() => setShowNewForm(false)}
-                    className="self-start text-xs text-muted underline"
+                    className="flex items-center gap-1 self-start text-xs text-muted underline"
                   >
-                    ← 목록으로
+                    <BackArrowIcon /> 목록으로
                   </button>
                 )}
               </>
@@ -756,9 +772,9 @@ function ObservePageInner() {
                       onClick={() => handleDeleteStory(s.id, s.universeId)}
                       disabled={deletingId === s.id}
                       aria-label="이야기 삭제"
-                      className="shrink-0 text-sm text-muted hover:text-red-600 disabled:opacity-40"
+                      className="shrink-0 text-base text-muted transition-transform hover:scale-110 hover:text-red-600 disabled:opacity-40"
                     >
-                      🗑
+                      <TrashIcon />
                     </button>
                   </div>
                 ))}
@@ -823,9 +839,15 @@ function ObservePageInner() {
                 type="button"
                 onClick={handleStartSituationChat}
                 disabled={startingChat}
-                className="self-start rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium disabled:opacity-40"
+                className="flex items-center gap-1.5 self-start rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium transition-transform hover:scale-[1.03] active:scale-[0.97] disabled:opacity-40"
               >
-                {startingChat ? "상황 요약하는 중…" : "💬 이 상황으로 대화 시작"}
+                {startingChat ? (
+                  "상황 요약하는 중…"
+                ) : (
+                  <>
+                    <ChatBubbleIcon /> 이 상황으로 대화 시작
+                  </>
+                )}
               </button>
               {startChatError && (
                 <p className="text-xs text-red-600">{startChatError}</p>
@@ -852,9 +874,9 @@ function ObservePageInner() {
                           onClick={deleteLatestEpisode}
                           aria-label="이 화 삭제"
                           title="가장 최근 화만 지울 수 있어요"
-                          className="text-sm leading-none text-muted opacity-60 hover:text-red-600 hover:opacity-100"
+                          className="text-sm leading-none text-muted opacity-60 transition-transform hover:scale-110 hover:text-red-600 hover:opacity-100"
                         >
-                          🗑
+                          <TrashIcon />
                         </button>
                       )}
                       <button
@@ -862,17 +884,17 @@ function ObservePageInner() {
                         onClick={() => toggleBookmark(ep.index)}
                         aria-label={ep.bookmarked ? "북마크 해제" : "북마크 하기"}
                         title={ep.bookmarked ? "북마크 해제" : "북마크 하기"}
-                        className={`text-base leading-none ${
-                          ep.bookmarked ? "" : "text-muted opacity-40 hover:opacity-70"
+                        className={`text-base leading-none transition-transform hover:scale-110 ${
+                          ep.bookmarked ? "text-accent" : "text-muted opacity-40 hover:opacity-70"
                         }`}
                       >
-                        {ep.bookmarked ? "⭐" : "☆"}
+                        <StarIcon filled={ep.bookmarked} />
                       </button>
                     </div>
                   </div>
                   {ep.directive && (
-                    <p className="text-xs italic text-muted">
-                      🎬 지시: {ep.directive}
+                    <p className="flex items-center gap-1 text-xs italic text-muted">
+                      <ClapperIcon /> 지시: {ep.directive}
                     </p>
                   )}
                   <div className="flex flex-col gap-4">
@@ -934,9 +956,12 @@ function ObservePageInner() {
                 <button
                   type="button"
                   onClick={handleContinue}
-                  className="rounded-xl border border-border bg-card py-3 text-sm font-semibold"
+                  className="group flex items-center justify-center gap-2 rounded-xl bg-accent py-3 pr-3 pl-5 text-sm font-semibold text-accent-foreground transition-transform hover:scale-[1.01] active:scale-[0.98]"
                 >
                   {session.episodes.length + 1}화 이어쓰기
+                  <span className="flex h-7 w-7 items-center justify-center rounded-full bg-accent-foreground/20 transition-transform group-hover:translate-x-0.5">
+                    <ChevronRightIcon />
+                  </span>
                 </button>
               </div>
             )}

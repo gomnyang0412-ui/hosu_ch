@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import CharacterAvatar from "@/components/CharacterAvatar";
 import TopBar from "@/components/TopBar";
+import { CloseIcon, SparkleIcon } from "@/components/icons";
 import { resizeImageFile } from "@/lib/image";
 import { serializeRoomItems } from "@/lib/scene";
 import {
@@ -382,9 +383,9 @@ export default function CharacterForm({
               type="button"
               onClick={() => setReferenceImage(undefined)}
               aria-label="이미지 삭제"
-              className="glass absolute right-2 top-14 flex h-9 w-9 items-center justify-center rounded-full text-sm text-red-600"
+              className="glass absolute right-2 top-14 flex h-9 w-9 items-center justify-center rounded-full text-sm text-red-600 transition-transform hover:scale-110"
             >
-              ✕
+              <CloseIcon />
             </button>
           </div>
         ) : (
@@ -405,9 +406,15 @@ export default function CharacterForm({
               type="button"
               onClick={handleSuggestProfile}
               disabled={suggesting || !hasReferenceMaterial}
-              className="self-start rounded-full bg-accent px-3 py-2 text-xs font-medium text-accent-foreground disabled:opacity-40"
+              className="flex items-center gap-1.5 self-start rounded-full bg-accent px-3 py-2 text-xs font-medium text-accent-foreground transition-transform hover:scale-[1.03] active:scale-[0.97] disabled:opacity-40 disabled:hover:scale-100"
             >
-              {suggesting ? "대화 참고해서 다듬는 중…" : "✨ 대화 참고해서 설정 다듬기"}
+              {suggesting ? (
+                "대화 참고해서 다듬는 중…"
+              ) : (
+                <>
+                  <SparkleIcon /> 대화 참고해서 설정 다듬기
+                </>
+              )}
             </button>
             {!hasReferenceMaterial && (
               <p className="text-xs text-muted">

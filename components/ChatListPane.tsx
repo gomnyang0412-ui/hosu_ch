@@ -4,6 +4,12 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import CharacterAvatar from "@/components/CharacterAvatar";
 import {
+  ArrowDownIcon,
+  ArrowUpIcon,
+  ChatBubbleIcon,
+  PeopleIcon,
+} from "@/components/icons";
+import {
   exportAllData,
   getCharacters,
   getRooms,
@@ -30,7 +36,7 @@ function formatTime(ts: number): string {
 function GroupThumb() {
   return (
     <div className="card-shadow flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-card text-xl">
-      <span aria-hidden>👥</span>
+      <PeopleIcon />
     </div>
   );
 }
@@ -159,9 +165,9 @@ export default function ChatListPane({
               disabled={exporting}
               aria-label="전체 데이터 내보내기"
               title="전체 데이터 내보내기"
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-lg text-muted hover:bg-background disabled:opacity-40"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-lg text-muted transition-transform hover:scale-110 hover:bg-background disabled:opacity-40"
             >
-              {exporting ? "…" : "⬇"}
+              {exporting ? "…" : <ArrowDownIcon />}
             </button>
             <button
               type="button"
@@ -169,9 +175,9 @@ export default function ChatListPane({
               disabled={importing}
               aria-label="백업 파일 불러오기"
               title="백업 파일 불러오기"
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-lg text-muted hover:bg-background disabled:opacity-40"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-lg text-muted transition-transform hover:scale-110 hover:bg-background disabled:opacity-40"
             >
-              {importing ? "…" : "⬆"}
+              {importing ? "…" : <ArrowUpIcon />}
             </button>
             <input
               ref={fileInputRef}
@@ -184,7 +190,7 @@ export default function ChatListPane({
             <button
               type="button"
               onClick={() => setNewMenuOpen((v) => !v)}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-lg text-muted hover:bg-background"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-lg text-muted transition-transform hover:scale-110 hover:bg-background"
               aria-label="새 대화 만들기"
             >
               +
@@ -201,16 +207,16 @@ export default function ChatListPane({
                   <Link
                     href="/chats/new"
                     onClick={() => setNewMenuOpen(false)}
-                    className="px-4 py-3 text-left text-sm hover:bg-background"
+                    className="flex items-center gap-2 px-4 py-3 text-left text-sm transition-colors hover:bg-background"
                   >
-                    💬 1:1 대화 시작
+                    <ChatBubbleIcon /> 1:1 대화 시작
                   </Link>
                   <Link
                     href="/thread/new"
                     onClick={() => setNewMenuOpen(false)}
-                    className="border-t border-border px-4 py-3 text-left text-sm hover:bg-background"
+                    className="flex items-center gap-2 border-t border-border px-4 py-3 text-left text-sm transition-colors hover:bg-background"
                   >
-                    👥 멀티 대화방 만들기
+                    <PeopleIcon /> 멀티 대화방 만들기
                   </Link>
                 </div>
               </>
@@ -245,7 +251,7 @@ export default function ChatListPane({
               <li key={key}>
                 <Link
                   href={href}
-                  className={`glass card-shadow flex items-center gap-3 rounded-2xl p-3 transition-colors ${
+                  className={`glass card-shadow flex items-center gap-3 rounded-2xl p-3 transition-colors transition-transform hover:-translate-y-0.5 ${
                     active ? "ring-2 ring-primary/60" : ""
                   }`}
                 >

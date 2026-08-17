@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import BottomNav from "@/components/BottomNav";
 import CharacterAvatar from "@/components/CharacterAvatar";
+import { EditIcon, GlobeIcon, SettingsGearIcon } from "@/components/icons";
 import { migrateFromLocalStorageIfNeeded } from "@/lib/migrate";
 import { getCharacters } from "@/lib/storage";
 import type { Character } from "@/lib/types";
@@ -33,15 +34,15 @@ export default function CharacterListPage() {
           <Link
             href="/settings"
             aria-label="설정"
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-card text-sm text-muted"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-card text-sm text-muted transition-transform hover:scale-110"
           >
-            ⚙️
+            <SettingsGearIcon />
           </Link>
           <Link
             href="/au"
-            className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted"
+            className="flex items-center gap-1 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted transition-transform hover:scale-[1.03] active:scale-[0.97]"
           >
-            🌍 세계관
+            <GlobeIcon /> 세계관
           </Link>
         </div>
       </header>
@@ -64,7 +65,7 @@ export default function CharacterListPage() {
                   onKeyDown={(e) => {
                     if (e.key === "Enter") router.push(`/character/${c.id}/chat`);
                   }}
-                  className="glass card-shadow flex cursor-pointer items-center gap-3 rounded-2xl p-3"
+                  className="glass card-shadow flex cursor-pointer items-center gap-3 rounded-2xl p-3 transition-transform hover:-translate-y-0.5"
                 >
                   <CharacterAvatar character={c} size="md" />
                   <div className="min-w-0 flex-1">
@@ -77,9 +78,9 @@ export default function CharacterListPage() {
                     href={`/character/${c.id}/edit`}
                     onClick={(e) => e.stopPropagation()}
                     aria-label={`${c.name} 편집`}
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted hover:bg-background"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted transition-transform hover:scale-110 hover:bg-background"
                   >
-                    ✎
+                    <EditIcon />
                   </Link>
                 </div>
               </li>
@@ -89,7 +90,7 @@ export default function CharacterListPage() {
 
         <Link
           href="/character/new"
-          className="mt-4 flex w-full items-center justify-center rounded-2xl border border-dashed border-border py-3 text-sm font-medium text-muted"
+          className="mt-4 flex w-full items-center justify-center rounded-2xl border border-dashed border-border py-3 text-sm font-medium text-muted transition-transform hover:scale-[1.01] active:scale-[0.98]"
         >
           + 캐릭터 추가
         </Link>

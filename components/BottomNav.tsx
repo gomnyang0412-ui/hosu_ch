@@ -2,12 +2,18 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import {
+  ChatBubbleIcon,
+  PersonIcon,
+  SparkleIcon,
+  TheaterMasksIcon,
+} from "@/components/icons";
 
 const TABS = [
-  { href: "/", label: "캐릭터", icon: "👤" },
-  { href: "/chats", label: "채팅", icon: "💬" },
-  { href: "/au", label: "AU", icon: "✨" },
-  { href: "/observe", label: "관찰", icon: "🎭" },
+  { href: "/", label: "캐릭터", Icon: PersonIcon },
+  { href: "/chats", label: "채팅", Icon: ChatBubbleIcon },
+  { href: "/au", label: "AU", Icon: SparkleIcon },
+  { href: "/observe", label: "관찰", Icon: TheaterMasksIcon },
 ] as const;
 
 export default function BottomNav() {
@@ -30,7 +36,7 @@ export default function BottomNav() {
                 active ? "gradient-primary text-primary-foreground" : ""
               }`}
             >
-              {tab.icon}
+              <tab.Icon />
             </span>
             <span className={active ? "font-medium text-primary" : "text-muted"}>
               {tab.label}

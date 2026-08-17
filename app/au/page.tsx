@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import BottomNav from "@/components/BottomNav";
+import { EditIcon, GlobeIcon, SparkleIcon, WarningIcon } from "@/components/icons";
 import { moodPlaceholderImage } from "@/lib/image";
 import { SAMPLE_AUS } from "@/lib/sampleAus";
 import { getUniverses, saveUniverse, StorageError } from "@/lib/storage";
@@ -20,9 +21,9 @@ function UniverseThumb({ universe }: { universe: Universe }) {
           className="h-full w-full object-cover"
         />
       ) : universe.type === "org" ? (
-        <span aria-hidden>🌍</span>
+        <GlobeIcon />
       ) : (
-        <span aria-hidden>✨</span>
+        <SparkleIcon />
       )}
     </div>
   );
@@ -95,7 +96,7 @@ export default function AuListPage() {
         {org && (
           <Link
             href={`/au/${org.id}/edit`}
-            className="glass mb-5 flex items-center gap-3 rounded-2xl p-3"
+            className="glass mb-5 flex items-center gap-3 rounded-2xl p-3 transition-transform hover:-translate-y-0.5"
           >
             <UniverseThumb universe={org} />
             <div className="min-w-0 flex-1">
@@ -104,7 +105,9 @@ export default function AuListPage() {
                 {org.summary || org.worldSetting || "기본 세계관 설정"}
               </p>
             </div>
-            <span className="text-muted">✎</span>
+            <span className="text-muted">
+              <EditIcon />
+            </span>
           </Link>
         )}
 
@@ -119,7 +122,7 @@ export default function AuListPage() {
               <li key={u.id}>
                 <Link
                   href={`/au/${u.id}/edit`}
-                  className="glass flex items-center gap-3 rounded-2xl p-3"
+                  className="glass flex items-center gap-3 rounded-2xl p-3 transition-transform hover:-translate-y-0.5"
                 >
                   <UniverseThumb universe={u} />
                   <div className="min-w-0 flex-1">
@@ -133,8 +136,8 @@ export default function AuListPage() {
                       </p>
                     )}
                     {hasUnresolvedRoles(u) && (
-                      <p className="mt-1 text-xs text-red-600">
-                        ⚠ 역할 배정이 필요해요
+                      <p className="mt-1 flex items-center gap-1 text-xs text-red-600">
+                        <WarningIcon /> 역할 배정이 필요해요
                       </p>
                     )}
                   </div>
@@ -149,17 +152,21 @@ export default function AuListPage() {
             type="button"
             onClick={handleAddSamples}
             disabled={addingSamples}
-            className="mb-2 flex w-full items-center justify-center rounded-2xl border border-border bg-card py-3 text-sm font-medium disabled:opacity-60"
+            className="mb-2 flex w-full items-center justify-center gap-1.5 rounded-2xl border border-border bg-card py-3 text-sm font-medium transition-transform hover:scale-[1.01] active:scale-[0.98] disabled:opacity-60 disabled:hover:scale-100"
           >
-            {addingSamples
-              ? "예시 AU 추가하는 중…"
-              : `✨ 예시 AU ${missingSamples.length}개 추가하기`}
+            {addingSamples ? (
+              "예시 AU 추가하는 중…"
+            ) : (
+              <>
+                <SparkleIcon /> 예시 AU {missingSamples.length}개 추가하기
+              </>
+            )}
           </button>
         )}
 
         <Link
           href="/au/new"
-          className="flex w-full items-center justify-center rounded-2xl border border-dashed border-border py-3 text-sm font-medium text-muted"
+          className="flex w-full items-center justify-center rounded-2xl border border-dashed border-border py-3 text-sm font-medium text-muted transition-transform hover:scale-[1.01] active:scale-[0.98]"
         >
           + AU 추가
         </Link>

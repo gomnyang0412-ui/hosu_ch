@@ -7,6 +7,7 @@ import AutoGrowTextarea from "@/components/AutoGrowTextarea";
 import CharacterAvatar from "@/components/CharacterAvatar";
 import ChatListPane from "@/components/ChatListPane";
 import TopBar from "@/components/TopBar";
+import { CameraIcon, ChevronRightIcon, EditIcon, MenuIcon } from "@/components/icons";
 import BackupPanel from "@/components/chat/BackupPanel";
 import ChatMenu from "@/components/chat/ChatMenu";
 import DialogueBubble from "@/components/chat/DialogueBubble";
@@ -694,9 +695,9 @@ function ChatPageInner() {
             type="button"
             onClick={() => setMenuOpen((v) => !v)}
             aria-label="채팅방 메뉴"
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-lg text-muted hover:bg-background"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-lg text-muted transition-transform hover:scale-110 hover:bg-background"
           >
-            ☰
+            <MenuIcon />
           </button>
         }
       />
@@ -836,9 +837,9 @@ function ChatPageInner() {
                   onClick={() => startEdit(turn.startIndex)}
                   disabled={loading}
                   aria-label="메시지 수정"
-                  className="shrink-0 text-xs text-muted hover:text-foreground disabled:opacity-40"
+                  className="shrink-0 text-xs text-muted transition-transform hover:scale-110 hover:text-foreground disabled:opacity-40"
                 >
-                  ✎
+                  <EditIcon />
                 </button>
                 <div className="flex max-w-[75%] flex-col items-end gap-1 md:max-w-[420px]">
                   {first.image && (
@@ -865,9 +866,9 @@ function ChatPageInner() {
               <button
                 type="button"
                 onClick={() => pickSplitPoint(turn.startIndex)}
-                className="self-center rounded-full border border-dashed border-border px-3 py-1 text-xs text-muted hover:text-foreground"
+                className="flex items-center gap-1 self-center rounded-full border border-dashed border-border px-3 py-1 text-xs text-muted hover:text-foreground"
               >
-                ▸ 여기서부터 나누기
+                <ChevronRightIcon /> 여기서부터 나누기
               </button>
             )}
 
@@ -958,7 +959,7 @@ function ChatPageInner() {
               className="shrink-0 cursor-pointer self-stretch rounded-3xl border border-border px-3 py-2 text-sm text-muted"
               aria-label="사진 첨부"
             >
-              {pendingImageLoading ? "…" : "📷"}
+              {pendingImageLoading ? "…" : <CameraIcon />}
               <input
                 type="file"
                 accept="image/*"
@@ -978,7 +979,7 @@ function ChatPageInner() {
               type="button"
               onClick={handleSend}
               disabled={loading || (!input.trim() && !pendingImage)}
-              className="gradient-primary shrink-0 rounded-full px-5 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-40"
+              className="gradient-primary shrink-0 rounded-full px-5 py-2 text-sm font-semibold text-primary-foreground transition-transform hover:scale-[1.03] active:scale-[0.97] disabled:opacity-40 disabled:hover:scale-100"
             >
               전송
             </button>

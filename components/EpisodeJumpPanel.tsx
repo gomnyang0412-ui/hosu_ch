@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { ClapperIcon, StarIcon } from "@/components/icons";
 import type { StoryEpisode } from "@/lib/types";
 
 export function episodeAnchorId(index: number): string {
@@ -43,13 +44,13 @@ export default function EpisodeJumpPanel({
               <button
                 type="button"
                 onClick={() => setOnlyBookmarked((v) => !v)}
-                className={`rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
+                className={`flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors transition-transform hover:scale-[1.03] active:scale-[0.97] ${
                   onlyBookmarked
                     ? "border-accent bg-accent/10 text-accent-strong"
                     : "border-border text-muted"
                 }`}
               >
-                ⭐ 북마크만
+                <StarIcon filled={onlyBookmarked} /> 북마크만
               </button>
             )}
             <button type="button" onClick={onClose} className="text-sm text-muted">
@@ -68,14 +69,20 @@ export default function EpisodeJumpPanel({
                 <button
                   type="button"
                   onClick={() => onJump(ep.index)}
-                  className="flex w-full flex-col items-start gap-0.5 rounded-xl px-3 py-2.5 text-left hover:bg-background"
+                  className="flex w-full flex-col items-start gap-0.5 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-background"
                 >
-                  <span className="text-sm font-medium">
-                    {ep.bookmarked ? "⭐ " : ""}
+                  <span className="flex items-center gap-1 text-sm font-medium">
+                    {ep.bookmarked && <StarIcon filled />}
                     {ep.index}화
                   </span>
-                  <span className="w-full truncate text-xs text-muted">
-                    {ep.directive ? `🎬 ${ep.directive}` : ep.text.trim().slice(0, 40) || "…"}
+                  <span className="flex w-full items-center gap-1 truncate text-xs text-muted">
+                    {ep.directive ? (
+                      <>
+                        <ClapperIcon /> {ep.directive}
+                      </>
+                    ) : (
+                      ep.text.trim().slice(0, 40) || "…"
+                    )}
                   </span>
                 </button>
               </li>

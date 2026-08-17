@@ -12,6 +12,15 @@ import DialogueBubble from "@/components/chat/DialogueBubble";
 import ErrorRetryBanner from "@/components/chat/ErrorRetryBanner";
 import NarrationBubble from "@/components/chat/NarrationBubble";
 import TimelinePanel from "@/components/chat/TimelinePanel";
+import {
+  CameraIcon,
+  ClapperIcon,
+  ClockIcon,
+  DoorExitIcon,
+  EditIcon,
+  FolderIcon,
+  PersonIcon,
+} from "@/components/icons";
 import { useKeyboardScrollFix } from "@/hooks/useKeyboardScrollFix";
 import {
   dateAnchorId,
@@ -501,35 +510,35 @@ function ThreadPageInner() {
                 type="button"
                 onClick={() => setPickingPlayer((v) => !v)}
                 aria-label="나 역할 정하기"
-                className="rounded-full px-2.5 py-1 text-xs font-medium text-muted hover:bg-background"
+                className="flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium text-muted transition-transform hover:scale-[1.03] hover:bg-background active:scale-[0.97]"
               >
-                🙋 나: {playerCharacter?.name ?? "없음"}
+                <PersonIcon /> 나: {playerCharacter?.name ?? "없음"}
               </button>
             )}
             <button
               type="button"
               onClick={() => setShowTimeline(true)}
               aria-label="날짜별로 이동"
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-base text-muted hover:bg-background"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-base text-muted transition-transform hover:scale-110 hover:bg-background"
             >
-              🕒
+              <ClockIcon />
             </button>
             <button
               type="button"
               onClick={openBackups}
               aria-label="이전 기록"
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-base text-muted hover:bg-background"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-base text-muted transition-transform hover:scale-110 hover:bg-background"
             >
-              🗂
+              <FolderIcon />
             </button>
             <button
               type="button"
               onClick={handleLeaveRoom}
               disabled={leaving}
               aria-label="대화방 나가기"
-              className="rounded-full px-2.5 py-1 text-xs font-medium text-muted hover:bg-background disabled:opacity-40"
+              className="flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium text-muted transition-transform hover:scale-[1.03] hover:bg-background active:scale-[0.97] disabled:opacity-40"
             >
-              🚪 나가기
+              <DoorExitIcon /> 나가기
             </button>
           </div>
         }
@@ -638,9 +647,9 @@ function ThreadPageInner() {
                   onClick={() => startEdit(i)}
                   disabled={loading}
                   aria-label="메시지 수정"
-                  className="shrink-0 text-xs text-muted hover:text-foreground disabled:opacity-40"
+                  className="shrink-0 text-xs text-muted transition-transform hover:scale-110 hover:text-foreground disabled:opacity-40"
                 >
-                  ✎
+                  <EditIcon />
                 </button>
                 <div className="flex max-w-[75%] flex-col items-end gap-1 md:max-w-[420px]">
                   {item.image && (
@@ -668,11 +677,13 @@ function ThreadPageInner() {
                   onClick={() => startEdit(i)}
                   disabled={loading}
                   aria-label="지시문 수정"
-                  className="shrink-0 hover:text-foreground disabled:opacity-40"
+                  className="shrink-0 transition-transform hover:scale-110 hover:text-foreground disabled:opacity-40"
                 >
-                  ✎
+                  <EditIcon />
                 </button>
-                <span>🎬 {item.text}</span>
+                <span className="flex items-center gap-1">
+                  <ClapperIcon /> {item.text}
+                </span>
                 <span className="h-px flex-1 bg-border" />
               </div>
             );
@@ -795,19 +806,19 @@ function ThreadPageInner() {
               type="button"
               onClick={() => setShowDirective((v) => !v)}
               aria-label="상황 전환"
-              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border text-sm ${
+              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border text-sm transition-transform hover:scale-105 ${
                 showDirective
                   ? "border-foreground text-foreground"
                   : "border-border text-muted"
               }`}
             >
-              🎬
+              <ClapperIcon />
             </button>
             <label
-              className="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full border border-border text-sm text-muted"
+              className="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full border border-border text-sm text-muted transition-transform hover:scale-105"
               aria-label="사진 첨부"
             >
-              {pendingImageLoading ? "…" : "📷"}
+              {pendingImageLoading ? "…" : <CameraIcon />}
               <input
                 type="file"
                 accept="image/*"
@@ -836,7 +847,7 @@ function ThreadPageInner() {
               disabled={
                 loading || (!input.trim() && !pendingImage) || targetIds.length === 0
               }
-              className="gradient-primary shrink-0 rounded-full px-5 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-40"
+              className="gradient-primary shrink-0 rounded-full px-5 py-2 text-sm font-semibold text-primary-foreground transition-transform hover:scale-[1.03] active:scale-[0.97] disabled:opacity-40 disabled:hover:scale-100"
             >
               전송
             </button>

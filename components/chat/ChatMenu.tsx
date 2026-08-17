@@ -1,6 +1,15 @@
 "use client";
 
-/** 1:1 채팅방 ☰ 메뉴. 각 항목의 동작은 전부 부모가 주는 콜백에 그대로 위임한다 */
+import {
+  CalendarIcon,
+  ClockIcon,
+  EditIcon,
+  ScissorsIcon,
+  TheaterMasksIcon,
+  UndoIcon,
+} from "@/components/icons";
+
+/** 1:1 채팅방 메뉴. 각 항목의 동작은 전부 부모가 주는 콜백에 그대로 위임한다 */
 export default function ChatMenu({
   open,
   onClose,
@@ -36,46 +45,46 @@ export default function ChatMenu({
         <button
           type="button"
           onClick={onRename}
-          className="px-4 py-3 text-left text-sm hover:bg-background"
+          className="flex items-center gap-2 px-4 py-3 text-left text-sm transition-colors hover:bg-background"
         >
-          ✎ 채팅방 이름 바꾸기
+          <EditIcon /> 채팅방 이름 바꾸기
         </button>
         {canPickRole && (
           <button
             type="button"
             onClick={onPickRole}
-            className="border-t border-border px-4 py-3 text-left text-sm hover:bg-background"
+            className="flex items-center gap-2 border-t border-border px-4 py-3 text-left text-sm transition-colors hover:bg-background"
           >
-            🎭 역할 바꾸기 (AI / 나)
+            <TheaterMasksIcon /> 역할 바꾸기 (AI / 나)
           </button>
         )}
         <button
           type="button"
           onClick={onShowTimeline}
-          className="border-t border-border px-4 py-3 text-left text-sm hover:bg-background"
+          className="flex items-center gap-2 border-t border-border px-4 py-3 text-left text-sm transition-colors hover:bg-background"
         >
-          📅 날짜별로 이동
+          <CalendarIcon /> 날짜별로 이동
         </button>
         <button
           type="button"
           onClick={onToggleSplit}
-          className="border-t border-border px-4 py-3 text-left text-sm hover:bg-background"
+          className="flex items-center gap-2 border-t border-border px-4 py-3 text-left text-sm transition-colors hover:bg-background"
         >
-          ✂ 대화 나누기
+          <ScissorsIcon /> 대화 나누기
         </button>
         <button
           type="button"
           onClick={onOpenBackups}
-          className="border-t border-border px-4 py-3 text-left text-sm hover:bg-background"
+          className="flex items-center gap-2 border-t border-border px-4 py-3 text-left text-sm transition-colors hover:bg-background"
         >
-          🕐 이전 기록으로 되돌리기
+          <ClockIcon /> 이전 기록으로 되돌리기
         </button>
         <button
           type="button"
           onClick={onReset}
-          className="border-t border-border px-4 py-3 text-left text-sm text-red-600 hover:bg-background"
+          className="flex items-center gap-2 border-t border-border px-4 py-3 text-left text-sm text-red-600 transition-colors hover:bg-background"
         >
-          ↺ 대화 초기화
+          <UndoIcon /> 대화 초기화
         </button>
       </div>
     </>

@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
+import { BackArrowIcon } from "@/components/icons";
 
 export default function TopBar({
   title,
@@ -21,9 +22,9 @@ export default function TopBar({
         type="button"
         onClick={() => (onBack ? onBack() : router.back())}
         aria-label="뒤로 가기"
-        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-lg text-muted hover:bg-background"
+        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-lg text-muted transition-transform hover:scale-110 hover:bg-background"
       >
-        ←
+        <BackArrowIcon />
       </button>
       <h1 className="flex-1 truncate text-base font-semibold">{title}</h1>
       {right}

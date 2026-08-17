@@ -66,11 +66,17 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans);
+  /* 한글은 어절 중간에서 줄바꿈되면 어색하게 읽힌다 — 카드 제목, 화 본문
+     등 앱 전체 텍스트가 항상 어절 단위로만 줄바꿈되게 한다. */
+  word-break: keep-all;
+  overflow-wrap: break-word;
 }
 
-/* 카드형 표면: 딱딱한 테두리선 대신 은은한 그림자로 경계를 표현한다 */
+/* 카드/유리 표면 위쪽 가장자리에 아주 옅은 하이라이트를 얹어, 평면이
+   아니라 얇은 틀에 낀 유리판처럼 보이게 한다(마크업을 겹겹이 쌓는
+   "더블 베젤" 대신, 기존 요소 하나에 그림자만 더해 가볍게 흉내낸다). */
 .card-shadow {
-  box-shadow: var(--card-shadow-sm);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), var(--card-shadow-sm);
 }
 
 /* primary 버튼/포인트 요소에 쓰는 그라디언트 */
@@ -92,6 +98,7 @@ body {
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid var(--glass-border);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
 }
 
 .glass-strong {
@@ -99,6 +106,7 @@ body {
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid var(--glass-border);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
 }
 
 @media (prefers-reduced-motion: reduce) {

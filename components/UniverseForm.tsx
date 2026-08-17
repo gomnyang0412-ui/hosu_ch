@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import TopBar from "@/components/TopBar";
+import { WarningIcon } from "@/components/icons";
 import { resizeImageFile } from "@/lib/image";
 import {
   deleteUniverse,
@@ -307,10 +308,10 @@ export default function UniverseForm({ universe }: { universe?: Universe }) {
                 써주세요.
               </p>
               {rolesNeeded && (
-                <p className="rounded-xl bg-red-50 px-2.5 py-2 text-xs text-red-700">
-                  ⚠ 이 세계관 텍스트가 아직 배정 안 된 역할 표시를 쓰고
-                  있어요. 배정하기 전까지는 안전한 임시 이름(인물A 등)으로
-                  대신 나가요.
+                <p className="flex items-start gap-1.5 rounded-xl bg-red-50 px-2.5 py-2 text-xs text-red-700">
+                  <WarningIcon className="mt-0.5 shrink-0" /> 이 세계관 텍스트가
+                  아직 배정 안 된 역할 표시를 쓰고 있어요. 배정하기 전까지는
+                  안전한 임시 이름(인물A 등)으로 대신 나가요.
                 </p>
               )}
               {characters.length === 0 ? (
