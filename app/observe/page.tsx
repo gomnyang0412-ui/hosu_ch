@@ -170,6 +170,33 @@ function ObservePageInner() {
     })();
   }, [universeId]);
 
+  /**
+   * 목록의 이야기 하나를 갱신해서 화면에 반영하고, 그대로 서버에도
+   * 저장한다. 여러 핸들러(화 이어쓰기·인물 추가·화 삭제·북마크·구간
+   * 요약 압축)가 "목록 상태 갱신 → 저장 → 실패 시 에러 표시"를 각자
+   * 그대로 반복하고 있던 걸 하나로 모은 것. onSaveError를 안 넘기면
+   * 저장 실패는 조용히 무시한다(구간 요약 압축처럼 "실패해도 다음에
+   * 다시 시도되면 그만"인 경우용). afterUpdate는 상태 갱신 직후,
+   * 저장을 기다리기 전에 동기적으로 실행된다(입력창 비우기처럼 저장
+   * 완료를 기다릴 필요 없는 부수 효과용).
+   */
+  async function persistStoryUpdate(
+    updated: ObservationSession,
+    options?: { onSaveError?: string; afterUpdate?: () => void }
+  ) {
+    setStories((prev) =>
+      (prev ?? []).map((s) => (s.id === updated.id ? updated : s))
+    );
+    options?.afterUpdate?.();
+    try {
+      await saveStory(updated);
+    } catch {
+      if (options?.onSaveError) {
+        setError({ message: options.onSaveError, kind: "unknown" });
+      }
+    }
+  }
+
   const session = stories?.find((s) => s.id === storyId) ?? null;
 
   const sceneCharacters = session
@@ -364,17 +391,9 @@ function ObservePageInner() {
     if (!session || !universe) return;
     const resolvedUniverse = resolveUniverseTemplate(universe, allCharacters);
     const current = await compactArcIfNeeded(session, resolvedUniverse);
-    if (current !== session) {
-      setStories((prev) =>
-        (prev ?? []).map((s) => (s.id === current.id ? current : s))
-      );
-      try {
-        await saveStory(current);
-      } catch {
-        // 구간 요약 저장에 실패해도 화 쓰기는 계속 진행한다 — 다음
-        // 이어쓰기 때 다시 시도된다
-      }
-    }
+    // 구간 요약 저장에 실패해도(onSaveError 생략 = 조용히 무시) 화 쓰기는
+    // 계속 진행한다 — 다음 이어쓰기 때 다시 시도된다
+    if (current !== session) await persistStoryUpdate(current);
     const episode = await requestEpisode({
       characters: sceneCharacters,
       topic: current.topic,
@@ -389,15 +408,10 @@ function ObservePageInner() {
       episodes: [...current.episodes, episode],
       updatedAt: Date.now(),
     };
-    setStories((prev) =>
-      (prev ?? []).map((s) => (s.id === updated.id ? updated : s))
-    );
-    setDirective("");
-    try {
-      await saveStory(updated);
-    } catch {
-      setError({ message: "이번 화를 저장하지 못했어요.", kind: "unknown" });
-    }
+    await persistStoryUpdate(updated, {
+      onSaveError: "이번 화를 저장하지 못했어요.",
+      afterUpdate: () => setDirective(""),
+    });
   }
 
   async function handleDeleteStory(id: string, targetUniverseId = universeId) {
@@ -487,15 +501,10 @@ function ObservePageInner() {
           .filter(Boolean)
           .join("\n\n"),
       };
-      setStories((prev) =>
-        (prev ?? []).map((s) => (s.id === updated.id ? updated : s))
-      );
-      setShowAddCharacter(false);
-      try {
-        await saveStory(updated);
-      } catch {
-        setError({ message: "인물을 추가하지 못했어요.", kind: "unknown" });
-      }
+      await persistStoryUpdate(updated, {
+        onSaveError: "인물을 추가하지 못했어요.",
+        afterUpdate: () => setShowAddCharacter(false),
+      });
     } finally {
       setAddingCharacterId(null);
     }
@@ -509,14 +518,7 @@ function ObservePageInner() {
       episodes: session.episodes.slice(0, -1),
       updatedAt: Date.now(),
     };
-    setStories((prev) =>
-      (prev ?? []).map((s) => (s.id === updated.id ? updated : s))
-    );
-    try {
-      await saveStory(updated);
-    } catch {
-      setError({ message: "화를 지우지 못했어요.", kind: "unknown" });
-    }
+    await persistStoryUpdate(updated, { onSaveError: "화를 지우지 못했어요." });
   }
 
   async function toggleBookmark(index: number) {
@@ -527,14 +529,7 @@ function ObservePageInner() {
         ep.index === index ? { ...ep, bookmarked: !ep.bookmarked } : ep
       ),
     };
-    setStories((prev) =>
-      (prev ?? []).map((s) => (s.id === updated.id ? updated : s))
-    );
-    try {
-      await saveStory(updated);
-    } catch {
-      setError({ message: "북마크를 저장하지 못했어요.", kind: "unknown" });
-    }
+    await persistStoryUpdate(updated, { onSaveError: "북마크를 저장하지 못했어요." });
   }
 
   function jumpToEpisode(index: number) {
