@@ -10,6 +10,7 @@ import {
   ORG_UNIVERSE_ID,
   RELATION_SLOT_COUNT,
   createOrgUniverse,
+  type ApiUsageEntry,
   type AppSettings,
   type Character,
   type CharacterMemory,
@@ -72,6 +73,9 @@ const KEYS = {
   backupPrefix: "cc:backup:",
   /** 유니버스·캐릭터와 무관한, 앱 전체에 딱 하나뿐인 개인화 설정(배경 이미지 등) */
   appSettings: "cc:settings",
+  /** 날짜(YYYY-MM-DD)별 API 호출 집계 해시. 사용자 콘텐츠가 아닌 운영
+   *  통계라 다른 키들과 달리 TTL을 걸어 자동으로 사라지게 둔다. */
+  usagePrefix: "cc:usage:",
 } as const;
 
 // 대화 기록처럼 "통째로 덮어쓰는" 저장은 실수(버그·오조작)로 기존 내용을
@@ -493,6 +497,55 @@ export async function getAppSettings(): Promise<AppSettings> {
 
 export async function saveAppSettings(settings: AppSettings): Promise<void> {
   await getRedis().set(KEYS.appSettings, settings);
+}
+
+// ---------- Gemini API 사용량 집계 (키·모델별, 하루 단위) ----------
+
+const USAGE_TTL_SECONDS = 60 * 60 * 24 * 14; // 14일 — 운영 통계라 이 정도만 보관
+
+function usageKey(date: string): string {
+  return `${KEYS.usagePrefix}${date}`;
+}
+
+function usageField(keyIndex: number, model: string, outcome: "success" | "quota"): string {
+  return `${keyIndex}:${model}:${outcome}`;
+}
+
+/** 실제 서비스에 영향 없이 기록만 하는 용도라, 실패해도 절대 던지지 않는다 (best-effort). */
+export async function recordApiUsage(
+  date: string,
+  keyIndex: number,
+  model: string,
+  outcome: "success" | "quota"
+): Promise<void> {
+  try {
+    const key = usageKey(date);
+    await getRedis().hincrby(key, usageField(keyIndex, model, outcome), 1);
+    await getRedis().expire(key, USAGE_TTL_SECONDS);
+  } catch {
+    // 사용량 집계 실패는 조용히 무시 — 실제 AI 응답 흐름을 막으면 안 된다.
+  }
+}
+
+export async function getApiUsage(date: string): Promise<ApiUsageEntry[]> {
+  const raw = await getRedis().hgetall<Record<string, number>>(usageKey(date));
+  if (!raw) return [];
+
+  const entries = new Map<string, ApiUsageEntry>();
+  for (const [field, count] of Object.entries(raw)) {
+    const [keyIndexStr, model, outcome] = field.split(":");
+    const keyIndex = Number(keyIndexStr);
+    if (!Number.isFinite(keyIndex) || (outcome !== "success" && outcome !== "quota")) {
+      continue;
+    }
+    const mapKey = `${keyIndex}:${model}`;
+    const entry = entries.get(mapKey) ?? { keyIndex, model, success: 0, quota: 0 };
+    entry[outcome] = count;
+    entries.set(mapKey, entry);
+  }
+  return Array.from(entries.values()).sort(
+    (a, b) => a.keyIndex - b.keyIndex || a.model.localeCompare(b.model)
+  );
 }
 
 // ---------- 관찰 모드 이야기 (유니버스별, 여러 편 저장) ----------

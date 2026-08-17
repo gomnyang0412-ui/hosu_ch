@@ -357,6 +357,20 @@ export interface AppSettings {
 }
 
 /**
+ * 하루 동안 API 키(1/2/3...)·모델 조합별로 실제 호출이 몇 번 성공했고
+ * 몇 번 사용량 초과(quota)로 막혔는지. 구글이 API 키 기준으로는 남은
+ * 할당량을 조회할 방법을 안 줘서, 앱이 스스로 호출 결과를 세어
+ * "오늘 이 키·모델을 몇 번 썼는지"를 보여주는 용도 — 실제 남은 한도가
+ * 아니라 우리가 직접 관측한 사용 횟수다.
+ */
+export interface ApiUsageEntry {
+  keyIndex: number;
+  model: string;
+  success: number;
+  quota: number;
+}
+
+/**
  * 전체 데이터 내보내기용 스냅샷. 캐릭터/세계관 전부와, 그 조합마다 있는
  * 모든 대화 기록·기억·설정을 담는다.
  *

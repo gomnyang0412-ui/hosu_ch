@@ -3,7 +3,13 @@
 import { useEffect, useState } from "react";
 import TopBar from "@/components/TopBar";
 import { resizeImageFile } from "@/lib/image";
-import { getAppSettings, saveAppSettings, StorageError } from "@/lib/storage";
+import {
+  getApiUsage,
+  getAppSettings,
+  saveAppSettings,
+  StorageError,
+} from "@/lib/storage";
+import type { ApiUsageEntry } from "@/lib/types";
 
 // 전체 화면을 덮는 배경이라 아바타(320px)보다 훨씬 크게 남겨둔다 —
 // 데스크톱 와이드 화면에서도 흐려 보이지 않도록.
@@ -16,13 +22,51 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  const [usageDate, setUsageDate] = useState("");
+  const [usageEntries, setUsageEntries] = useState<ApiUsageEntry[] | null>(null);
+  const [usageError, setUsageError] = useState("");
+  const [usageLoading, setUsageLoading] = useState(false);
+
+  // 새로고침 버튼에서 쓰는, "누르는 순간" 로딩 상태부터 보여주는 버전.
+  // 마운트 시 최초 로딩은 이걸 부르지 않고 useEffect 안에서 바로
+  // then/catch로 처리한다 — 그래야 effect 본문에서 setState를 동기
+  // 호출하지 않는다(react-hooks/set-state-in-effect).
+  async function loadUsage() {
+    setUsageLoading(true);
+    setUsageError("");
+    try {
+      const { date, entries } = await getApiUsage();
+      setUsageDate(date);
+      setUsageEntries(entries);
+    } catch (err) {
+      setUsageError(
+        err instanceof StorageError ? err.message : "사용량을 불러오지 못했어요."
+      );
+    } finally {
+      setUsageLoading(false);
+    }
+  }
+
   useEffect(() => {
     getAppSettings()
       .then((s) => setBackgroundImage(s.backgroundImage))
       .catch(() => {
         // 못 불러와도 업로드 자체는 계속할 수 있으니 조용히 넘어간다
       });
+    getApiUsage()
+      .then(({ date, entries }) => {
+        setUsageDate(date);
+        setUsageEntries(entries);
+      })
+      .catch(() => setUsageError("사용량을 불러오지 못했어요."));
   }, []);
+
+  const usageByKey = new Map<number, ApiUsageEntry[]>();
+  for (const entry of usageEntries ?? []) {
+    const list = usageByKey.get(entry.keyIndex) ?? [];
+    list.push(entry);
+    usageByKey.set(entry.keyIndex, list);
+  }
 
   async function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -114,6 +158,67 @@ export default function SettingsPage() {
           </div>
 
           {error && <p className="text-xs text-red-600">{error}</p>}
+        </div>
+
+        <div className="glass card-shadow flex flex-col gap-3 rounded-2xl p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold">
+                Gemini API 사용량 {usageDate && `· ${usageDate}`}
+              </p>
+              <p className="mt-0.5 text-xs text-muted">
+                오늘 이 앱이 실제로 호출한 횟수예요. 구글이 API 키 기준으로는
+                남은 한도를 알려주지 않아서, 진짜 잔여량이 아니라 앱이 직접 센
+                횟수예요.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={loadUsage}
+              disabled={usageLoading}
+              className="shrink-0 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted disabled:opacity-40"
+            >
+              {usageLoading ? "불러오는 중…" : "새로고침"}
+            </button>
+          </div>
+
+          {usageError && <p className="text-xs text-red-600">{usageError}</p>}
+
+          {usageEntries && usageEntries.length === 0 && (
+            <p className="text-xs text-muted">
+              오늘은 아직 기록된 호출이 없어요.
+            </p>
+          )}
+
+          {usageByKey.size > 0 && (
+            <div className="flex flex-col gap-3">
+              {Array.from(usageByKey.entries())
+                .sort(([a], [b]) => a - b)
+                .map(([keyIndex, entries]) => (
+                  <div key={keyIndex} className="rounded-xl border border-border p-3">
+                    <p className="mb-1.5 text-xs font-semibold">
+                      키 {keyIndex}
+                    </p>
+                    <ul className="flex flex-col gap-1">
+                      {entries.map((e) => (
+                        <li
+                          key={e.model}
+                          className="flex items-center justify-between text-xs text-muted"
+                        >
+                          <span>{e.model}</span>
+                          <span>
+                            성공 {e.success}
+                            {e.quota > 0 && (
+                              <span className="text-red-600"> · 한도초과 {e.quota}</span>
+                            )}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+            </div>
+          )}
         </div>
       </main>
     </div>

@@ -10,6 +10,8 @@ import {
   type SafetySetting,
 } from "@google/genai";
 import { NextResponse } from "next/server";
+import { recordApiUsage } from "./db";
+import { todayKST } from "./memory";
 import type { CharacterProfile, Universe } from "./types";
 
 // 캐릭터 롤플레이는 갈등·위협·권력관계 같은 긴장된 상황을 다루는 경우가
@@ -387,6 +389,10 @@ async function generate(params: {
             "unknown"
           );
         }
+        // 서버리스 환경에서는 응답을 반환한 뒤 실행이 곧바로 얼어붙을 수
+        // 있어서, fire-and-forget이 아니라 기록이 끝나길 기다린 뒤 반환한다
+        // (recordApiUsage 자체는 내부에서 실패를 삼켜 절대 던지지 않는다).
+        await recordApiUsage(todayKST(), i + 1, model, "success");
         return { text, model, keyIndex: i + 1 };
       } catch (err) {
         if (isModelUnavailable(err)) break; // 이 모델 자체가 없음 → 바로 다음 모델로
@@ -397,6 +403,9 @@ async function generate(params: {
         // network(타임아웃 포함 — toGeminiError는 타임아웃과 순수
         // 연결 오류를 똑같이 "network"로 분류한다)일 때도 다음 키로,
         // 그것도 다 떨어지면 다음 모델로 넘어간다.
+        if (mapped.kind === "quota") {
+          await recordApiUsage(todayKST(), i + 1, model, "quota");
+        }
         const retryable =
           mapped.kind === "quota" ||
           mapped.kind === "overloaded" ||

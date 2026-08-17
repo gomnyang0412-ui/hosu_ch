@@ -3,6 +3,7 @@
 
 import { chatMessagesToRoomItems, roomItemsToChatMessages } from "./roomBridge";
 import type {
+  ApiUsageEntry,
   AppSettings,
   Character,
   ChatMessage,
@@ -318,6 +319,15 @@ export async function saveAppSettings(settings: AppSettings): Promise<void> {
     method: "POST",
     body: JSON.stringify(settings),
   });
+}
+
+// ---------- Gemini API 사용량 (오늘, 키·모델별) ----------
+
+export async function getApiUsage(): Promise<{
+  date: string;
+  entries: ApiUsageEntry[];
+}> {
+  return request("/api/data/usage");
 }
 
 // ---------- 전체 데이터 내보내기/불러오기 ----------
