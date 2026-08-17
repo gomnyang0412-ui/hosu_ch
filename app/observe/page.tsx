@@ -13,6 +13,7 @@ import {
   getChatHistory,
   getStories,
   getUniverse,
+  getUniverses,
   saveStory,
   deleteStory,
   saveRoom,
@@ -34,6 +35,13 @@ import {
 interface SceneErrorState {
   message: string;
   kind: "quota" | "network" | "overloaded" | "unknown" | "parse";
+}
+
+/** 목록 화면에서 다른 세계관(주로 AU) 이야기를 함께 보여줄 때, 어느
+ *  세계관 소속인지 표시하려고 덧붙이는 태그 */
+interface TaggedSession extends ObservationSession {
+  universeTitle: string;
+  isAu: boolean;
 }
 
 function storyTitle(session: ObservationSession, characters: Character[]): string {
@@ -68,6 +76,12 @@ function ObservePageInner() {
   const [universe, setUniverse] = useState<Universe | null>(null);
   const [allCharacters, setAllCharacters] = useState<Character[]>([]);
   const [stories, setStories] = useState<ObservationSession[] | null>(null);
+  /** 지금 보고 있는 유니버스가 아닌 다른 유니버스(주로 AU)들의 이야기.
+   *  "관찰" 탭 하나에서 AU 이야기까지 같이 훑어볼 수 있도록 목록 화면에
+   *  섞어서 보여준다. 지금 유니버스의 stories는 이미 생성/이어쓰기/삭제
+   *  때마다 바로바로 갱신되니, 이쪽은 유니버스를 옮겨갈 때만 다시 불러도
+   *  충분하다(다른 탭에서 동시에 편집 중이 아닌 한 어긋날 일이 없다). */
+  const [otherStories, setOtherStories] = useState<TaggedSession[]>([]);
   const [showNewForm, setShowNewForm] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [hasHistoryIds, setHasHistoryIds] = useState<Set<string>>(new Set());
@@ -87,6 +101,7 @@ function ObservePageInner() {
 
   useEffect(() => {
     setStories(null);
+    setOtherStories([]);
     setShowNewForm(false);
     setSelectedIds([]);
     setImportIds([]);
@@ -95,15 +110,29 @@ function ObservePageInner() {
     setError(null);
     (async () => {
       try {
-        const [characters, storyList, foundUniverse] = await Promise.all([
+        const [characters, storyList, foundUniverse, universes] = await Promise.all([
           getCharacters(),
           getStories(universeId),
           getUniverse(universeId).catch(() => undefined),
+          getUniverses().catch(() => []),
         ]);
         setAllCharacters(characters);
         setStories(storyList);
         const resolvedFoundUniverse = foundUniverse ?? createOrgUniverse();
         setUniverse(resolvedFoundUniverse);
+
+        const others = universes.filter((u) => u.id !== universeId);
+        const otherLists = await Promise.all(
+          others.map(async (u) => {
+            const list = await getStories(u.id).catch(() => []);
+            return list.map((s) => ({
+              ...s,
+              universeTitle: u.title,
+              isAu: u.type === "au",
+            }));
+          })
+        );
+        setOtherStories(otherLists.flat());
         if (
           resolvedFoundUniverse.type === "au" &&
           resolvedFoundUniverse.roleA &&
@@ -362,12 +391,16 @@ function ObservePageInner() {
     }
   }
 
-  async function handleDeleteStory(id: string) {
+  async function handleDeleteStory(id: string, targetUniverseId = universeId) {
     if (!window.confirm("이 이야기를 삭제할까요? 되돌릴 수 없어요.")) return;
     setDeletingId(id);
     try {
-      await deleteStory(universeId, id);
-      setStories((prev) => (prev ?? []).filter((s) => s.id !== id));
+      await deleteStory(targetUniverseId, id);
+      if (targetUniverseId === universeId) {
+        setStories((prev) => (prev ?? []).filter((s) => s.id !== id));
+      } else {
+        setOtherStories((prev) => prev.filter((s) => s.id !== id));
+      }
       if (storyId === id) {
         router.push(`/observe?universe=${universeId}`);
       }
@@ -508,7 +541,15 @@ function ObservePageInner() {
   if (stories === null) return null;
 
   const isAu = universe && universe.type === "au";
-  const showForm = showNewForm || stories.length === 0;
+  const browseSessions: TaggedSession[] = [
+    ...stories.map((s) => ({
+      ...s,
+      universeTitle: universe?.title ?? "",
+      isAu: !!isAu,
+    })),
+    ...otherStories,
+  ].sort((a, b) => b.updatedAt - a.updatedAt);
+  const showForm = showNewForm || browseSessions.length === 0;
 
   return (
     <div className="flex flex-1 flex-col">
@@ -547,7 +588,7 @@ function ObservePageInner() {
           </div>
         ) : (
           !showForm &&
-          stories.length > 0 && (
+          browseSessions.length > 0 && (
             <button
               type="button"
               onClick={() => setShowNewForm(true)}
@@ -676,7 +717,7 @@ function ObservePageInner() {
                     : "이야기 시작"}
                 </button>
 
-                {stories.length > 0 && (
+                {browseSessions.length > 0 && (
                   <button
                     type="button"
                     onClick={() => setShowNewForm(false)}
@@ -688,36 +729,39 @@ function ObservePageInner() {
               </>
             ) : (
               <div className="flex flex-col gap-2">
-                {stories
-                  .slice()
-                  .sort((a, b) => b.updatedAt - a.updatedAt)
-                  .map((s) => (
-                    <div
-                      key={s.id}
-                      className="card-shadow flex items-center gap-3 rounded-2xl bg-card p-3"
+                {browseSessions.map((s) => (
+                  <div
+                    key={s.id}
+                    className="card-shadow flex items-center gap-3 rounded-2xl bg-card p-3"
+                  >
+                    <Link
+                      href={`/observe?universe=${s.universeId}&story=${s.id}`}
+                      className="min-w-0 flex-1"
                     >
-                      <Link
-                        href={`/observe?universe=${universeId}&story=${s.id}`}
-                        className="min-w-0 flex-1"
-                      >
-                        <p className="truncate font-semibold">
-                          {storyTitle(s, allCharacters)}
-                        </p>
-                        <p className="text-xs text-muted">
-                          {s.episodes.length}화 · {formatDate(s.updatedAt)}
-                        </p>
-                      </Link>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteStory(s.id)}
-                        disabled={deletingId === s.id}
-                        aria-label="이야기 삭제"
-                        className="shrink-0 text-sm text-muted hover:text-red-600 disabled:opacity-40"
-                      >
-                        🗑
-                      </button>
-                    </div>
-                  ))}
+                      <p className="truncate font-semibold">
+                        {s.isAu && (
+                          <span className="mr-1.5 rounded-full bg-accent/15 px-1.5 py-0.5 align-middle text-[10px] font-bold text-accent">
+                            AU
+                          </span>
+                        )}
+                        {storyTitle(s, allCharacters)}
+                      </p>
+                      <p className="text-xs text-muted">
+                        {s.episodes.length}화 · {formatDate(s.updatedAt)}
+                        {s.isAu && ` · ${s.universeTitle}`}
+                      </p>
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteStory(s.id, s.universeId)}
+                      disabled={deletingId === s.id}
+                      aria-label="이야기 삭제"
+                      className="shrink-0 text-sm text-muted hover:text-red-600 disabled:opacity-40"
+                    >
+                      🗑
+                    </button>
+                  </div>
+                ))}
               </div>
             )}
           </div>
