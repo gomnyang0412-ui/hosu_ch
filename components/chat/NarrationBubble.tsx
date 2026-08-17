@@ -6,7 +6,9 @@ export default function NarrationBubble({
   onDelete,
 }: {
   text: string;
-  /** 자동 생성된 "지금까지의 줄거리" 지문처럼, 지울 수 있어야 하는 항목에만 넘긴다 */
+  /** 1:1 대화방은 항상 넘겨서 지문 하나하나를 지울 수 있게 한다(자동
+   *  요약이 쌓여도 직접 정리할 수 있도록). 멀티 대화방은 지금까지
+   *  넘긴 적 없음 — 안 넘기면 삭제 버튼 없이 예전처럼 렌더링된다. */
   onDelete?: () => void;
 }) {
   return (

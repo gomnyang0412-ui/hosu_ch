@@ -359,10 +359,14 @@ function ChatPageInner() {
     sendToAI(character, resolveUniverseTemplate(universe, allCharacters), room);
   }
 
-  async function handleDeleteRecap(i: number) {
+  // isRecap 표시가 있는 것만이 아니라 지문(NarrationItem) 전체를 지울 수
+  // 있게 한다 — isRecap 필드가 생기기 전에 쌓인 예전 자동 요약들은 이
+  // 표시가 없어서, isRecap만으로 걸러내면 그 예전 것들은 지울 방법이
+  // 없기 때문이다(요약이든 일반 지문이든 사용자가 직접 판단해서 지운다).
+  async function handleDeleteNarration(i: number) {
     if (!room) return;
     const item = room.items[i];
-    if (item.t !== "n" || !item.isRecap) return;
+    if (item.t !== "n") return;
     const next: Room = {
       ...room,
       items: [...room.items.slice(0, i), ...room.items.slice(i + 1)],
@@ -373,7 +377,7 @@ function ChatPageInner() {
       await saveRoom(next);
     } catch (err) {
       setError({
-        message: err instanceof StorageError ? err.message : "요약을 지우지 못했어요.",
+        message: err instanceof StorageError ? err.message : "지우지 못했어요.",
         kind: "unknown",
       });
     }
@@ -820,11 +824,7 @@ function ChatPageInner() {
                     <NarrationBubble
                       key={j}
                       text={item.text}
-                      onDelete={
-                        item.isRecap
-                          ? () => handleDeleteRecap(turn.startIndex + j)
-                          : undefined
-                      }
+                      onDelete={() => handleDeleteNarration(turn.startIndex + j)}
                     />
                   ) : item.t === "d" ? (
                     <DialogueBubble
