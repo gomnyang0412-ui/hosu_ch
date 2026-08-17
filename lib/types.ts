@@ -195,6 +195,10 @@ export interface StoryEpisode {
   directive?: string;
   /** 나중에 다시 찾아보기 쉽게 사용자가 표시해두는 북마크 */
   bookmarked?: boolean;
+  /** 이 화를 생성한 실제 Gemini 모델 ID (하이브리드 폴백 중 어떤 모델이 응답했는지 표시용) */
+  model?: string;
+  /** GEMINI_API_KEY에 등록된 몇 번째 키(1부터)로 호출했는지 */
+  keyIndex?: number;
 }
 
 /**

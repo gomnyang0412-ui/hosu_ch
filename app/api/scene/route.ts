@@ -208,7 +208,7 @@ export async function POST(request: Request) {
   const contents: Content[] = [{ role: "user", parts: [{ text: userText }] }];
 
   try {
-    const { text } = await generateStoryEpisode({
+    const { text, model, keyIndex } = await generateStoryEpisode({
       systemInstruction: buildSystemInstruction(
         body.characters,
         body.universe,
@@ -224,6 +224,8 @@ export async function POST(request: Request) {
       index: nextIndex,
       text: trimmed,
       directive: body.directive?.trim() || undefined,
+      model,
+      keyIndex,
     };
     return NextResponse.json({ episode });
   } catch (err) {

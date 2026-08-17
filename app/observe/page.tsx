@@ -7,6 +7,7 @@ import AutoGrowTextarea from "@/components/AutoGrowTextarea";
 import BottomNav from "@/components/BottomNav";
 import CharacterAvatar from "@/components/CharacterAvatar";
 import EpisodeJumpPanel, { episodeAnchorId } from "@/components/EpisodeJumpPanel";
+import { sourceLabel } from "@/lib/modelLabel";
 import {
   getCharacters,
   getChatHistory,
@@ -844,6 +845,11 @@ function ObservePageInner() {
                         </p>
                       ))}
                   </div>
+                  {sourceLabel(ep.model, ep.keyIndex) && (
+                    <span className="text-[10px] text-muted/70">
+                      {sourceLabel(ep.model, ep.keyIndex)}
+                    </span>
+                  )}
                 </article>
               ))}
             </div>
