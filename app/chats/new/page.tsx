@@ -4,7 +4,11 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import CharacterAvatar from "@/components/CharacterAvatar";
 import TopBar from "@/components/TopBar";
-import { getCharacters, saveChatVoiceOverride, StorageError } from "@/lib/storage";
+import {
+  getCharacters,
+  saveChatVoiceOverride,
+  storageErrorMessage,
+} from "@/lib/storage";
 import { ORG_UNIVERSE_ID, type Character } from "@/lib/types";
 
 export default function NewSingleChatPage() {
@@ -45,9 +49,7 @@ export default function NewSingleChatPage() {
       router.push(`/character/${selfId}/chat`);
     } catch (err) {
       setError(
-        err instanceof StorageError
-          ? err.message
-          : "대화방을 만들지 못했어요. 잠시 후 다시 시도해 주세요."
+        storageErrorMessage(err, "대화방을 만들지 못했어요. 잠시 후 다시 시도해 주세요.")
       );
       setCreating(false);
     }

@@ -10,19 +10,18 @@ import TopBar from "@/components/TopBar";
 import { CameraIcon, ChevronRightIcon, EditIcon, MenuIcon } from "@/components/icons";
 import BackupPanel from "@/components/chat/BackupPanel";
 import ChatMenu from "@/components/chat/ChatMenu";
+import DateDivider from "@/components/chat/DateDivider";
 import DialogueBubble from "@/components/chat/DialogueBubble";
+import EditBox from "@/components/chat/EditBox";
 import ErrorRetryBanner from "@/components/chat/ErrorRetryBanner";
 import NarrationBubble from "@/components/chat/NarrationBubble";
 import RenamePanel from "@/components/chat/RenamePanel";
 import RolePickerPanel from "@/components/chat/RolePickerPanel";
 import TimelinePanel from "@/components/chat/TimelinePanel";
-import {
-  dateAnchorId,
-  formatDateLabel,
-  groupMessagesByDate,
-} from "@/lib/chatDates";
+import { groupMessagesByDate } from "@/lib/chatDates";
 import { kstDateString, todayKST } from "@/lib/memory";
 import { useConversationSplit } from "@/hooks/useConversationSplit";
+import { useDateJump } from "@/hooks/useDateJump";
 import { useImageAttachment } from "@/hooks/useImageAttachment";
 import { useKeyboardScrollFix } from "@/hooks/useKeyboardScrollFix";
 import { useRoomBackups } from "@/hooks/useRoomBackups";
@@ -34,7 +33,7 @@ import {
   getUniverse,
   saveCharacter,
   saveRoom,
-  StorageError,
+  storageErrorMessage,
 } from "@/lib/storage";
 import {
   PLAYER_ANONYMOUS,
@@ -148,6 +147,7 @@ function ChatPageInner() {
     clearError: () => setError(null),
     onError: (message) => setError({ message, kind: "unknown" }),
   });
+  const jumpToDate = useDateJump(() => setShowTimeline(false));
 
   useEffect(() => {
     (async () => {
@@ -299,10 +299,7 @@ function ChatPageInner() {
         await saveRoom(next);
       } catch (err) {
         setError({
-          message:
-            err instanceof StorageError
-              ? err.message
-              : "대화를 저장하지 못했어요.",
+          message: storageErrorMessage(err, "대화를 저장하지 못했어요."),
           kind: "unknown",
         });
       }
@@ -340,10 +337,7 @@ function ChatPageInner() {
       await saveRoom(next);
     } catch (err) {
       setError({
-        message:
-          err instanceof StorageError
-            ? err.message
-            : "대화를 저장하지 못했어요.",
+        message: storageErrorMessage(err, "대화를 저장하지 못했어요."),
         kind: "unknown",
       });
     }
@@ -373,7 +367,7 @@ function ChatPageInner() {
       await saveRoom(next);
     } catch (err) {
       setError({
-        message: err instanceof StorageError ? err.message : "지우지 못했어요.",
+        message: storageErrorMessage(err, "지우지 못했어요."),
         kind: "unknown",
       });
     }
@@ -408,10 +402,7 @@ function ChatPageInner() {
       await saveRoom(next);
     } catch (err) {
       setError({
-        message:
-          err instanceof StorageError
-            ? err.message
-            : "대화를 저장하지 못했어요.",
+        message: storageErrorMessage(err, "대화를 저장하지 못했어요."),
         kind: "unknown",
       });
     }
@@ -438,10 +429,7 @@ function ChatPageInner() {
       setError(null);
     } catch (err) {
       setError({
-        message:
-          err instanceof StorageError
-            ? err.message
-            : "대화 기록을 지우지 못했어요.",
+        message: storageErrorMessage(err, "대화 기록을 지우지 못했어요."),
         kind: "unknown",
       });
     }
@@ -454,16 +442,6 @@ function ChatPageInner() {
   // 보이게 한다.
   function scrollToTop() {
     window.scrollTo({ top: 0, behavior: "smooth" });
-  }
-
-  function jumpToDate(date: string) {
-    setShowTimeline(false);
-    // 패널 닫힘 애니메이션/리렌더와 겹치지 않게 한 틱 뒤에 스크롤한다.
-    setTimeout(() => {
-      document
-        .getElementById(dateAnchorId(date))
-        ?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 50);
   }
 
   function openRename() {
@@ -498,10 +476,7 @@ function ChatPageInner() {
       setRenameText("");
     } catch (err) {
       setError({
-        message:
-          err instanceof StorageError
-            ? err.message
-            : "이름을 저장하지 못했어요.",
+        message: storageErrorMessage(err, "이름을 저장하지 못했어요."),
         kind: "unknown",
       });
     } finally {
@@ -518,10 +493,7 @@ function ChatPageInner() {
       await saveRoom(updated);
     } catch (err) {
       setError({
-        message:
-          err instanceof StorageError
-            ? err.message
-            : "역할 설정을 저장하지 못했어요.",
+        message: storageErrorMessage(err, "역할 설정을 저장하지 못했어요."),
         kind: "unknown",
       });
     }
@@ -538,10 +510,7 @@ function ChatPageInner() {
       await saveRoom(updated);
     } catch (err) {
       setError({
-        message:
-          err instanceof StorageError
-            ? err.message
-            : "역할 설정을 저장하지 못했어요.",
+        message: storageErrorMessage(err, "역할 설정을 저장하지 못했어요."),
         kind: "unknown",
       });
     }
@@ -697,16 +666,7 @@ function ChatPageInner() {
             turnIndex === 0 || kstDateString(turns[turnIndex - 1].items[0].ts) !== date;
           return (
           <div key={`${first.ts}-${turn.startIndex}`} className="flex flex-col gap-1.5">
-            {showDateDivider && (
-              <div
-                id={dateAnchorId(date)}
-                className="my-1 flex items-center justify-center scroll-mt-20"
-              >
-                <span className="rounded-full bg-card px-3 py-1 text-[11px] font-medium text-muted">
-                  {formatDateLabel(date)}
-                </span>
-              </div>
-            )}
+            {showDateDivider && <DateDivider date={date} />}
             {first.t !== "u" ? (
               <div className="flex flex-col gap-2">
                 {turn.items.map((item, j) =>
@@ -729,32 +689,12 @@ function ChatPageInner() {
                 )}
               </div>
             ) : editingIndex === turn.startIndex ? (
-              <div className="flex flex-col items-end gap-1.5">
-                <textarea
-                  value={editingText}
-                  onChange={(e) => setEditingText(e.target.value)}
-                  autoFocus
-                  rows={2}
-                  className="w-full max-w-[75%] resize-none rounded-2xl border border-foreground/30 bg-background px-3 py-2 text-sm leading-relaxed outline-none md:max-w-[420px]"
-                />
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={cancelEdit}
-                    className="rounded-full border border-border px-3 py-1 text-xs font-medium text-muted"
-                  >
-                    취소
-                  </button>
-                  <button
-                    type="button"
-                    onClick={submitEdit}
-                    disabled={!editingText.trim()}
-                    className="gradient-primary rounded-full px-3 py-1 text-xs font-semibold text-primary-foreground disabled:opacity-40"
-                  >
-                    수정하고 다시 받기
-                  </button>
-                </div>
-              </div>
+              <EditBox
+                value={editingText}
+                onChange={setEditingText}
+                onCancel={cancelEdit}
+                onConfirm={submitEdit}
+              />
             ) : (
               <div className="flex items-center justify-end gap-1.5">
                 <button

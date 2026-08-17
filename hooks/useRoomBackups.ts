@@ -1,5 +1,9 @@
 import { useState } from "react";
-import { getRoomBackups, restoreRoomBackup, StorageError } from "@/lib/storage";
+import {
+  getRoomBackups,
+  restoreRoomBackup,
+  storageErrorMessage,
+} from "@/lib/storage";
 import type { Room } from "@/lib/types";
 
 /**
@@ -27,9 +31,7 @@ export function useRoomBackups(
       const list = await getRoomBackups(universeId, roomId);
       setBackups(list);
     } catch (err) {
-      callbacks.onError(
-        err instanceof StorageError ? err.message : "이전 기록을 불러오지 못했어요."
-      );
+      callbacks.onError(storageErrorMessage(err, "이전 기록을 불러오지 못했어요."));
     }
   }
 
@@ -42,9 +44,7 @@ export function useRoomBackups(
       callbacks.onRestored(restored);
       setBackups(null);
     } catch (err) {
-      callbacks.onError(
-        err instanceof StorageError ? err.message : "이전 기록으로 되돌리지 못했어요."
-      );
+      callbacks.onError(storageErrorMessage(err, "이전 기록으로 되돌리지 못했어요."));
     } finally {
       setRestoring(false);
     }

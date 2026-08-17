@@ -1,5 +1,9 @@
 import { useState } from "react";
-import { getRoomForCharacter, saveRoom, StorageError } from "@/lib/storage";
+import {
+  getRoomForCharacter,
+  saveRoom,
+  storageErrorMessage,
+} from "@/lib/storage";
 import type { Character, Room } from "@/lib/types";
 
 interface SplitDone {
@@ -79,9 +83,7 @@ export function useConversationSplit(
       setSplitMode(false);
       setSplitDone({ name: target.name, targetId: target.id });
     } catch (err) {
-      callbacks.onError(
-        err instanceof StorageError ? err.message : "대화를 옮기지 못했어요."
-      );
+      callbacks.onError(storageErrorMessage(err, "대화를 옮기지 못했어요."));
     } finally {
       setSplitting(false);
     }

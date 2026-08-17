@@ -22,6 +22,15 @@ export class StorageError extends Error {
   }
 }
 
+/**
+ * catch(err) 블록에서 반복되던 `err instanceof StorageError ? err.message
+ * : "<기본 문구>"` 패턴을 한 곳으로 모은 것 — 화면마다 실제로 보여줄
+ * 기본 문구는 다르니 그건 그대로 인자로 받는다.
+ */
+export function storageErrorMessage(err: unknown, fallback: string): string {
+  return err instanceof StorageError ? err.message : fallback;
+}
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {

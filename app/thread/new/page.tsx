@@ -9,7 +9,7 @@ import {
   getChatHistory,
   getUniverse,
   saveRoom,
-  StorageError,
+  storageErrorMessage,
 } from "@/lib/storage";
 import { resolveUniverseTemplate } from "@/lib/template";
 import {
@@ -125,9 +125,7 @@ function NewThreadPageInner() {
       router.replace(`/thread/${thread.id}?universe=${universeId}`);
     } catch (err) {
       setError(
-        err instanceof StorageError
-          ? err.message
-          : "대화방을 만들지 못했어요. 잠시 후 다시 시도해 주세요."
+        storageErrorMessage(err, "대화방을 만들지 못했어요. 잠시 후 다시 시도해 주세요.")
       );
       setCreating(false);
     }

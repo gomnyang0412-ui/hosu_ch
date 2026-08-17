@@ -8,7 +8,9 @@ import CharacterAvatar from "@/components/CharacterAvatar";
 import ChatListPane from "@/components/ChatListPane";
 import TopBar from "@/components/TopBar";
 import BackupPanel from "@/components/chat/BackupPanel";
+import DateDivider from "@/components/chat/DateDivider";
 import DialogueBubble from "@/components/chat/DialogueBubble";
+import EditBox from "@/components/chat/EditBox";
 import ErrorRetryBanner from "@/components/chat/ErrorRetryBanner";
 import NarrationBubble from "@/components/chat/NarrationBubble";
 import TimelinePanel from "@/components/chat/TimelinePanel";
@@ -21,14 +23,11 @@ import {
   FolderIcon,
   PersonIcon,
 } from "@/components/icons";
+import { useDateJump } from "@/hooks/useDateJump";
 import { useImageAttachment } from "@/hooks/useImageAttachment";
 import { useKeyboardScrollFix } from "@/hooks/useKeyboardScrollFix";
 import { useRoomBackups } from "@/hooks/useRoomBackups";
-import {
-  dateAnchorId,
-  formatDateLabel,
-  groupRoomItemsByDate,
-} from "@/lib/chatDates";
+import { groupRoomItemsByDate } from "@/lib/chatDates";
 import { kstDateString } from "@/lib/memory";
 import {
   deleteRoom,
@@ -36,7 +35,7 @@ import {
   getRoom,
   getUniverse,
   saveRoom,
-  StorageError,
+  storageErrorMessage,
 } from "@/lib/storage";
 import { resolveUniverseTemplate } from "@/lib/template";
 import {
@@ -233,10 +232,7 @@ function ThreadPageInner() {
           await saveRoom(current);
         } catch (err) {
           setError({
-            message:
-              err instanceof StorageError
-                ? err.message
-                : "대화를 저장하지 못했어요.",
+            message: storageErrorMessage(err, "대화를 저장하지 못했어요."),
             kind: "unknown",
           });
           pendingTargetsRef.current = remaining.slice(1);
@@ -286,10 +282,7 @@ function ThreadPageInner() {
       await saveRoom(updated);
     } catch (err) {
       setError({
-        message:
-          err instanceof StorageError
-            ? err.message
-            : "대화를 저장하지 못했어요.",
+        message: storageErrorMessage(err, "대화를 저장하지 못했어요."),
         kind: "unknown",
       });
     }
@@ -314,10 +307,7 @@ function ThreadPageInner() {
       await saveRoom(updated);
     } catch (err) {
       setError({
-        message:
-          err instanceof StorageError
-            ? err.message
-            : "대화를 저장하지 못했어요.",
+        message: storageErrorMessage(err, "대화를 저장하지 못했어요."),
         kind: "unknown",
       });
     }
@@ -361,10 +351,7 @@ function ThreadPageInner() {
       await saveRoom(updated);
     } catch (err) {
       setError({
-        message:
-          err instanceof StorageError
-            ? err.message
-            : "대화를 저장하지 못했어요.",
+        message: storageErrorMessage(err, "대화를 저장하지 못했어요."),
         kind: "unknown",
       });
     }
@@ -390,24 +377,13 @@ function ThreadPageInner() {
       await saveRoom(updated);
     } catch (err) {
       setError({
-        message:
-          err instanceof StorageError
-            ? err.message
-            : "역할 설정을 저장하지 못했어요.",
+        message: storageErrorMessage(err, "역할 설정을 저장하지 못했어요."),
         kind: "unknown",
       });
     }
   }
 
-  function jumpToDate(date: string) {
-    setShowTimeline(false);
-    // 패널 닫힘 애니메이션/리렌더와 겹치지 않게 한 틱 뒤에 스크롤한다.
-    setTimeout(() => {
-      document
-        .getElementById(dateAnchorId(date))
-        ?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 50);
-  }
+  const jumpToDate = useDateJump(() => setShowTimeline(false));
 
   async function handleLeaveRoom() {
     if (!thread || leaving) return;
@@ -420,10 +396,7 @@ function ThreadPageInner() {
       router.replace("/chats");
     } catch (err) {
       setError({
-        message:
-          err instanceof StorageError
-            ? err.message
-            : "대화방을 나가지 못했어요.",
+        message: storageErrorMessage(err, "대화방을 나가지 못했어요."),
         kind: "unknown",
       });
       setLeaving(false);
@@ -560,32 +533,14 @@ function ThreadPageInner() {
           let content: ReactNode;
           if (editingIndex === i && (item.t === "u" || item.t === "x")) {
             content = (
-              <div className="flex flex-col items-end gap-1.5">
-                <textarea
-                  value={editingText}
-                  onChange={(e) => setEditingText(e.target.value)}
-                  autoFocus
-                  rows={item.t === "x" ? 1 : 2}
-                  className="w-full max-w-[75%] resize-none rounded-3xl border border-foreground/30 bg-background px-3 py-2 text-sm leading-relaxed outline-none md:max-w-[420px]"
-                />
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={cancelEdit}
-                    className="rounded-full border border-border px-3 py-1 text-xs font-medium text-muted"
-                  >
-                    취소
-                  </button>
-                  <button
-                    type="button"
-                    onClick={submitEdit}
-                    disabled={!editingText.trim()}
-                    className="gradient-primary rounded-full px-3 py-1 text-xs font-semibold text-primary-foreground disabled:opacity-40"
-                  >
-                    수정하고 다시 받기
-                  </button>
-                </div>
-              </div>
+              <EditBox
+                value={editingText}
+                onChange={setEditingText}
+                onCancel={cancelEdit}
+                onConfirm={submitEdit}
+                rows={item.t === "x" ? 1 : 2}
+                rounded="rounded-3xl"
+              />
             );
           } else if (item.t === "u") {
             content = (
@@ -653,16 +608,7 @@ function ThreadPageInner() {
 
           return (
             <div key={i} className="flex flex-col gap-1.5">
-              {showDateDivider && (
-                <div
-                  id={dateAnchorId(date)}
-                  className="my-1 flex items-center justify-center scroll-mt-20"
-                >
-                  <span className="rounded-full bg-card px-3 py-1 text-[11px] font-medium text-muted">
-                    {formatDateLabel(date)}
-                  </span>
-                </div>
-              )}
+              {showDateDivider && <DateDivider date={date} />}
               {content}
             </div>
           );

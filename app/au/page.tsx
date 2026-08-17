@@ -6,7 +6,7 @@ import BottomNav from "@/components/BottomNav";
 import { EditIcon, GlobeIcon, SparkleIcon, WarningIcon } from "@/components/icons";
 import { moodPlaceholderImage } from "@/lib/image";
 import { SAMPLE_AUS } from "@/lib/sampleAus";
-import { getUniverses, saveUniverse, StorageError } from "@/lib/storage";
+import { getUniverses, saveUniverse, storageErrorMessage } from "@/lib/storage";
 import { hasUnresolvedRoles } from "@/lib/template";
 import { RELATION_SLOT_COUNT, type Universe } from "@/lib/types";
 
@@ -75,9 +75,7 @@ export default function AuListPage() {
       setUniverses(await getUniverses());
     } catch (err) {
       setError(
-        err instanceof StorageError
-          ? err.message
-          : "예시 AU를 추가하지 못했어요. 잠시 후 다시 시도해 주세요."
+        storageErrorMessage(err, "예시 AU를 추가하지 못했어요. 잠시 후 다시 시도해 주세요.")
       );
     } finally {
       setAddingSamples(false);

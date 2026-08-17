@@ -10,7 +10,7 @@ import {
   deleteUniverse,
   getCharacters,
   saveUniverse,
-  StorageError,
+  storageErrorMessage,
 } from "@/lib/storage";
 import { hasUnresolvedRoles } from "@/lib/template";
 import { RELATION_SLOT_COUNT, type Character, type Universe } from "@/lib/types";
@@ -164,9 +164,7 @@ export default function UniverseForm({ universe }: { universe?: Universe }) {
       router.push("/au");
     } catch (err) {
       setError(
-        err instanceof StorageError
-          ? err.message
-          : "저장 중 문제가 생겼어요. 잠시 후 다시 시도해 주세요."
+        storageErrorMessage(err, "저장 중 문제가 생겼어요. 잠시 후 다시 시도해 주세요.")
       );
     }
   }
@@ -185,9 +183,7 @@ export default function UniverseForm({ universe }: { universe?: Universe }) {
       router.push("/au");
     } catch (err) {
       setError(
-        err instanceof StorageError
-          ? err.message
-          : "삭제 중 문제가 생겼어요. 잠시 후 다시 시도해 주세요."
+        storageErrorMessage(err, "삭제 중 문제가 생겼어요. 잠시 후 다시 시도해 주세요.")
       );
     }
   }

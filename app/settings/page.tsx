@@ -8,6 +8,7 @@ import {
   getAppSettings,
   saveAppSettings,
   StorageError,
+  storageErrorMessage,
 } from "@/lib/storage";
 import type { ApiUsageEntry } from "@/lib/types";
 
@@ -39,9 +40,7 @@ export default function SettingsPage() {
       setUsageDate(date);
       setUsageEntries(entries);
     } catch (err) {
-      setUsageError(
-        err instanceof StorageError ? err.message : "사용량을 불러오지 못했어요."
-      );
+      setUsageError(storageErrorMessage(err, "사용량을 불러오지 못했어요."));
     } finally {
       setUsageLoading(false);
     }
@@ -98,11 +97,7 @@ export default function SettingsPage() {
       await saveAppSettings({ backgroundImage: undefined, updatedAt: Date.now() });
       window.location.reload();
     } catch (err) {
-      setError(
-        err instanceof StorageError
-          ? err.message
-          : "배경 이미지를 지우지 못했어요."
-      );
+      setError(storageErrorMessage(err, "배경 이미지를 지우지 못했어요."));
       setLoading(false);
     }
   }
