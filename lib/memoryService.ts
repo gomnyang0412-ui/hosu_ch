@@ -12,6 +12,7 @@ import {
   isoWeekEndDate,
   isoWeekLabel,
   kstDateString,
+  memoryOneLiners,
   monthLabel,
   todayKST,
 } from "./memory";
@@ -57,11 +58,27 @@ function groupItemLine(item: RoomItem, room: Room, allCharacters: Character[]): 
   }
 }
 
+// 하루 요약이 기존 기억과 겹치기만 할 뿐 새로 남길 게 없을 때 모델이
+// 대신 출력하는 표시. 실제로 텍스트를 비워서 보내면 generate()가 "AI가
+// 빈 응답을 보냈어요" 오류로 처리해버려서, 빈 문자열 대신 이 리터럴을 쓴다.
+const NOTHING_NEW_MARKER = "NONE";
+
+/**
+ * existingMemory를 주면(비어있지 않으면) 그 내용과 겹치는 걸 다시 적지
+ * 않도록 프롬프트에 같이 보여준다 — 매일 비슷한 잡담을 나눠도 "오늘도
+ * 소소한 이야기를 나눴다"류의 거의 같은 문장이 날마다 독립적으로 쌓이는
+ * 중복 문제의 핵심 원인이 "그날 대화만 보고 기존 기억은 전혀 모른 채
+ * 요약한다"는 점이었다. day 스코프에서만 "새로 남길 게 전혀 없으면
+ * NONE만 출력"을 허용한다 — week/month 압축은 엔트리 개수 자체를 줄이는
+ * 게 목적이라 항상 결과를 만들어야 하고, 대신 중복 "문구"만 줄이는 데
+ * existingMemory를 쓴다.
+ */
 async function summarizeForMemory(
   characterName: string,
   transcript: string,
   scope: MemoryEntry["scope"],
-  label: string
+  label: string,
+  existingMemory?: string
 ): Promise<string> {
   if (!transcript.trim()) return "";
   const scopeDesc =
@@ -74,6 +91,20 @@ async function summarizeForMemory(
     `[역할]`,
     `너는 "${characterName}"의 기억을 정리하는 사람이다. 아래는 ${scopeDesc} 실제 있었던 대화·사건 기록이다.`,
     `이걸 "${characterName}" 입장에서 나중까지 기억할 만한 사실 위주로 짧게 정리한다.`,
+    existingMemory?.trim()
+      ? [
+          ``,
+          `[이미 기록된 기억]`,
+          existingMemory.trim(),
+          ``,
+          `위 기억에 이미 나온 성격·관계·반복되는 패턴은 다시 적지 않는다 — 이번 기록에서 그 기억에 없던 새로운 사실·사건·감정 변화만 남긴다.`,
+          scope === "day"
+            ? `이번 기록이 이미 아는 내용을 재확인하는 수준일 뿐 새로 남길 게 전혀 없다면, 다른 말 없이 정확히 "${NOTHING_NEW_MARKER}"라고만 출력한다.`
+            : "",
+        ]
+          .filter(Boolean)
+          .join("\n")
+      : "",
     ``,
     `[규칙]`,
     scope === "day"
@@ -81,10 +112,13 @@ async function summarizeForMemory(
       : `2~4문장으로 더 압축해서 요약한다. 사소한 디테일은 버리고 중요한 사건·감정 변화 위주로 남긴다.`,
     `대사를 그대로 인용하지 않고, 있었던 일과 감정선만 남긴다.`,
     `설명이나 따옴표 없이 요약 문장만 출력한다.`,
-  ].join("\n");
+  ]
+    .filter(Boolean)
+    .join("\n");
   const contents: Content[] = [{ role: "user", parts: [{ text: transcript }] }];
-  const text = await generateSummaryText({ systemInstruction, contents });
-  return text.trim();
+  const text = (await generateSummaryText({ systemInstruction, contents })).trim();
+  if (scope === "day" && text === NOTHING_NEW_MARKER) return "";
+  return text;
 }
 
 /**
@@ -109,13 +143,18 @@ async function compactMemoryEntries(
   }
   for (const [week, group] of weekGroups) {
     if (memory.entries.some((e) => e.scope === "week" && e.label === week)) continue;
+    const existingMemory = memoryOneLiners({
+      ...memory,
+      entries: memory.entries.filter((e) => !group.includes(e)),
+    }).join("\n");
     let summary: string;
     try {
       summary = await summarizeForMemory(
         characterName,
         group.map((e) => `${e.label}: ${e.summary}`).join("\n"),
         "week",
-        week
+        week,
+        existingMemory
       );
     } catch {
       continue;
@@ -137,13 +176,18 @@ async function compactMemoryEntries(
   }
   for (const [month, group] of monthGroups) {
     if (memory.entries.some((e) => e.scope === "month" && e.label === month)) continue;
+    const existingMemory = memoryOneLiners({
+      ...memory,
+      entries: memory.entries.filter((e) => !group.includes(e)),
+    }).join("\n");
     let summary: string;
     try {
       summary = await summarizeForMemory(
         characterName,
         group.map((e) => `${e.label}: ${e.summary}`).join("\n"),
         "month",
-        month
+        month,
+        existingMemory
       );
     } catch {
       continue;
@@ -232,9 +276,10 @@ export async function syncCharacterMemory(
   let processed = 0;
   for (const date of toProcess) {
     const transcript = byDate.get(date)!.join("\n");
+    const existingMemory = memoryOneLiners(memory).join("\n");
     let summary = "";
     try {
-      summary = await summarizeForMemory(character.name, transcript, "day", date);
+      summary = await summarizeForMemory(character.name, transcript, "day", date, existingMemory);
     } catch (err) {
       // 사용량 초과는 곧 풀릴 문제라 여기서 멈추고 다음 동기화 때 이
       // 날짜부터 다시 시도한다. 그 외(안전 정책 차단 등)는 재시도해도
