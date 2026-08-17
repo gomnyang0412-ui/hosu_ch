@@ -27,6 +27,12 @@
   --glass: rgba(255, 253, 248, 0.6);
   --glass-strong: rgba(255, 253, 248, 0.82);
   --glass-border: rgba(34, 29, 26, 0.08);
+  /* Tailwind 기본 이징(--default-transition-timing-function, ease-in-out
+     계열)을 스프링에 가까운 곡선으로 덮어쓴다. transition-colors 등
+     transition-* 유틸을 쓰는 곳 전부(버튼 호버, 포커스 등)에 클래스
+     하나 안 건드리고 그대로 적용된다 — 관성이 붙어 멈추는 듯한
+     느낌으로, 뚝뚝 끊기던 기본 easing보다 자연스럽다. */
+  --default-transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 @theme inline {
