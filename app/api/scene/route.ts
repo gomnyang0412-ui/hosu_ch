@@ -20,7 +20,10 @@ export const runtime = "nodejs";
 // 강제 종료"로 오해해서 이 값을 계속 줄였는데, 실제 원인은 우리 스스로
 // 건 timeoutMs가 12초로 너무 짧았던 것이었다 — 자세한 내용은
 // lib/gemini.ts의 generateStoryEpisode 주석 참고.)
-export const maxDuration = 60;
+// overallDeadlineMs가 100초로 늘어난 만큼, 그보다 작으면 우리 코드가
+// 채 에러 응답을 만들기도 전에 플랫폼이 먼저 함수를 끊어버려 클라이언트엔
+// 원인불명의 "네트워크 문제"로만 보인다 — 그래서 이 값도 같이 늘렸다.
+export const maxDuration = 110;
 
 interface SceneRequestBody {
   characters: CharacterProfile[];

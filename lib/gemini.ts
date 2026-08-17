@@ -327,9 +327,16 @@ async function generate(params: {
 
   for (const model of params.models) {
     for (let i = 0; i < clients.length; i++) {
+      // 이미 지난 시간만 보면 안 된다 — 지금 막 시작하는 시도가 자기
+      // timeoutMs를 다 채우고 나면 그때 가서야 예산을 넘긴 걸 알게 되고,
+      // 그 사이 route의 maxDuration을 플랫폼이 먼저 강제 종료해서 우리
+      // 코드가 에러 응답을 만들 기회조차 없이 연결이 끊겨버린다(클라이언트엔
+      // 원인불명의 "네트워크 문제"로 보임). 그래서 이번 시도가 최악의 경우
+      // timeoutMs만큼 다 써도 남은 예산 안에 들어올 때만 시작한다.
+      const nextCallBudget = params.timeoutMs ?? CALL_TIMEOUT_MS;
       if (
         params.overallDeadlineMs &&
-        Date.now() - startedAt > params.overallDeadlineMs
+        Date.now() - startedAt + nextCallBudget > params.overallDeadlineMs
       ) {
         throw (
           lastError ??
@@ -473,6 +480,18 @@ export async function generateSummaryText(params: {
  * 생성하는 데는 원래 수십 초가 걸릴 수 있으니, 개별 타임아웃을 실제
  * 생성 시간에 맞게 넉넉히 주고 총 재시도 시간과 라우트의 maxDuration도
  * 그에 맞춰 늘렸다.
+ *
+ * overallDeadlineMs는 timeoutMs 두 번(넉넉잡아 100초)이 들어갈 만큼
+ * 넉넉히 잡는다 — AU처럼 [세계관]·[관계]·[용어] 블록까지 붙어 시스템
+ * 프롬프트가 큰 경우 첫 시도 자체가 timeoutMs에 가깝게 걸리는 일이
+ * 흔한데, 예전처럼 여유가 거의 없으면(구 55초) generate()가 재시도를
+ * 시작할지 말지 애매하게 판단하다 route의 maxDuration을 플랫폼이 먼저
+ * 강제 종료해버려("네트워크 문제로 이번 화를 만들지 못했어요") 원인을
+ * 알 수 없는 실패로 보였다. 지금은 generate() 쪽 예산 검사도 "이번
+ * 시도가 최악의 경우 다 걸려도 남은 예산 안에 들어오는지"로 고쳐서,
+ * 예산이 부족하면 아예 재시도를 시작하지 않고 바로 깔끔한 에러를
+ * 던진다 — route의 maxDuration(scene/route.ts)도 이 예산보다 넉넉히
+ * 크게 맞춰야 한다.
  */
 export async function generateStoryEpisode(params: {
   systemInstruction: string;
@@ -484,7 +503,7 @@ export async function generateStoryEpisode(params: {
     models: DIALOGUE_MODEL_CHAIN,
     timeoutMs: 50_000,
     retryOnTimeout: true,
-    overallDeadlineMs: 55_000,
+    overallDeadlineMs: 100_000,
   });
 }
 
