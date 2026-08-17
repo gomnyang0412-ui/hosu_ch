@@ -163,13 +163,14 @@ export default function SettingsPage() {
         <div className="glass card-shadow flex flex-col gap-3 rounded-2xl p-4">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <p className="text-sm font-semibold">
-                Gemini API 사용량 {usageDate && `· ${usageDate}`}
-              </p>
+              <p className="text-sm font-semibold">Gemini API 사용량</p>
               <p className="mt-0.5 text-xs text-muted">
-                오늘 이 앱이 실제로 호출한 횟수예요. 구글이 API 키 기준으로는
-                남은 한도를 알려주지 않아서, 진짜 잔여량이 아니라 앱이 직접 센
-                횟수예요.
+                이 앱이 실제로 호출한 횟수예요. 구글의 하루 한도(RPD)는
+                한국 시간이 아니라 태평양 자정에 초기화돼서(서머타임에 따라
+                한국 시간 오후 4~5시경), 집계 기준일도 거기에 맞췄어요
+                {usageDate && ` — 기준일 ${usageDate}(태평양)`}. 구글이 API
+                키 기준으로는 남은 한도를 알려주지 않아서, 진짜 잔여량이
+                아니라 앱이 직접 센 횟수예요.
               </p>
             </div>
             <button
@@ -186,7 +187,7 @@ export default function SettingsPage() {
 
           {usageEntries && usageEntries.length === 0 && (
             <p className="text-xs text-muted">
-              오늘은 아직 기록된 호출이 없어요.
+              이번 집계 기준일엔 아직 기록된 호출이 없어요.
             </p>
           )}
 

@@ -503,6 +503,9 @@ export async function saveAppSettings(settings: AppSettings): Promise<void> {
 
 const USAGE_TTL_SECONDS = 60 * 60 * 24 * 14; // 14일 — 운영 통계라 이 정도만 보관
 
+/** date는 KST가 아니라 태평양(America/Los_Angeles) 날짜여야 한다 — 구글
+ *  Gemini API의 하루 요청 한도(RPD)가 태평양 자정에 리셋되기 때문에,
+ *  호출부(lib/gemini.ts)는 lib/memory.ts의 todayPacific()을 넘긴다. */
 function usageKey(date: string): string {
   return `${KEYS.usagePrefix}${date}`;
 }

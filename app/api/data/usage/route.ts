@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import { DbConfigError, getApiUsage } from "@/lib/db";
-import { todayKST } from "@/lib/memory";
+import { todayPacific } from "@/lib/memory";
 
 export const runtime = "nodejs";
 
 export async function GET() {
   try {
-    const date = todayKST();
+    const date = todayPacific();
     const entries = await getApiUsage(date);
     return NextResponse.json({ date, entries });
   } catch (err) {

@@ -12,6 +12,16 @@ export function todayKST(): string {
   return kstDateString(Date.now());
 }
 
+// Gemini API의 하루 요청 한도(RPD)는 한국 시간이 아니라 태평양 시간
+// 자정에 초기화된다(서머타임 여부에 따라 한국 시간으로는 오후 4~5시경).
+// 이 시간대는 이 IANA 타임존이 서머타임 전환까지 알아서 계산해준다 —
+// lib/db.ts의 recordApiUsage/getApiUsage(사용량 집계 "하루" 경계)에만 쓴다.
+export function todayPacific(): string {
+  return new Date().toLocaleDateString("sv-SE", {
+    timeZone: "America/Los_Angeles",
+  });
+}
+
 /** "2026-08-08" 같은 날짜 문자열의 ISO 주차 라벨("2026-W32")을 구한다 */
 export function isoWeekLabel(dateStr: string): string {
   const d = new Date(`${dateStr}T00:00:00Z`);
