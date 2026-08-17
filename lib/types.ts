@@ -168,6 +168,10 @@ export interface ChatMessage {
 export interface NarrationItem {
   t: "n";
   text: string;
+  /** 1:1 대화방에 며칠 만에 다시 들어왔을 때 자동으로 끼워 넣는 "지금까지의
+   *  줄거리" 지문인지. 이 표시가 있어야 (a) 새 대화 없이 다시 들어왔을 때
+   *  또 끼워 넣지 않고, (b) 화면에서 개별적으로 지울 수 있는 버튼을 붙인다. */
+  isRecap?: boolean;
 }
 
 /** 캐릭터 대사 항목 */

@@ -184,8 +184,15 @@ function ChatPageInner() {
           // 날짜가 넘어간(KST 자정 기준) 뒤 이 방에 처음 들어온 거라면,
           // 지금까지의 대화를 "가져오기"와 같은 방식(최근 100개 상세 +
           // 그 이전 기억 한 줄씩)으로 자동 요약해서 지문으로 남겨둔다.
+          // 단, 마지막 항목이 이미 그 자동 요약이라면 그 뒤로 새 대화가
+          // 하나도 없었다는 뜻이니 또 끼워 넣지 않는다 — 안 그러면 며칠씩
+          // 대화가 없어도 들어갈 때마다 요약이 계속 쌓여서 창이 지저분해진다.
           const lastItem = existingRoom.items[existingRoom.items.length - 1];
-          if (lastItem && kstDateString(lastItem.ts) !== todayKST()) {
+          if (
+            lastItem &&
+            !(lastItem.t === "n" && lastItem.isRecap) &&
+            kstDateString(lastItem.ts) !== todayKST()
+          ) {
             try {
               const res = await fetch("/api/summarize", {
                 method: "POST",
@@ -208,7 +215,7 @@ function ChatPageInner() {
                   ...existingRoom,
                   items: [
                     ...existingRoom.items,
-                    { t: "n", text: recapText, ts: now },
+                    { t: "n", text: recapText, ts: now, isRecap: true },
                   ],
                   updatedAt: now,
                 };
@@ -350,6 +357,26 @@ function ChatPageInner() {
   function handleRetry() {
     if (!character || !universe || !room) return;
     sendToAI(character, resolveUniverseTemplate(universe, allCharacters), room);
+  }
+
+  async function handleDeleteRecap(i: number) {
+    if (!room) return;
+    const item = room.items[i];
+    if (item.t !== "n" || !item.isRecap) return;
+    const next: Room = {
+      ...room,
+      items: [...room.items.slice(0, i), ...room.items.slice(i + 1)],
+      updatedAt: Date.now(),
+    };
+    setRoom(next);
+    try {
+      await saveRoom(next);
+    } catch (err) {
+      setError({
+        message: err instanceof StorageError ? err.message : "요약을 지우지 못했어요.",
+        kind: "unknown",
+      });
+    }
   }
 
   function startEdit(i: number) {
@@ -790,7 +817,15 @@ function ChatPageInner() {
               <div className="flex flex-col gap-2">
                 {turn.items.map((item, j) =>
                   item.t === "n" ? (
-                    <NarrationBubble key={j} text={item.text} />
+                    <NarrationBubble
+                      key={j}
+                      text={item.text}
+                      onDelete={
+                        item.isRecap
+                          ? () => handleDeleteRecap(turn.startIndex + j)
+                          : undefined
+                      }
+                    />
                   ) : item.t === "d" ? (
                     <DialogueBubble
                       key={j}
