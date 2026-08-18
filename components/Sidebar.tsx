@@ -2,20 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  ChatBubbleIcon,
-  PersonIcon,
-  SettingsGearIcon,
-  SparkleIcon,
-  TheaterMasksIcon,
-} from "@/components/icons";
-
-const TABS = [
-  { href: "/", label: "캐릭터", Icon: PersonIcon },
-  { href: "/chats", label: "채팅", Icon: ChatBubbleIcon },
-  { href: "/au", label: "AU", Icon: SparkleIcon },
-  { href: "/observe", label: "관찰", Icon: TheaterMasksIcon },
-] as const;
+import { SettingsGearIcon } from "@/components/icons";
+import { TABS } from "@/components/navTabs";
 
 export default function Sidebar() {
   const pathname = usePathname();
