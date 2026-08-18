@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { DbConfigError, getCharacters, saveCharacters } from "@/lib/db";
+import { dbErrorResponse, getCharacters, saveCharacters } from "@/lib/db";
 import type { Character } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -9,15 +9,7 @@ export async function GET() {
     const characters = await getCharacters();
     return NextResponse.json({ characters });
   } catch (err) {
-    return NextResponse.json(
-      {
-        error:
-          err instanceof DbConfigError
-            ? err.message
-            : "캐릭터 목록을 불러오지 못했어요.",
-      },
-      { status: 502 }
-    );
+    return dbErrorResponse(err, "캐릭터 목록을 불러오지 못했어요.");
   }
 }
 
@@ -43,14 +35,6 @@ export async function POST(request: Request) {
     await saveCharacters(list);
     return NextResponse.json({ character });
   } catch (err) {
-    return NextResponse.json(
-      {
-        error:
-          err instanceof DbConfigError
-            ? err.message
-            : "캐릭터를 저장하지 못했어요.",
-      },
-      { status: 502 }
-    );
+    return dbErrorResponse(err, "캐릭터를 저장하지 못했어요.");
   }
 }

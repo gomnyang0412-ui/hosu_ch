@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { DbConfigError, getStories, saveStory } from "@/lib/db";
+import { dbErrorResponse, getStories, saveStory } from "@/lib/db";
 import type { ObservationSession } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -13,15 +13,7 @@ export async function GET(
     const stories = await getStories(universeId);
     return NextResponse.json({ stories });
   } catch (err) {
-    return NextResponse.json(
-      {
-        error:
-          err instanceof DbConfigError
-            ? err.message
-            : "이야기 목록을 불러오지 못했어요.",
-      },
-      { status: 502 }
-    );
+    return dbErrorResponse(err, "이야기 목록을 불러오지 못했어요.");
   }
 }
 
@@ -44,14 +36,6 @@ export async function POST(
     await saveStory({ ...story, universeId });
     return NextResponse.json({ ok: true });
   } catch (err) {
-    return NextResponse.json(
-      {
-        error:
-          err instanceof DbConfigError
-            ? err.message
-            : "이야기를 저장하지 못했어요.",
-      },
-      { status: 502 }
-    );
+    return dbErrorResponse(err, "이야기를 저장하지 못했어요.");
   }
 }

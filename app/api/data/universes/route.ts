@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { DbConfigError, getUniverses, saveUniverse } from "@/lib/db";
+import { dbErrorResponse, getUniverses, saveUniverse } from "@/lib/db";
 import type { Universe } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -9,15 +9,7 @@ export async function GET() {
     const universes = await getUniverses();
     return NextResponse.json({ universes });
   } catch (err) {
-    return NextResponse.json(
-      {
-        error:
-          err instanceof DbConfigError
-            ? err.message
-            : "세계관 목록을 불러오지 못했어요.",
-      },
-      { status: 502 }
-    );
+    return dbErrorResponse(err, "세계관 목록을 불러오지 못했어요.");
   }
 }
 
@@ -36,14 +28,6 @@ export async function POST(request: Request) {
     await saveUniverse(universe);
     return NextResponse.json({ universe });
   } catch (err) {
-    return NextResponse.json(
-      {
-        error:
-          err instanceof DbConfigError
-            ? err.message
-            : "세계관을 저장하지 못했어요.",
-      },
-      { status: 502 }
-    );
+    return dbErrorResponse(err, "세계관을 저장하지 못했어요.");
   }
 }

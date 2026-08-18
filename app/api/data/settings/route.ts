@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { DbConfigError, getAppSettings, saveAppSettings } from "@/lib/db";
+import { dbErrorResponse, getAppSettings, saveAppSettings } from "@/lib/db";
 import type { AppSettings } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -9,15 +9,7 @@ export async function GET() {
     const settings = await getAppSettings();
     return NextResponse.json({ settings });
   } catch (err) {
-    return NextResponse.json(
-      {
-        error:
-          err instanceof DbConfigError
-            ? err.message
-            : "설정을 불러오지 못했어요.",
-      },
-      { status: 502 }
-    );
+    return dbErrorResponse(err, "설정을 불러오지 못했어요.");
   }
 }
 
@@ -52,14 +44,6 @@ export async function POST(request: Request) {
     await saveAppSettings(settings);
     return NextResponse.json({ settings });
   } catch (err) {
-    return NextResponse.json(
-      {
-        error:
-          err instanceof DbConfigError
-            ? err.message
-            : "설정을 저장하지 못했어요.",
-      },
-      { status: 502 }
-    );
+    return dbErrorResponse(err, "설정을 저장하지 못했어요.");
   }
 }

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { DbConfigError, deleteStory, getStory } from "@/lib/db";
+import { dbErrorResponse, deleteStory, getStory } from "@/lib/db";
 
 export const runtime = "nodejs";
 
@@ -12,15 +12,7 @@ export async function GET(
     const story = await getStory(universeId, storyId);
     return NextResponse.json({ story: story ?? null });
   } catch (err) {
-    return NextResponse.json(
-      {
-        error:
-          err instanceof DbConfigError
-            ? err.message
-            : "이야기를 불러오지 못했어요.",
-      },
-      { status: 502 }
-    );
+    return dbErrorResponse(err, "이야기를 불러오지 못했어요.");
   }
 }
 
@@ -33,14 +25,6 @@ export async function DELETE(
     await deleteStory(universeId, storyId);
     return NextResponse.json({ ok: true });
   } catch (err) {
-    return NextResponse.json(
-      {
-        error:
-          err instanceof DbConfigError
-            ? err.message
-            : "이야기를 지우지 못했어요.",
-      },
-      { status: 502 }
-    );
+    return dbErrorResponse(err, "이야기를 지우지 못했어요.");
   }
 }

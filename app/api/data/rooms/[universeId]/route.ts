@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { DbConfigError, getRooms, saveRoom } from "@/lib/db";
+import { dbErrorResponse, getRooms, saveRoom } from "@/lib/db";
 import type { Room } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -13,15 +13,7 @@ export async function GET(
     const rooms = await getRooms(universeId);
     return NextResponse.json({ rooms });
   } catch (err) {
-    return NextResponse.json(
-      {
-        error:
-          err instanceof DbConfigError
-            ? err.message
-            : "대화방 목록을 불러오지 못했어요.",
-      },
-      { status: 502 }
-    );
+    return dbErrorResponse(err, "대화방 목록을 불러오지 못했어요.");
   }
 }
 
@@ -49,14 +41,6 @@ export async function POST(
     await saveRoom({ ...room, universeId });
     return NextResponse.json({ ok: true });
   } catch (err) {
-    return NextResponse.json(
-      {
-        error:
-          err instanceof DbConfigError
-            ? err.message
-            : "대화방을 저장하지 못했어요.",
-      },
-      { status: 502 }
-    );
+    return dbErrorResponse(err, "대화방을 저장하지 못했어요.");
   }
 }

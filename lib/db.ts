@@ -1,4 +1,5 @@
 // Redis(Upstash) 기반 저장 로직. 이 파일은 서버(Route Handler)에서만 import한다.
+import { NextResponse } from "next/server";
 import { Redis } from "@upstash/redis";
 import {
   chatHistoryToRoom,
@@ -30,6 +31,19 @@ export class DbConfigError extends Error {
     super(message);
     this.name = "DbConfigError";
   }
+}
+
+/**
+ * app/api/data/** 아래 거의 모든 Route Handler가 그대로 반복하던
+ * `catch (err) { return NextResponse.json({ error: err instanceof
+ * DbConfigError ? err.message : "<기본 문구>" }, { status: 502 }); }`를
+ * 한 곳으로 모은 것. lib/gemini.ts의 geminiErrorResponse와 같은 패턴.
+ */
+export function dbErrorResponse(err: unknown, fallback: string): NextResponse {
+  return NextResponse.json(
+    { error: err instanceof DbConfigError ? err.message : fallback },
+    { status: 502 }
+  );
 }
 
 let redis: Redis | null = null;

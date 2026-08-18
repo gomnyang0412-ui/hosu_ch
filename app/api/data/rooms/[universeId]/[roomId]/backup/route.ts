@@ -1,9 +1,5 @@
 import { NextResponse } from "next/server";
-import {
-  DbConfigError,
-  listRoomBackups,
-  restoreRoomBackup,
-} from "@/lib/db";
+import { dbErrorResponse, listRoomBackups, restoreRoomBackup } from "@/lib/db";
 
 export const runtime = "nodejs";
 
@@ -16,15 +12,7 @@ export async function GET(
     const backups = await listRoomBackups(universeId, roomId);
     return NextResponse.json({ backups });
   } catch (err) {
-    return NextResponse.json(
-      {
-        error:
-          err instanceof DbConfigError
-            ? err.message
-            : "이전 기록을 불러오지 못했어요.",
-      },
-      { status: 502 }
-    );
+    return dbErrorResponse(err, "이전 기록을 불러오지 못했어요.");
   }
 }
 
@@ -50,14 +38,6 @@ export async function POST(
     }
     return NextResponse.json({ room });
   } catch (err) {
-    return NextResponse.json(
-      {
-        error:
-          err instanceof DbConfigError
-            ? err.message
-            : "이전 기록으로 되돌리지 못했어요.",
-      },
-      { status: 502 }
-    );
+    return dbErrorResponse(err, "이전 기록으로 되돌리지 못했어요.");
   }
 }

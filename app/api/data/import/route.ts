@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { DbConfigError, importAllData } from "@/lib/db";
+import { dbErrorResponse, importAllData } from "@/lib/db";
 import { ORG_UNIVERSE_ID, type FullExport } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -52,14 +52,6 @@ export async function POST(request: Request) {
     await importAllData(body);
     return NextResponse.json({ ok: true });
   } catch (err) {
-    return NextResponse.json(
-      {
-        error:
-          err instanceof DbConfigError
-            ? err.message
-            : "데이터를 불러오지 못했어요.",
-      },
-      { status: 502 }
-    );
+    return dbErrorResponse(err, "데이터를 불러오지 못했어요.");
   }
 }

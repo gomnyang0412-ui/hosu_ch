@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import {
-  DbConfigError,
   clearChatHistoryEverywhere,
+  dbErrorResponse,
   getCharacters,
   saveCharacters,
 } from "@/lib/db";
@@ -19,14 +19,6 @@ export async function DELETE(
     await clearChatHistoryEverywhere(id);
     return NextResponse.json({ ok: true });
   } catch (err) {
-    return NextResponse.json(
-      {
-        error:
-          err instanceof DbConfigError
-            ? err.message
-            : "캐릭터를 삭제하지 못했어요.",
-      },
-      { status: 502 }
-    );
+    return dbErrorResponse(err, "캐릭터를 삭제하지 못했어요.");
   }
 }

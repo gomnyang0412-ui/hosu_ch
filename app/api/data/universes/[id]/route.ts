@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { DbConfigError, deleteUniverse } from "@/lib/db";
+import { dbErrorResponse, deleteUniverse } from "@/lib/db";
 import { ORG_UNIVERSE_ID } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -19,14 +19,6 @@ export async function DELETE(
     await deleteUniverse(id);
     return NextResponse.json({ ok: true });
   } catch (err) {
-    return NextResponse.json(
-      {
-        error:
-          err instanceof DbConfigError
-            ? err.message
-            : "세계관을 삭제하지 못했어요.",
-      },
-      { status: 502 }
-    );
+    return dbErrorResponse(err, "세계관을 삭제하지 못했어요.");
   }
 }

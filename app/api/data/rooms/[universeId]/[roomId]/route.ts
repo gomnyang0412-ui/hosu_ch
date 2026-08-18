@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { DbConfigError, deleteRoom, getRoom } from "@/lib/db";
+import { dbErrorResponse, deleteRoom, getRoom } from "@/lib/db";
 
 export const runtime = "nodejs";
 
@@ -12,15 +12,7 @@ export async function GET(
     const room = await getRoom(universeId, roomId);
     return NextResponse.json({ room: room ?? null });
   } catch (err) {
-    return NextResponse.json(
-      {
-        error:
-          err instanceof DbConfigError
-            ? err.message
-            : "대화방을 불러오지 못했어요.",
-      },
-      { status: 502 }
-    );
+    return dbErrorResponse(err, "대화방을 불러오지 못했어요.");
   }
 }
 
@@ -33,14 +25,6 @@ export async function DELETE(
     await deleteRoom(universeId, roomId);
     return NextResponse.json({ ok: true });
   } catch (err) {
-    return NextResponse.json(
-      {
-        error:
-          err instanceof DbConfigError
-            ? err.message
-            : "대화방을 지우지 못했어요.",
-      },
-      { status: 502 }
-    );
+    return dbErrorResponse(err, "대화방을 지우지 못했어요.");
   }
 }
