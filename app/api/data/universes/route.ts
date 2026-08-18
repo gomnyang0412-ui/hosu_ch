@@ -20,7 +20,7 @@ export async function POST(request: Request) {
   } catch {
     return NextResponse.json({ error: "잘못된 요청이에요." }, { status: 400 });
   }
-  if (!universe?.id || !universe.type) {
+  if (!universe?.id || (universe.type !== "org" && universe.type !== "au")) {
     return NextResponse.json({ error: "잘못된 요청이에요." }, { status: 400 });
   }
 

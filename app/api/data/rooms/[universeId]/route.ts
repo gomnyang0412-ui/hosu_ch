@@ -32,7 +32,9 @@ export async function POST(
     !room?.id ||
     (room.kind !== "single" && room.kind !== "group") ||
     !Array.isArray(room.characterIds) ||
-    !Array.isArray(room.items)
+    !Array.isArray(room.items) ||
+    (room.kind === "single" && room.characterIds.length !== 1) ||
+    (room.kind === "group" && room.characterIds.length < 1)
   ) {
     return NextResponse.json({ error: "잘못된 요청이에요." }, { status: 400 });
   }

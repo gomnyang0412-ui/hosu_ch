@@ -28,7 +28,11 @@ export async function POST(
   } catch {
     return NextResponse.json({ error: "잘못된 요청이에요." }, { status: 400 });
   }
-  if (!story?.id || !Array.isArray(story.characterIds)) {
+  if (
+    !story?.id ||
+    !Array.isArray(story.characterIds) ||
+    story.characterIds.length < 1
+  ) {
     return NextResponse.json({ error: "잘못된 요청이에요." }, { status: 400 });
   }
 

@@ -20,7 +20,11 @@ export async function POST(request: Request) {
   } catch {
     return NextResponse.json({ error: "잘못된 요청이에요." }, { status: 400 });
   }
-  if (!character?.id || !character.name) {
+  if (
+    !character?.id ||
+    typeof character.name !== "string" ||
+    !character.name.trim()
+  ) {
     return NextResponse.json({ error: "잘못된 요청이에요." }, { status: 400 });
   }
 
