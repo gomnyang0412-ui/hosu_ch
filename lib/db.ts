@@ -21,7 +21,6 @@ import {
   type MultiThread,
   type ObservationSession,
   type Room,
-  type RoomItem,
   type RoomSummary,
   type Universe,
 } from "./types";
@@ -332,38 +331,9 @@ async function readLegacyChatHistory(
  * 것과 같은 "첫 읽기 시 자동·지연·멱등 마이그레이션" 패턴이다. 예전
  * 키들은 지우지 않고 그대로 둔다(유실 위험 0).
  */
-/** 보관 기한(IMAGE_RETENTION_MS)이 지난 사진만 비우고, text 등 나머지 기록은 그대로 둔다 */
-function pruneExpiredImages(rooms: Room[]): { rooms: Room[]; changed: boolean } {
-  const now = Date.now();
-  let changed = false;
-  const pruned = rooms.map((room) => {
-    let roomChanged = false;
-    const items: RoomItem[] = room.items.map((item) => {
-      if (
-        item.t === "u" &&
-        item.image &&
-        item.imageExpiresAt !== undefined &&
-        item.imageExpiresAt <= now
-      ) {
-        roomChanged = true;
-        return { t: "u", text: item.text, ts: item.ts };
-      }
-      return item;
-    });
-    if (!roomChanged) return room;
-    changed = true;
-    return { ...room, items };
-  });
-  return { rooms: pruned, changed };
-}
-
 export async function getRooms(universeId: string): Promise<Room[]> {
   const existing = await getRedis().get<Room[]>(roomsKey(universeId));
-  if (existing) {
-    const { rooms, changed } = pruneExpiredImages(existing);
-    if (changed) await getRedis().set(roomsKey(universeId), rooms);
-    return rooms;
-  }
+  if (existing) return existing;
 
   const [characters, legacyThreads] = await Promise.all([
     getCharacters(),

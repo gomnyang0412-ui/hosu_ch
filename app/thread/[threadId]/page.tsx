@@ -15,7 +15,6 @@ import ErrorRetryBanner from "@/components/chat/ErrorRetryBanner";
 import NarrationBubble from "@/components/chat/NarrationBubble";
 import TimelinePanel from "@/components/chat/TimelinePanel";
 import {
-  CameraIcon,
   ClapperIcon,
   ClockIcon,
   DoorExitIcon,
@@ -24,7 +23,6 @@ import {
   PersonIcon,
 } from "@/components/icons";
 import { useDateJump } from "@/hooks/useDateJump";
-import { useImageAttachment } from "@/hooks/useImageAttachment";
 import { useKeyboardScrollFix } from "@/hooks/useKeyboardScrollFix";
 import { useRoomBackups } from "@/hooks/useRoomBackups";
 import { groupRoomItemsByDate } from "@/lib/chatDates";
@@ -40,7 +38,6 @@ import {
 import { resolveUniverseTemplate } from "@/lib/template";
 import {
   ACCENT_COLORS,
-  IMAGE_RETENTION_MS,
   ORG_UNIVERSE_ID,
   createOrgUniverse,
   toCharacterProfile,
@@ -115,12 +112,6 @@ function ThreadPageInner() {
     thread?.items.length,
     loading,
   ]);
-  const {
-    pendingImage,
-    pendingImageLoading,
-    handleAttachImage,
-    clearPendingImage,
-  } = useImageAttachment((message) => setError({ message, kind: "unknown" }));
   const { backups, restoring, openBackups, restoreBackup, closeBackups } =
     useRoomBackups(universeId, thread?.id ?? "", {
       onRestored: setThread,
@@ -260,16 +251,9 @@ function ThreadPageInner() {
   async function handleSend() {
     const text = input.trim();
     const targets = aiParticipants.filter((c) => targetIds.includes(c.id));
-    if ((!text && !pendingImage) || !thread || targets.length === 0 || loading) return;
+    if (!text || !thread || targets.length === 0 || loading) return;
     const now = Date.now();
-    const item: RoomItem = {
-      t: "u",
-      text,
-      ts: now,
-      ...(pendingImage
-        ? { image: pendingImage, imageExpiresAt: now + IMAGE_RETENTION_MS }
-        : {}),
-    };
+    const item: RoomItem = { t: "u", text, ts: now };
     const updated: Room = {
       ...thread,
       items: [...thread.items, item],
@@ -277,7 +261,6 @@ function ThreadPageInner() {
     };
     setThread(updated);
     setInput("");
-    clearPendingImage();
     try {
       await saveRoom(updated);
     } catch (err) {
@@ -555,14 +538,6 @@ function ThreadPageInner() {
                   <EditIcon />
                 </button>
                 <div className="flex max-w-[75%] flex-col items-end gap-1 md:max-w-[420px]">
-                  {item.image && (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={item.image}
-                      alt="보낸 사진"
-                      className="max-h-48 w-auto rounded-2xl rounded-br-sm object-cover"
-                    />
-                  )}
                   {item.text && (
                     <div className="gradient-primary whitespace-pre-wrap rounded-2xl rounded-br-sm px-3 py-2 text-sm leading-relaxed text-primary-foreground">
                       {item.text}
@@ -678,23 +653,6 @@ function ThreadPageInner() {
               </button>
             </div>
           )}
-          {pendingImage && (
-            <div className="flex items-center gap-2">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={pendingImage}
-                alt="첨부할 사진"
-                className="h-14 w-14 rounded-lg object-cover"
-              />
-              <button
-                type="button"
-                onClick={clearPendingImage}
-                className="text-xs text-red-600"
-              >
-                사진 제거
-              </button>
-            </div>
-          )}
           <div className="flex items-end gap-2">
             <button
               type="button"
@@ -708,18 +666,6 @@ function ThreadPageInner() {
             >
               <ClapperIcon />
             </button>
-            <label
-              className="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full border border-border text-sm text-muted transition-transform hover:scale-105"
-              aria-label="사진 첨부"
-            >
-              {pendingImageLoading ? "…" : <CameraIcon />}
-              <input
-                type="file"
-                accept="image/*"
-                onChange={handleAttachImage}
-                className="hidden"
-              />
-            </label>
             <AutoGrowTextarea
               value={input}
               onChange={setInput}
@@ -738,9 +684,7 @@ function ThreadPageInner() {
             <button
               type="button"
               onClick={handleSend}
-              disabled={
-                loading || (!input.trim() && !pendingImage) || targetIds.length === 0
-              }
+              disabled={loading || !input.trim() || targetIds.length === 0}
               className="gradient-primary shrink-0 rounded-full px-5 py-2 text-sm font-semibold text-primary-foreground transition-transform hover:scale-[1.03] active:scale-[0.97] disabled:opacity-40 disabled:hover:scale-100"
             >
               전송

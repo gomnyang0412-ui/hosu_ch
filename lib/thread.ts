@@ -12,7 +12,7 @@ export function serializeThreadItems(items: ThreadItem[]): string {
         case "d":
           return `${item.who}${item.act ? ` (${item.act})` : ""}: ${item.say}`;
         case "u":
-          return `나: ${item.text}${item.image ? (item.text ? " " : "") + "[사진 첨부]" : ""}`;
+          return `나: ${item.text}`;
         case "x":
           return `(상황 전환) ${item.text}`;
       }

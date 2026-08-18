@@ -7,7 +7,7 @@ import AutoGrowTextarea from "@/components/AutoGrowTextarea";
 import CharacterAvatar from "@/components/CharacterAvatar";
 import ChatListPane from "@/components/ChatListPane";
 import TopBar from "@/components/TopBar";
-import { CameraIcon, ChevronRightIcon, EditIcon, MenuIcon } from "@/components/icons";
+import { ChevronRightIcon, EditIcon, MenuIcon } from "@/components/icons";
 import BackupPanel from "@/components/chat/BackupPanel";
 import ChatMenu from "@/components/chat/ChatMenu";
 import DateDivider from "@/components/chat/DateDivider";
@@ -22,7 +22,6 @@ import { groupMessagesByDate } from "@/lib/chatDates";
 import { kstDateString, todayKST } from "@/lib/memory";
 import { useConversationSplit } from "@/hooks/useConversationSplit";
 import { useDateJump } from "@/hooks/useDateJump";
-import { useImageAttachment } from "@/hooks/useImageAttachment";
 import { useKeyboardScrollFix } from "@/hooks/useKeyboardScrollFix";
 import { useRoomBackups } from "@/hooks/useRoomBackups";
 import { roomItemsToChatMessages } from "@/lib/roomBridge";
@@ -43,7 +42,6 @@ import {
 } from "@/lib/character";
 import { resolveUniverseTemplate } from "@/lib/template";
 import {
-  IMAGE_RETENTION_MS,
   ORG_UNIVERSE_ID,
   createOrgUniverse,
   toCharacterProfile,
@@ -119,12 +117,6 @@ function ChatPageInner() {
     room?.items.length,
     loading,
   ]);
-  const {
-    pendingImage,
-    pendingImageLoading,
-    handleAttachImage,
-    clearPendingImage,
-  } = useImageAttachment((message) => setError({ message, kind: "unknown" }));
   const { backups, restoring, openBackups, restoreBackup, closeBackups } =
     useRoomBackups(universeId, singleRoomId(id), {
       onRestored: setRoom,
@@ -315,16 +307,9 @@ function ChatPageInner() {
 
   async function handleSend() {
     const text = input.trim();
-    if ((!text && !pendingImage) || !character || !universe || !room || loading) return;
+    if (!text || !character || !universe || !room || loading) return;
     const now = Date.now();
-    const newItem: RoomItem = {
-      t: "u",
-      text,
-      ts: now,
-      ...(pendingImage
-        ? { image: pendingImage, imageExpiresAt: now + IMAGE_RETENTION_MS }
-        : {}),
-    };
+    const newItem: RoomItem = { t: "u", text, ts: now };
     const next: Room = {
       ...room,
       items: [...room.items, newItem],
@@ -332,7 +317,6 @@ function ChatPageInner() {
     };
     setRoom(next);
     setInput("");
-    clearPendingImage();
     try {
       await saveRoom(next);
     } catch (err) {
@@ -707,14 +691,6 @@ function ChatPageInner() {
                   <EditIcon />
                 </button>
                 <div className="flex max-w-[75%] flex-col items-end gap-1 md:max-w-[420px]">
-                  {first.image && (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={first.image}
-                      alt="보낸 사진"
-                      className="max-h-48 w-auto rounded-2xl rounded-br-sm object-cover"
-                    />
-                  )}
                   {first.text && (
                     <div
                       className="whitespace-pre-wrap rounded-2xl rounded-br-sm px-3 py-2 text-sm leading-relaxed text-white"
@@ -802,36 +778,7 @@ function ChatPageInner() {
           화면에 나타난다.
         */}
         <div className="-mx-3 flex flex-col gap-2 border-t border-border bg-card px-3 py-2">
-          {pendingImage && (
-            <div className="flex items-center gap-2">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={pendingImage}
-                alt="첨부할 사진"
-                className="h-14 w-14 rounded-lg object-cover"
-              />
-              <button
-                type="button"
-                onClick={clearPendingImage}
-                className="text-xs text-red-600"
-              >
-                사진 제거
-              </button>
-            </div>
-          )}
           <div className="flex items-end gap-2">
-            <label
-              className="shrink-0 cursor-pointer self-stretch rounded-3xl border border-border px-3 py-2 text-sm text-muted"
-              aria-label="사진 첨부"
-            >
-              {pendingImageLoading ? "…" : <CameraIcon />}
-              <input
-                type="file"
-                accept="image/*"
-                onChange={handleAttachImage}
-                className="hidden"
-              />
-            </label>
             <AutoGrowTextarea
               value={input}
               onChange={setInput}
@@ -843,7 +790,7 @@ function ChatPageInner() {
             <button
               type="button"
               onClick={handleSend}
-              disabled={loading || (!input.trim() && !pendingImage)}
+              disabled={loading || !input.trim()}
               className="gradient-primary shrink-0 rounded-full px-5 py-2 text-sm font-semibold text-primary-foreground transition-transform hover:scale-[1.03] active:scale-[0.97] disabled:opacity-40 disabled:hover:scale-100"
             >
               전송

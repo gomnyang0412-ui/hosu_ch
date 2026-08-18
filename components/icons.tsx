@@ -66,15 +66,6 @@ export function MenuIcon(props: IconProps) {
   );
 }
 
-export function CameraIcon(props: IconProps) {
-  return (
-    <svg {...base(props)}>
-      <path d="M3 7.3a1.6 1.6 0 0 1 1.6-1.6h1.1l.9-1.4h5l.9 1.4h1.1A1.6 1.6 0 0 1 15.2 7.3V14a1.6 1.6 0 0 1-1.6 1.6H4.6A1.6 1.6 0 0 1 3 14Z" />
-      <circle cx="9" cy="10.6" r="2.6" />
-    </svg>
-  );
-}
-
 export function ChevronRightIcon(props: IconProps) {
   return (
     <svg {...base(props)}>

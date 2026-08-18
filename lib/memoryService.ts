@@ -52,7 +52,7 @@ function groupItemLine(item: RoomItem, room: Room, allCharacters: Character[]): 
       const playerName = room.playerCharacterId
         ? allCharacters.find((c) => c.id === room.playerCharacterId)?.name
         : undefined;
-      return `${playerName ?? "나(사용자)"}: ${item.text}${item.image ? (item.text ? " " : "") + "[사진 첨부]" : ""}`;
+      return `${playerName ?? "나(사용자)"}: ${item.text}`;
     }
   }
 }

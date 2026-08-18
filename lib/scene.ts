@@ -77,7 +77,7 @@ export function roomItemLine(item: RoomItem, playerName?: string): string {
     case "d":
       return `${item.who}${item.act ? ` (${item.act})` : ""}: ${item.say}`;
     case "u":
-      return `${playerName ?? "나(사용자)"}: ${item.text}${item.image ? (item.text ? " " : "") + "[사진 첨부]" : ""}`;
+      return `${playerName ?? "나(사용자)"}: ${item.text}`;
   }
 }
 
