@@ -346,12 +346,15 @@ export interface MemoryEntry {
 }
 
 /**
- * 캐릭터 한 명이 (어느 방에서 대화했든) 누적해서 쌓은 기억.
+ * 캐릭터 한 명이 한 유니버스 안에서 (어느 방에서 대화했든) 누적해서
+ * 쌓은 기억. 유니버스별로 완전히 분리된다 — AU 롤플레이가 다른
+ * 유니버스(특히 ORG)의 서사까지 "기억"으로 물려받지 않게 하기 위해서다.
  * summarizedThrough는 "이 날짜까지는 이미 기억으로 정리했다"는 뜻의
  * YYYY-MM-DD(KST)이며, 그 이후 날짜의 대화만 다음 정리 대상이 된다.
  */
 export interface CharacterMemory {
   characterId: string;
+  universeId: string;
   summarizedThrough: string;
   entries: MemoryEntry[];
   updatedAt: number;

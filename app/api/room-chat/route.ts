@@ -204,7 +204,7 @@ export async function POST(request: Request) {
 
   try {
     const memory = body.targetId
-      ? await getCharacterMemory(body.targetId).catch(() => null)
+      ? await getCharacterMemory(body.targetId, body.universe.id).catch(() => null)
       : null;
     const targetSystemInstruction = buildTargetSystemInstruction(
       target,

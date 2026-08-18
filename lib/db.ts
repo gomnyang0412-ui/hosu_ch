@@ -17,6 +17,7 @@ import {
   type CharacterMemory,
   type ChatMessage,
   type FullExport,
+  type MemoryEntry,
   type MultiThread,
   type ObservationSession,
   type Room,
@@ -148,7 +149,13 @@ function roomsKey(universeId: string) {
   return `${KEYS.roomsPrefix}${universeId}`;
 }
 
-function memoryKey(characterId: string) {
+function memoryKey(characterId: string, universeId: string) {
+  return `${KEYS.memoryPrefix}${characterId}:${universeId}`;
+}
+
+/** 유니버스 구분이 없던 시절의 전역 기억 키. 새로 지우지 않고 ORG의
+ *  마이그레이션 원본으로만 읽는다. */
+function legacyMemoryKey(characterId: string) {
   return `${KEYS.memoryPrefix}${characterId}`;
 }
 
@@ -509,24 +516,61 @@ export async function clearChatHistoryEverywhere(
   await Promise.all([
     ...universes.map((u) => deleteRoom(u.id, singleRoomId(characterId))),
     ...universes.map((u) => removeCharacterFromRooms(u.id, characterId)),
-    getRedis().del(memoryKey(characterId)),
+    ...universes.map((u) => getRedis().del(memoryKey(characterId, u.id))),
+    getRedis().del(legacyMemoryKey(characterId)),
   ]);
 }
 
-// ---------- 캐릭터별 누적 기억 ----------
+// ---------- 캐릭터별 누적 기억 (유니버스별로 분리) ----------
 
+/**
+ * 유니버스 하나 안에서 그 캐릭터가 쌓은 기억을 읽는다. ORG는 유니버스
+ * 구분이 없던 시절의 전역 기억(legacyMemoryKey)을 처음 조회할 때 그대로
+ * 이어받아 새 키에 옮겨 쓴다(지연·멱등 마이그레이션 — getStories()가
+ * 예전 단일 이야기 키를 다루는 것과 같은 방식). 원본 전역 키는 지우지
+ * 않는다. AU는 물려받을 게 없으니 새 기억으로 시작한다.
+ */
 export async function getCharacterMemory(
-  characterId: string
+  characterId: string,
+  universeId: string
 ): Promise<CharacterMemory | null> {
-  return (await getRedis().get<CharacterMemory>(memoryKey(characterId))) ?? null;
+  const key = memoryKey(characterId, universeId);
+  const existing = await getRedis().get<CharacterMemory>(key);
+  if (existing) return existing;
+
+  if (universeId === ORG_UNIVERSE_ID) {
+    const legacy = await getRedis().get<Record<string, unknown>>(
+      legacyMemoryKey(characterId)
+    );
+    if (legacy) {
+      const migrated: CharacterMemory = {
+        characterId,
+        universeId: ORG_UNIVERSE_ID,
+        summarizedThrough:
+          typeof legacy.summarizedThrough === "string"
+            ? legacy.summarizedThrough
+            : "",
+        entries: Array.isArray(legacy.entries)
+          ? (legacy.entries as MemoryEntry[])
+          : [],
+        updatedAt:
+          typeof legacy.updatedAt === "number" ? legacy.updatedAt : Date.now(),
+      };
+      await getRedis().set(key, migrated);
+      return migrated;
+    }
+  }
+
+  return null;
 }
 
 export async function saveCharacterMemory(
   memory: CharacterMemory
 ): Promise<void> {
-  const previous = await getCharacterMemory(memory.characterId);
-  await pushBackup(memoryKey(memory.characterId), previous);
-  await getRedis().set(memoryKey(memory.characterId), memory);
+  const key = memoryKey(memory.characterId, memory.universeId);
+  const previous = await getRedis().get<CharacterMemory>(key);
+  await pushBackup(key, previous);
+  await getRedis().set(key, memory);
 }
 
 // ---------- 앱 개인화 설정 (배경 이미지 등, 유니버스 무관 전역 하나) ----------
@@ -755,7 +799,11 @@ export async function getAllData(): Promise<FullExport> {
   ).flat();
 
   const memories = (
-    await Promise.all(characters.map((c) => getCharacterMemory(c.id)))
+    await Promise.all(
+      characters.flatMap((c) =>
+        universes.map((u) => getCharacterMemory(c.id, u.id))
+      )
+    )
   ).filter((m): m is CharacterMemory => m !== null);
 
   const appSettings = await getAppSettings();
@@ -789,6 +837,15 @@ function normalizeImportedRooms(data: FullExport): Room[] {
   return [...chatRooms, ...groupRooms];
 }
 
+/** 예전(유니버스별 분리 이전) 백업 파일의 memories에는 universeId가
+ *  없다 — 그 시절엔 기억이 유니버스 구분 없이 캐릭터 하나에 전역으로
+ *  쌓였으므로, 지금의 ORG 스코프 기억으로 간주해 이어받는다. */
+function normalizeImportedMemories(data: FullExport): CharacterMemory[] {
+  return (data.memories ?? []).map((m) =>
+    m.universeId ? m : { ...m, universeId: ORG_UNIVERSE_ID }
+  );
+}
+
 /**
  * 내보내기 파일 하나로 지금 저장된 모든 데이터를 완전히 대체한다.
  * 백업 시점 이후에 생긴 데이터(백업에 없는 캐릭터·세계관·대화방 등)까지
@@ -811,7 +868,12 @@ export async function importAllData(data: FullExport): Promise<void> {
   const roomsByUniverse = groupByUniverseId(importedRooms);
 
   await Promise.all([
-    ...oldCharacters.map((c) => getRedis().del(memoryKey(c.id))),
+    ...oldCharacters.flatMap((c) => [
+      ...Array.from(allUniverseIds).map((id) =>
+        getRedis().del(memoryKey(c.id, id))
+      ),
+      getRedis().del(legacyMemoryKey(c.id)),
+    ]),
     ...Array.from(allUniverseIds).flatMap((id) => [
       getRedis().del(roomsKey(id)),
       getRedis().del(storiesKey(id)),
@@ -830,7 +892,7 @@ export async function importAllData(data: FullExport): Promise<void> {
     ...Object.entries(groupByUniverseId(data.stories ?? [])).map(
       ([universeId, list]) => getRedis().set(storiesKey(universeId), list)
     ),
-    ...data.memories.map((m) => saveCharacterMemory(m)),
+    ...normalizeImportedMemories(data).map((m) => saveCharacterMemory(m)),
     // 예전 백업 파일에는 이 필드가 없을 수 있다 — 그럴 땐 지금 설정을
     // 그대로 둔다(복원한다고 배경 이미지까지 지워질 이유는 없다).
     ...(data.appSettings ? [saveAppSettings(data.appSettings)] : []),

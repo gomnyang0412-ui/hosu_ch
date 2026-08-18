@@ -91,7 +91,7 @@ export async function POST(request: Request) {
     // 오래된 기억(하루/주/달 단위로 이미 압축된 것)은 한 줄씩이라도
     // 덧붙여서 아예 누락되지 않게 한다.
     const memory = body.characterId
-      ? await getCharacterMemory(body.characterId).catch(() => null)
+      ? await getCharacterMemory(body.characterId, body.universe.id).catch(() => null)
       : null;
     const olderLines = memoryOneLiners(memory);
     const combined =
