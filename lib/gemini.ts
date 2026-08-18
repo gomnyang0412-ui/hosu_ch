@@ -479,17 +479,18 @@ export async function generateSummaryText(params: {
  * 생성 시간에 맞게 넉넉히 주고 총 재시도 시간과 라우트의 maxDuration도
  * 그에 맞춰 늘렸다.
  *
- * overallDeadlineMs는 timeoutMs 두 번(넉넉잡아 100초)이 들어갈 만큼
- * 넉넉히 잡는다 — AU처럼 [세계관]·[관계]·[용어] 블록까지 붙어 시스템
- * 프롬프트가 큰 경우 첫 시도 자체가 timeoutMs에 가깝게 걸리는 일이
- * 흔한데, 예전처럼 여유가 거의 없으면(구 55초) generate()가 재시도를
- * 시작할지 말지 애매하게 판단하다 route의 maxDuration을 플랫폼이 먼저
- * 강제 종료해버려("네트워크 문제로 이번 화를 만들지 못했어요") 원인을
- * 알 수 없는 실패로 보였다. 지금은 generate() 쪽 예산 검사도 "이번
- * 시도가 최악의 경우 다 걸려도 남은 예산 안에 들어오는지"로 고쳐서,
- * 예산이 부족하면 아예 재시도를 시작하지 않고 바로 깔끔한 에러를
- * 던진다 — route의 maxDuration(scene/route.ts)도 이 예산보다 넉넉히
- * 크게 맞춰야 한다.
+ * generate()의 예산 검사는 "이번 시도가 최악의 경우 timeoutMs를 다
+ * 써도 남은 예산 안에 들어오는지"로 재시도 여부를 미리 판단한다 —
+ * 즉 두 번째 시도가 실제로 걸리는 게 아니라 overallDeadlineMs -
+ * timeoutMs 이하가 이미 지나 있어야만 재시도를 "시작"한다. 이전엔
+ * overallDeadlineMs를 timeoutMs의 정확히 2배(100초)로 잡았는데, 이건
+ * "넉넉한 여유"가 아니라 정확히 그 경계값이었다 — AU처럼 첫 시도
+ * 자체가 50초에 가깝게 걸리는 경우(흔하다), 우리 코드·네트워크의
+ * 아주 작은 오버헤드만 더해져도 곧바로 그 경계를 넘어 재시도를 아예
+ * 시작도 못 해보고 실패했다. overallDeadlineMs를 timeoutMs의 2배보다
+ * 확실히 크게(3배 이상 여유) 잡아서, 첫 시도가 온전히 50초를 다 써도
+ * 두 번째·세 번째 시도가 시작될 여지를 실제로 남긴다 — route의
+ * maxDuration(scene/route.ts)도 이 예산보다 넉넉히 크게 맞춰야 한다.
  */
 export async function generateStoryEpisode(params: {
   systemInstruction: string;
@@ -501,7 +502,7 @@ export async function generateStoryEpisode(params: {
     models: DIALOGUE_MODEL_CHAIN,
     timeoutMs: 50_000,
     retryOnTimeout: true,
-    overallDeadlineMs: 100_000,
+    overallDeadlineMs: 170_000,
   });
 }
 
