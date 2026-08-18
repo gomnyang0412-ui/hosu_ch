@@ -281,11 +281,19 @@ export async function syncCharacterMemory(
     try {
       summary = await summarizeForMemory(character.name, transcript, "day", date, existingMemory);
     } catch (err) {
-      // 사용량 초과는 곧 풀릴 문제라 여기서 멈추고 다음 동기화 때 이
-      // 날짜부터 다시 시도한다. 그 외(안전 정책 차단 등)는 재시도해도
-      // 똑같이 실패할 가능성이 높아, 이 날짜의 기억만 비워두고 계속
-      // 진행한다 — 한 날짜 때문에 그 뒤 날짜까지 영영 밀리면 안 된다.
-      if (err instanceof GeminiRequestError && err.kind === "quota") break;
+      // 사용량 초과·네트워크 문제·서버 과부하는 곧 풀릴 일시적 문제라
+      // 여기서 멈추고 다음 동기화 때 이 날짜부터 다시 시도한다(진행
+      // 마커를 전진시키지 않는다). 그 외(안전 정책 차단 등 진짜로
+      // 재시도해도 똑같이 실패할 종류)만 이 날짜의 기억을 비워두고
+      // 계속 진행한다 — 한 날짜 때문에 그 뒤 날짜까지 영영 밀리면
+      // 안 되지만, 일시적 오류로 그 날짜의 기억이 영영 사라져서도
+      // 안 된다.
+      if (
+        err instanceof GeminiRequestError &&
+        (err.kind === "quota" || err.kind === "network" || err.kind === "overloaded")
+      ) {
+        break;
+      }
     }
     if (summary) {
       memory.entries.push({ scope: "day", label: date, summary, createdAt: Date.now() });
