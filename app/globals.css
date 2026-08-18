@@ -16,7 +16,6 @@
   --primary: #a8283f;
   --primary-strong: #7d1f30;
   --primary-foreground: #fff6f2;
-  --primary-soft: #f3e3e6;
   --primary-gradient-from: #5c2233;
   /* primary와 같은 웜레드 계열의 옅은 톤 — 뱃지·북마크 등 아주 작은
      포인트에만 쓴다(두 색이 서로 다른 계열로 부딪히지 않게 한 가족으로) */
@@ -30,7 +29,6 @@
   /* 반투명 유리 표면(상단바·패널·목록 카드 등 "여백 있는 곳"에만 씀 —
      대화 말풍선·입력창처럼 읽고 쓰는 표면은 card(불투명)를 그대로 쓴다) */
   --glass: rgba(255, 253, 248, 0.6);
-  --glass-strong: rgba(255, 253, 248, 0.82);
   --glass-border: rgba(34, 29, 26, 0.08);
   /* 카드/유리 표면 위쪽 가장자리에 얹는 하이라이트 색. 라이트에서는
      흰빛이 잘 먹지만, 다크에서는 같은 세기로 넣으면 너무 튀어서
@@ -58,7 +56,6 @@
     --primary: #e8783f;
     --primary-strong: #c85f28;
     --primary-foreground: #241206;
-    --primary-soft: #3a2415;
     --primary-gradient-from: #f0a06a;
     --accent: #f0a06a;
     --accent-strong: #c85f28;
@@ -68,7 +65,6 @@
     --card-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3),
       0 4px 10px -4px rgba(0, 0, 0, 0.4);
     --glass: rgba(36, 29, 22, 0.55);
-    --glass-strong: rgba(36, 29, 22, 0.78);
     --glass-border: rgba(244, 236, 224, 0.1);
     --surface-highlight: rgba(244, 236, 224, 0.1);
   }
@@ -83,7 +79,6 @@
   --color-primary: var(--primary);
   --color-primary-strong: var(--primary-strong);
   --color-primary-foreground: var(--primary-foreground);
-  --color-primary-soft: var(--primary-soft);
   --color-accent: var(--accent);
   --color-accent-strong: var(--accent-strong);
   --color-accent-foreground: var(--accent-foreground);
@@ -134,14 +129,6 @@ body {
    때도 자연스럽도록 --background와 가까운 톤으로 잡았다. */
 .glass {
   background: var(--glass);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid var(--glass-border);
-  box-shadow: inset 0 1px 0 var(--surface-highlight);
-}
-
-.glass-strong {
-  background: var(--glass-strong);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid var(--glass-border);
