@@ -514,6 +514,16 @@ function usageField(keyIndex: number, model: string, outcome: "success" | "quota
   return `${keyIndex}:${model}:${outcome}`;
 }
 
+// generate()는 이미 성공적으로 받은 응답을 반환하기 전에 이 함수가
+// 끝나길 기다린다(서버리스 환경에서 fire-and-forget으로 던지면 응답을
+// 반환한 직후 실행이 얼어붙어 기록이 유실될 수 있어서). 그런데 이
+// 함수 자체엔 시간 제한이 없어서, Upstash가 일시적으로 느려지면 이미
+// 다 만든 AI 응답을 사용자에게 돌려주는 것까지 무기한 지연시킬 수
+// 있었다 — Gemini 호출은 이미 성공했는데(=쿼터 소모 완료) 그 결과를
+// 못 받는 상황. 집계 자체가 실패해도 절대 던지지 않는 것과 마찬가지로,
+// "오래 걸려도" 응답 흐름을 막지 않도록 자체 시간 제한을 둔다.
+const USAGE_RECORD_TIMEOUT_MS = 3_000;
+
 /** 실제 서비스에 영향 없이 기록만 하는 용도라, 실패해도 절대 던지지 않는다 (best-effort). */
 export async function recordApiUsage(
   date: string,
@@ -521,12 +531,23 @@ export async function recordApiUsage(
   model: string,
   outcome: "success" | "quota"
 ): Promise<void> {
-  try {
-    const key = usageKey(date);
+  const key = usageKey(date);
+  // 시간 제한에 걸려 이 함수가 먼저 반환된 뒤에도 아래 작업 자체는
+  // 백그라운드에서 계속 진행되다 나중에 실패할 수 있다 — 그때 아무도
+  // 안 받는(unhandled) 거부가 되지 않도록 그 자리에서 바로 삼킨다.
+  const work = (async () => {
     await getRedis().hincrby(key, usageField(keyIndex, model, outcome), 1);
     await getRedis().expire(key, USAGE_TTL_SECONDS);
+  })().catch(() => {});
+  try {
+    await Promise.race([
+      work,
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("usage record timeout")), USAGE_RECORD_TIMEOUT_MS)
+      ),
+    ]);
   } catch {
-    // 사용량 집계 실패는 조용히 무시 — 실제 AI 응답 흐름을 막으면 안 된다.
+    // 시간 초과는 조용히 무시 — 실제 AI 응답 흐름을 막으면 안 된다.
   }
 }
 
