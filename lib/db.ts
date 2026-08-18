@@ -163,6 +163,8 @@ export async function getCharacters(): Promise<Character[]> {
 }
 
 export async function saveCharacters(characters: Character[]): Promise<void> {
+  const previous = await getCharacters();
+  await pushBackup(KEYS.characters, previous);
   await getRedis().set(KEYS.characters, characters);
 }
 
@@ -251,6 +253,7 @@ export async function getUniverse(id: string): Promise<Universe | undefined> {
 /** 세계관 하나를 만들거나 덮어쓴다 (id가 같으면 수정) */
 export async function saveUniverse(universe: Universe): Promise<void> {
   const universes = await getUniverses();
+  await pushBackup(KEYS.universes, universes);
   const idx = universes.findIndex((u) => u.id === universe.id);
   if (idx >= 0) {
     universes[idx] = universe;
@@ -521,6 +524,8 @@ export async function getCharacterMemory(
 export async function saveCharacterMemory(
   memory: CharacterMemory
 ): Promise<void> {
+  const previous = await getCharacterMemory(memory.characterId);
+  await pushBackup(memoryKey(memory.characterId), previous);
   await getRedis().set(memoryKey(memory.characterId), memory);
 }
 
@@ -532,6 +537,8 @@ export async function getAppSettings(): Promise<AppSettings> {
 }
 
 export async function saveAppSettings(settings: AppSettings): Promise<void> {
+  const previous = await getAppSettings();
+  await pushBackup(KEYS.appSettings, previous);
   await getRedis().set(KEYS.appSettings, settings);
 }
 
@@ -647,6 +654,7 @@ export async function getStory(
 export async function saveStory(story: ObservationSession): Promise<void> {
   const stories = await getStories(story.universeId);
   const key = storiesKey(story.universeId);
+  await pushBackup(key, stories);
   const idx = stories.findIndex((s) => s.id === story.id);
   if (idx >= 0) {
     stories[idx] = story;
@@ -661,6 +669,7 @@ export async function deleteStory(
   storyId: string
 ): Promise<void> {
   const stories = await getStories(universeId);
+  await pushBackup(storiesKey(universeId), stories);
   await getRedis().set(
     storiesKey(universeId),
     stories.filter((s) => s.id !== storyId)
