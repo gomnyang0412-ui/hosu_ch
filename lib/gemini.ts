@@ -304,9 +304,7 @@ async function generate(params: {
   systemInstruction: string;
   contents: Content[];
   json?: boolean;
-  itemRange?: { min: number; max: number };
-  singleReply?: boolean;
-  /** singleReply/배열 스키마 대신 쓸 커스텀 스키마 (있으면 이게 최우선) */
+  /** 기본 SINGLE_REPLY_SCHEMA 대신 쓸 커스텀 스키마 */
   responseSchema?: object;
   /** 시도할 모델을 우선순위 순서대로. 앞 모델이 전체 키에서 quota로
    *  실패하면 다음 모델로 넘어간다. */
@@ -336,10 +334,6 @@ async function generate(params: {
   const clients = getClients();
   let lastError: GeminiRequestError | null = null;
   const startedAt = Date.now();
-  const { min: minItems, max: maxItems } = params.itemRange ?? {
-    min: 10,
-    max: 14,
-  };
 
   for (const model of params.models) {
     for (let i = 0; i < clients.length; i++) {
@@ -374,26 +368,7 @@ async function generate(params: {
             ...(params.json
               ? {
                   responseMimeType: "application/json",
-                  responseSchema:
-                    params.responseSchema ??
-                    (params.singleReply
-                      ? SINGLE_REPLY_SCHEMA
-                      : {
-                          type: Type.ARRAY,
-                          items: {
-                            type: Type.OBJECT,
-                            properties: {
-                              t: { type: Type.STRING, enum: ["n", "d"] },
-                              text: { type: Type.STRING },
-                              who: { type: Type.STRING },
-                              act: { type: Type.STRING },
-                              say: { type: Type.STRING },
-                            },
-                            required: ["t"],
-                          },
-                          minItems: String(minItems),
-                          maxItems: String(maxItems),
-                        }),
+                  responseSchema: params.responseSchema ?? SINGLE_REPLY_SCHEMA,
                 }
               : {}),
           },
@@ -465,22 +440,8 @@ export async function generateChatReply(params: {
   return generate({
     ...params,
     json: true,
-    singleReply: true,
     models: DIALOGUE_MODEL_CHAIN,
     overallDeadlineMs: CHAT_REPLY_DEADLINE_MS,
-  });
-}
-
-/** 관찰 모드 장면 (지문+대사, 10~14개 항목) */
-export async function generateSceneJson(params: {
-  systemInstruction: string;
-  contents: Content[];
-}): Promise<{ text: string; model: string; keyIndex: number }> {
-  return generate({
-    ...params,
-    json: true,
-    itemRange: { min: 10, max: 14 },
-    models: DIALOGUE_MODEL_CHAIN,
   });
 }
 

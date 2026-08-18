@@ -1,6 +1,5 @@
-// 멀티 대화방(ThreadItem[]) 관련 유틸.
-// AI가 새로 만드는 지문/대사는 관찰 모드와 같은 형식(SceneItem)이라
-// 파싱은 lib/scene.ts의 parseSceneItems를 그대로 재사용한다.
+// 멀티 대화방(ThreadItem[]) 관련 유틸. 구버전 데이터 마이그레이션/
+// 백업 호환을 위해 유지한다.
 import type { ThreadItem } from "./types";
 
 /** 이전 대화 내용을 AI에게 다시 보여줄 때 쓰는 텍스트 표현 */
