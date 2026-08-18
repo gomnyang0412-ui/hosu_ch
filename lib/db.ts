@@ -263,10 +263,27 @@ export async function saveUniverse(universe: Universe): Promise<void> {
 /** AU 하나를 삭제한다 (ORG는 호출부에서 막는다) */
 export async function deleteUniverse(id: string): Promise<void> {
   const universes = await getUniverses();
+  await pushBackup(KEYS.universes, universes);
   await getRedis().set(
     KEYS.universes,
     universes.filter((u) => u.id !== id)
   );
+
+  // 유니버스를 지우면 그 안의 관찰 세션·대화방도 함께 사라지는데,
+  // 지금까지는 백업 없이 바로 del()해서 잘못 지운 경우 되돌릴 방법이
+  // 없었다. 지우기 직전 값을 saveRoom/restoreRoomBackup과 같은 방식으로
+  // 각각 백업해둔다(복원 UI는 아직 없지만, 안전망으로 남겨둔다).
+  const [legacyObservation, stories, rooms] = await Promise.all([
+    getRedis().get(observationKey(id)),
+    getRedis().get(storiesKey(id)),
+    getRedis().get(roomsKey(id)),
+  ]);
+  await Promise.all([
+    pushBackup(observationKey(id), legacyObservation),
+    pushBackup(storiesKey(id), stories),
+    pushBackup(roomsKey(id), rooms),
+  ]);
+
   await getRedis().del(observationKey(id));
   await getRedis().del(storiesKey(id));
   await getRedis().del(roomsKey(id));
@@ -410,6 +427,11 @@ export async function deleteRoom(
   roomId: string
 ): Promise<void> {
   const rooms = await getRooms(universeId);
+  const target = rooms.find((r) => r.id === roomId);
+  // saveRoom/restoreRoomBackup과 같은 방별 백업 이력에 남긴다 — 삭제 직전
+  // 상태를 백업해두면, restoreRoomBackup은 방이 목록에 없어도(idx===-1)
+  // 다시 목록에 넣어주므로 이 한 줄만으로 삭제도 되돌릴 수 있게 된다.
+  await pushBackup(`${roomsKey(universeId)}:${roomId}`, target);
   await getRedis().set(
     roomsKey(universeId),
     rooms.filter((r) => r.id !== roomId)
