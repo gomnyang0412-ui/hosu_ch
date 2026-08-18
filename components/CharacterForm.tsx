@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import CharacterAvatar from "@/components/CharacterAvatar";
+import { FormField } from "@/components/FormField";
 import TopBar from "@/components/TopBar";
 import { CloseIcon, SparkleIcon } from "@/components/icons";
 import { resizeImageFile } from "@/lib/image";
@@ -487,135 +488,99 @@ export default function CharacterForm({
           </div>
         )}
 
-        <label className="flex flex-col gap-1.5">
-          <span className="text-sm font-medium">이름</span>
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="캐릭터 이름"
-            className="rounded-xl border border-border bg-card p-3 text-sm outline-none focus:border-primary/50"
-          />
-        </label>
+        <FormField
+          label="이름"
+          value={name}
+          onChange={setName}
+          placeholder="캐릭터 이름"
+        />
 
-        <label className="flex flex-col gap-1.5">
-          <span className="text-sm font-medium">한 줄 소개</span>
-          <input
-            value={oneLiner}
-            onChange={(e) => setOneLiner(e.target.value)}
-            placeholder="캐릭터를 한 문장으로 설명해 주세요."
-            className="rounded-xl border border-border bg-card p-3 text-sm outline-none focus:border-primary/50"
-          />
-        </label>
+        <FormField
+          label="한 줄 소개"
+          value={oneLiner}
+          onChange={setOneLiner}
+          placeholder="캐릭터를 한 문장으로 설명해 주세요."
+        />
 
-        <label className="flex flex-col gap-1.5">
-          <span className="text-sm font-medium">목표</span>
-          <textarea
-            value={goal}
-            onChange={(e) => setGoal(e.target.value)}
-            placeholder="캐릭터가 이루고 싶어 하는 것, 원하는 것을 적어주세요."
-            rows={3}
-            className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-primary/50"
-          />
-        </label>
+        <FormField
+          label="목표"
+          value={goal}
+          onChange={setGoal}
+          placeholder="캐릭터가 이루고 싶어 하는 것, 원하는 것을 적어주세요."
+          rows={3}
+        />
 
-        <label className="flex flex-col gap-1.5">
-          <span className="text-sm font-medium">외형 특징</span>
-          <textarea
-            value={appearance}
-            onChange={(e) => setAppearance(e.target.value)}
-            placeholder="키, 체형, 헤어, 옷차림 등 겉모습을 적어주세요."
-            rows={4}
-            className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-primary/50"
-          />
-        </label>
+        <FormField
+          label="외형 특징"
+          value={appearance}
+          onChange={setAppearance}
+          placeholder="키, 체형, 헤어, 옷차림 등 겉모습을 적어주세요."
+          rows={4}
+        />
 
-        <label className="flex flex-col gap-1.5">
-          <span className="text-sm font-medium">향 노트</span>
-          <textarea
-            value={scentNote}
-            onChange={(e) => setScentNote(e.target.value)}
-            placeholder="이 캐릭터를 떠올리게 하는 향, 분위기를 적어주세요."
-            rows={3}
-            className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-primary/50"
-          />
-        </label>
+        <FormField
+          label="향 노트"
+          value={scentNote}
+          onChange={setScentNote}
+          placeholder="이 캐릭터를 떠올리게 하는 향, 분위기를 적어주세요."
+          rows={3}
+        />
 
-        <label className="flex flex-col gap-1.5">
-          <span className="text-sm font-medium">성격</span>
-          <textarea
-            value={personality}
-            onChange={(e) => setPersonality(e.target.value)}
-            placeholder="성격, 가치관, 취향 등을 적어주세요."
-            rows={5}
-            className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-primary/50"
-          />
-        </label>
+        <FormField
+          label="성격"
+          value={personality}
+          onChange={setPersonality}
+          placeholder="성격, 가치관, 취향 등을 적어주세요."
+          rows={5}
+        />
 
-        <label className="flex flex-col gap-1.5">
-          <span className="text-sm font-medium">말투</span>
-          <textarea
-            value={speechStyle}
-            onChange={(e) => setSpeechStyle(e.target.value)}
-            placeholder="말투와 어휘, 자주 쓰는 표현 등을 적어주세요."
-            rows={4}
-            className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-primary/50"
-          />
-        </label>
+        <FormField
+          label="말투"
+          value={speechStyle}
+          onChange={setSpeechStyle}
+          placeholder="말투와 어휘, 자주 쓰는 표현 등을 적어주세요."
+          rows={4}
+        />
 
-        <label className="flex flex-col gap-1.5">
-          <span className="text-sm font-medium">배경 이야기</span>
-          <textarea
-            value={background}
-            onChange={(e) => setBackground(e.target.value)}
-            placeholder="이 캐릭터를 둘러싼 상황이나 설정을 적어주세요."
-            rows={5}
-            className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-primary/50"
-          />
-        </label>
+        <FormField
+          label="배경 이야기"
+          value={background}
+          onChange={setBackground}
+          placeholder="이 캐릭터를 둘러싼 상황이나 설정을 적어주세요."
+          rows={5}
+        />
 
-        <label className="flex flex-col gap-1.5">
-          <span className="text-sm font-medium">살아온 궤적</span>
-          <textarea
-            value={lifeHistory}
-            onChange={(e) => setLifeHistory(e.target.value)}
-            placeholder="어린 시절부터 지금까지 겪어온 일들을 적어주세요."
-            rows={5}
-            className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-primary/50"
-          />
-        </label>
+        <FormField
+          label="살아온 궤적"
+          value={lifeHistory}
+          onChange={setLifeHistory}
+          placeholder="어린 시절부터 지금까지 겪어온 일들을 적어주세요."
+          rows={5}
+        />
 
-        <label className="flex flex-col gap-1.5">
-          <span className="text-sm font-medium">연관 인물</span>
-          <textarea
-            value={relatedCharacters}
-            onChange={(e) => setRelatedCharacters(e.target.value)}
-            placeholder="가족, 친구, 라이벌 등 이 캐릭터와 개인적으로 얽힌 인물을 적어주세요."
-            rows={4}
-            className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-primary/50"
-          />
-        </label>
+        <FormField
+          label="연관 인물"
+          value={relatedCharacters}
+          onChange={setRelatedCharacters}
+          placeholder="가족, 친구, 라이벌 등 이 캐릭터와 개인적으로 얽힌 인물을 적어주세요."
+          rows={4}
+        />
 
-        <label className="flex flex-col gap-1.5">
-          <span className="text-sm font-medium">애정 관계</span>
-          <textarea
-            value={romance}
-            onChange={(e) => setRomance(e.target.value)}
-            placeholder="짝사랑, 연인 등 애정과 관련된 관계를 적어주세요."
-            rows={4}
-            className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-primary/50"
-          />
-        </label>
+        <FormField
+          label="애정 관계"
+          value={romance}
+          onChange={setRomance}
+          placeholder="짝사랑, 연인 등 애정과 관련된 관계를 적어주세요."
+          rows={4}
+        />
 
-        <label className="flex flex-col gap-1.5">
-          <span className="text-sm font-medium">첫 인사</span>
-          <textarea
-            value={firstMessage}
-            onChange={(e) => setFirstMessage(e.target.value)}
-            placeholder="1:1 대화를 처음 열었을 때 캐릭터가 먼저 건네는 말이에요."
-            rows={3}
-            className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-primary/50"
-          />
-        </label>
+        <FormField
+          label="첫 인사"
+          value={firstMessage}
+          onChange={setFirstMessage}
+          placeholder="1:1 대화를 처음 열었을 때 캐릭터가 먼저 건네는 말이에요."
+          rows={3}
+        />
 
         {isEdit && (
           <div className="flex flex-col gap-2 rounded-2xl border border-border bg-card p-3">

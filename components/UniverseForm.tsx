@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { FormField } from "@/components/FormField";
 import TopBar from "@/components/TopBar";
 import { WarningIcon } from "@/components/icons";
 import { resizeImageFile } from "@/lib/image";
@@ -265,35 +266,26 @@ export default function UniverseForm({ universe }: { universe?: Universe }) {
 
         {!isOrg && (
           <>
-            <label className="flex flex-col gap-1.5">
-              <span className="text-sm font-medium">제목</span>
-              <input
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="AU 제목 (예: 친구에서 가이드로)"
-                className="rounded-xl border border-border bg-card p-3 text-sm outline-none focus:border-primary/50"
-              />
-            </label>
+            <FormField
+              label="제목"
+              value={title}
+              onChange={setTitle}
+              placeholder="AU 제목 (예: 친구에서 가이드로)"
+            />
 
-            <label className="flex flex-col gap-1.5">
-              <span className="text-sm font-medium">한 줄 소개</span>
-              <input
-                value={tagline}
-                onChange={(e) => setTagline(e.target.value)}
-                placeholder="목록 카드에 짧게 보여줄 소개 문구"
-                className="rounded-xl border border-border bg-card p-3 text-sm outline-none focus:border-primary/50"
-              />
-            </label>
+            <FormField
+              label="한 줄 소개"
+              value={tagline}
+              onChange={setTagline}
+              placeholder="목록 카드에 짧게 보여줄 소개 문구"
+            />
 
-            <label className="flex flex-col gap-1.5">
-              <span className="text-sm font-medium">해시태그</span>
-              <input
-                value={tagsText}
-                onChange={(e) => setTagsText(e.target.value)}
-                placeholder="쉼표로 구분해서 적어주세요 (예: 현대물, 소꿉친구)"
-                className="rounded-xl border border-border bg-card p-3 text-sm outline-none focus:border-primary/50"
-              />
-            </label>
+            <FormField
+              label="해시태그"
+              value={tagsText}
+              onChange={setTagsText}
+              placeholder="쉼표로 구분해서 적어주세요 (예: 현대물, 소꿉친구)"
+            />
 
             <div className="flex flex-col gap-2 rounded-2xl border border-border bg-card p-3">
               <span className="text-sm font-medium">역할 배정</span>
@@ -367,31 +359,25 @@ export default function UniverseForm({ universe }: { universe?: Universe }) {
           </>
         )}
 
-        <label className="flex flex-col gap-1.5">
-          <span className="text-sm font-medium">세계관</span>
-          <textarea
-            value={worldSetting}
-            onChange={(e) => setWorldSetting(e.target.value)}
-            placeholder={
-              isOrg
-                ? "캐릭터들이 살아가는 시대, 장소, 배경 등을 자유롭게 적어주세요."
-                : "이 AU만의 시대, 장소, 배경을 적어주세요."
-            }
-            rows={8}
-            className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-primary/50"
-          />
-        </label>
+        <FormField
+          label="세계관"
+          value={worldSetting}
+          onChange={setWorldSetting}
+          placeholder={
+            isOrg
+              ? "캐릭터들이 살아가는 시대, 장소, 배경 등을 자유롭게 적어주세요."
+              : "이 AU만의 시대, 장소, 배경을 적어주세요."
+          }
+          rows={8}
+        />
 
-        <label className="flex flex-col gap-1.5">
-          <span className="text-sm font-medium">파벌</span>
-          <textarea
-            value={faction}
-            onChange={(e) => setFaction(e.target.value)}
-            placeholder="조직, 가문, 그룹 등 파벌 구도를 적어주세요."
-            rows={5}
-            className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-primary/50"
-          />
-        </label>
+        <FormField
+          label="파벌"
+          value={faction}
+          onChange={setFaction}
+          placeholder="조직, 가문, 그룹 등 파벌 구도를 적어주세요."
+          rows={5}
+        />
 
         <div className="flex flex-col gap-3">
           <p className="text-sm font-medium">관계</p>
@@ -421,31 +407,22 @@ export default function UniverseForm({ universe }: { universe?: Universe }) {
           )}
         </div>
 
-        <label className="flex flex-col gap-1.5">
-          <span className="text-sm font-medium">용어 및 설정 사전</span>
-          <textarea
-            value={glossary}
-            onChange={(e) => setGlossary(e.target.value)}
-            placeholder="이 세계관만의 용어, 지명, 규칙 등을 적어주세요."
-            rows={5}
-            className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-primary/50"
-          />
-        </label>
+        <FormField
+          label="용어 및 설정 사전"
+          value={glossary}
+          onChange={setGlossary}
+          placeholder="이 세계관만의 용어, 지명, 규칙 등을 적어주세요."
+          rows={5}
+        />
 
-        <label className="flex flex-col gap-1.5">
-          <span className="text-sm font-medium">한 줄 요약</span>
-          <p className="-mt-1 text-xs text-muted">
-            위 세계관 내용을 다시 풀어 쓰지 말고, 무드나 후킹 포인트를
-            한두 문장으로만 적어주세요. 목록 미리보기에도 쓰여요.
-          </p>
-          <textarea
-            value={summary}
-            onChange={(e) => setSummary(e.target.value)}
-            placeholder="예: 서로를 지키려다 서로를 다치게 하는 사람들의 이야기"
-            rows={2}
-            className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-primary/50"
-          />
-        </label>
+        <FormField
+          label="한 줄 요약"
+          hint="위 세계관 내용을 다시 풀어 쓰지 말고, 무드나 후킹 포인트를 한두 문장으로만 적어주세요. 목록 미리보기에도 쓰여요."
+          value={summary}
+          onChange={setSummary}
+          placeholder="예: 서로를 지키려다 서로를 다치게 하는 사람들의 이야기"
+          rows={2}
+        />
 
         {error && <p className="text-sm text-red-600">{error}</p>}
 
