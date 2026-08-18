@@ -448,6 +448,15 @@ async function generate(params: {
   );
 }
 
+// room-chat 라우트(maxDuration 80초)는 검증 실패 시 이 함수를 최대 2번
+// 순차 호출할 수 있어서(app/api/room-chat/route.ts의 attemptTarget()),
+// 한 번의 호출이 예산 없이 5개 모델 × 키 개수를 전부 재시도하면 두
+// 번째 호출을 시작하기도 전에 route의 maxDuration을 플랫폼이 먼저
+// 끊어버릴 수 있다(generateStoryEpisode에서 이미 겪은 것과 같은
+// 클래스의 버그). 36초로 예산을 두면 두 번을 합쳐도 72초로 80초 안에
+// 여유 있게 들어온다.
+const CHAT_REPLY_DEADLINE_MS = 36_000;
+
 /** 1:1 대화 응답 (지문 + 대사 한 쌍. say는 스키마상 필수) */
 export async function generateChatReply(params: {
   systemInstruction: string;
@@ -458,6 +467,7 @@ export async function generateChatReply(params: {
     json: true,
     singleReply: true,
     models: DIALOGUE_MODEL_CHAIN,
+    overallDeadlineMs: CHAT_REPLY_DEADLINE_MS,
   });
 }
 
@@ -474,12 +484,23 @@ export async function generateSceneJson(params: {
   });
 }
 
+// 요약 라우트(summarize/summarize-arc/summarize-story)는 모두
+// maxDuration 60초에 이 함수를 한 번만 호출한다. 예산 없이 재시도하면
+// (모델은 LITE_MODEL 하나뿐이지만 키가 여러 개면 그만큼 반복) 60초를
+// 넘겨 플랫폼이 강제 종료할 수 있어, 12초 여유를 두고 48초로 제한한다.
+const SUMMARY_DEADLINE_MS = 48_000;
+
 /** 1:1 대화 기록을 짧은 지문으로 요약하는 평문 응답 (JSON 아님) */
 export async function generateSummaryText(params: {
   systemInstruction: string;
   contents: Content[];
 }): Promise<string> {
-  const { text } = await generate({ ...params, json: false, models: [LITE_MODEL] });
+  const { text } = await generate({
+    ...params,
+    json: false,
+    models: [LITE_MODEL],
+    overallDeadlineMs: SUMMARY_DEADLINE_MS,
+  });
   return text;
 }
 
@@ -523,6 +544,10 @@ export async function generateStoryEpisode(params: {
   });
 }
 
+// character-profile 라우트는 maxDuration 60초에 이 함수를 한 번만
+// 호출한다. 10초 여유를 두고 50초로 제한한다.
+const CHARACTER_PROFILE_DEADLINE_MS = 50_000;
+
 /** 대화 기록을 참고해 캐릭터 설정 항목별로 다듬은 글을 제안 (JSON 객체) */
 export async function generateCharacterProfile(params: {
   systemInstruction: string;
@@ -533,5 +558,6 @@ export async function generateCharacterProfile(params: {
     json: true,
     responseSchema: CHARACTER_PROFILE_SCHEMA,
     models: DIALOGUE_MODEL_CHAIN,
+    overallDeadlineMs: CHARACTER_PROFILE_DEADLINE_MS,
   });
 }
