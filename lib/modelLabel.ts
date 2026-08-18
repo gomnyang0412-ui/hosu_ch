@@ -4,7 +4,7 @@
 const MODEL_LABELS: Record<string, string> = {
   "gemini-3.6-flash": "Gemini 3.6 Flash",
   "gemini-2.5-flash": "Gemini 2.5 Flash",
-  "gemini-3-flash": "Gemini 3 Flash",
+  "gemini-3-flash-preview": "Gemini 3 Flash Preview",
   "gemini-3.5-flash": "Gemini 3.5 Flash",
   "gemini-3.5-flash-lite": "Gemini 3.5 Flash Lite",
 };

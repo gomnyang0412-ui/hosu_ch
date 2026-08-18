@@ -59,9 +59,10 @@
   - `app/observe/page.tsx` — 관찰 모드 (하단 탭 3, `?universe=` 쿼리로 AU 지정 가능)
   - `app/character/new`, `app/character/[id]/edit` — 캐릭터 추가/편집
   - `app/character/[id]/chat` — 1:1 대화 (`?universe=` 쿼리로 AU 지정 가능)
-  - `app/api/chat/route.ts` — 1:1 대화용 Gemini 호출 (서버 전용)
+  - `app/thread/[threadId]` — 멀티 대화방
+  - `app/api/room-chat/route.ts` — 1:1/멀티 대화방 공용 Gemini 호출 (서버 전용)
   - `app/api/scene/route.ts` — 관찰 모드 장면 생성용 Gemini 호출 (서버 전용)
-  - `app/api/data/*` — 캐릭터/세계관(유니버스)/대화기록/관찰세션 CRUD (서버 전용, Redis 사용)
+  - `app/api/data/*` — 캐릭터/세계관(유니버스)/대화방/관찰세션 CRUD (서버 전용, Redis 사용)
 - `lib/db.ts` — Redis 읽기/쓰기 (서버 전용)
 - `lib/storage.ts` — 브라우저에서 `app/api/data/*`를 호출하는 클라이언트
 - `lib/migrate.ts` — 예전 버전(localStorage 저장 방식)의 데이터를 서버가 비어있을 때 한 번 옮기는 마이그레이션
@@ -70,7 +71,7 @@
 
 ## API 키 관련 안내
 
-Gemini API 키는 브라우저 코드에 절대 포함되지 않습니다. `app/api/chat`, `app/api/scene` 라우트 핸들러가 서버에서만 `process.env.GEMINI_API_KEY`를 읽어 Gemini를 호출하고, 브라우저는 이 두 라우트만 호출합니다.
+Gemini API 키는 브라우저 코드에 절대 포함되지 않습니다. `app/api/room-chat`, `app/api/scene`을 비롯한 `app/api/*` 라우트 핸들러가 서버에서만 `process.env.GEMINI_API_KEY`를 읽어 Gemini를 호출하고, 브라우저는 이 라우트들만 호출합니다.
 
 ### 하루 사용량을 다 썼을 때 (여러 계정 키 함께 쓰기)
 
