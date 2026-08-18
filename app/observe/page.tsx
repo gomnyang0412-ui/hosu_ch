@@ -26,6 +26,7 @@ import {
   saveStory,
   deleteStory,
   saveRoom,
+  storageErrorMessage,
 } from "@/lib/storage";
 import { nextArcRange } from "@/lib/story";
 import { resolveUniverseTemplate } from "@/lib/template";
@@ -190,9 +191,12 @@ function ObservePageInner() {
     options?.afterUpdate?.();
     try {
       await saveStory(updated);
-    } catch {
+    } catch (err) {
       if (options?.onSaveError) {
-        setError({ message: options.onSaveError, kind: "unknown" });
+        setError({
+          message: storageErrorMessage(err, options.onSaveError),
+          kind: "unknown",
+        });
       }
     }
   }
@@ -336,8 +340,11 @@ function ObservePageInner() {
     setStories((prev) => [...(prev ?? []), newStory]);
     try {
       await saveStory(newStory);
-    } catch {
-      setError({ message: "이번 화를 저장하지 못했어요.", kind: "unknown" });
+    } catch (err) {
+      setError({
+        message: storageErrorMessage(err, "이번 화를 저장하지 못했어요."),
+        kind: "unknown",
+      });
     }
     router.push(`/observe?universe=${universeId}&story=${newStory.id}`);
   }
@@ -427,8 +434,11 @@ function ObservePageInner() {
       if (storyId === id) {
         router.push(`/observe?universe=${universeId}`);
       }
-    } catch {
-      setError({ message: "이야기를 지우지 못했어요.", kind: "unknown" });
+    } catch (err) {
+      setError({
+        message: storageErrorMessage(err, "이야기를 지우지 못했어요."),
+        kind: "unknown",
+      });
     } finally {
       setDeletingId(null);
     }
@@ -473,8 +483,10 @@ function ObservePageInner() {
       };
       await saveRoom(thread);
       router.push(`/thread/${thread.id}?universe=${universeId}`);
-    } catch {
-      setStartChatError("네트워크 문제로 대화방을 만들지 못했어요.");
+    } catch (err) {
+      setStartChatError(
+        storageErrorMessage(err, "네트워크 문제로 대화방을 만들지 못했어요.")
+      );
     } finally {
       setStartingChat(false);
     }
