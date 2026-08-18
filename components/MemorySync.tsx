@@ -5,7 +5,11 @@ import { useEffect } from "react";
 const STORAGE_KEY = "hiatus:lastMemorySync";
 // 밀린 날짜가 많은 첫 실행 등을 대비해, 서버가 "더 처리할 게 남았다"고
 // 하면 같은 접속 안에서 몇 번 더 이어서 호출한다 (무한 재시도는 아님).
-const MAX_ROUNDS = 4;
+// 너무 크게 잡으면 캐릭터 × 유니버스 조합이 많을 때 한 번의 접속에서
+// Gemini 호출이 오래 몰려, 그 사이 사용자가 직접 쓰는 화면(관찰모드 등)의
+// Gemini 호출과 API 키를 두고 경쟁해 느려질 수 있다 — 다 못 끝낸 나머지는
+// 어차피 다음 접속(하루 뒤)에 이어서 처리되니 작게 잡아도 괜찮다.
+const MAX_ROUNDS = 2;
 
 function todayKST(): string {
   return new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Seoul" });

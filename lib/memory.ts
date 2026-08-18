@@ -67,12 +67,13 @@ export function daysAgo(dateStr: string, today = todayKST()): number {
 export const WEEK_COMPACT_AFTER_DAYS = 14;
 export const MONTH_COMPACT_AFTER_WEEKS = 8;
 
-// 한 번의 동기화 요청에는 여러 캐릭터가 걸릴 수 있고, 캐릭터 한 명당
-// 밀린 날짜 하나마다 Gemini 호출이 하나씩 들어간다. 서버리스 함수
-// 제한 시간(60초) 안에 넉넉히 끝나도록, 한 번엔 캐릭터당 이만큼만
-// 처리하고 나머지는 다음 동기화(클라이언트가 필요하면 곧바로 다시
-// 호출)로 넘긴다.
-export const MAX_PENDING_DAYS_PER_SYNC = 6;
+// 한 번의 동기화 요청에는 여러 캐릭터 × 유니버스 조합이 걸릴 수 있고,
+// 조합 하나당 밀린 날짜 하나마다 Gemini 호출이 하나씩 들어간다. 서버리스
+// 함수 제한 시간 안에 넉넉히 끝나는 것뿐 아니라, 캐릭터가 대화 화면에서
+// 직접 쓰는 Gemini 호출(같은 API 키)과 한꺼번에 몰려 서로 느려지지
+// 않도록, 한 조합당 이만큼만 처리하고 나머지는 다음 동기화(클라이언트가
+// 필요하면 곧바로 다시 호출)로 넘긴다.
+export const MAX_PENDING_DAYS_PER_SYNC = 3;
 
 function scopeRank(scope: MemoryEntry["scope"]): number {
   return scope === "month" ? 0 : scope === "week" ? 1 : 2;

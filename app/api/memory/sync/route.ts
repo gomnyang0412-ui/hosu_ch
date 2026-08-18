@@ -9,10 +9,12 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 // 유니버스가 여러 개면 캐릭터 × 유니버스 조합 수만큼 동기화가 곱으로
-// 늘어난다. 플랫폼이 함수를 강제 종료하기 전에 먼저 멈추고 "더 있다"고
-// 알려서, 클라이언트의 재호출 루프(components/MemorySync.tsx, more:true면
-// 곧바로 다시 부른다)로 나머지를 넘긴다.
-const SYNC_ROUTE_DEADLINE_MS = 50_000;
+// 늘어난다. 플랫폼이 함수를 강제 종료하기 전에 먼저 멈추는 것뿐 아니라,
+// 이 백그라운드 작업이 같은 API 키를 쓰는 사용자 화면 쪽 Gemini 호출과
+// 너무 오래 경쟁하지 않도록 짧게 잡는다 — 다 못 끝내면 "더 있다"고 알려서
+// 클라이언트의 재호출 루프(components/MemorySync.tsx, more:true면 곧바로
+// 다시 부른다)로 나머지를 넘긴다.
+const SYNC_ROUTE_DEADLINE_MS = 20_000;
 
 export async function POST() {
   const startedAt = Date.now();
