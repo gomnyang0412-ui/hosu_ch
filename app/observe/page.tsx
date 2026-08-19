@@ -82,6 +82,12 @@ function ObservePageInner() {
   const searchParams = useSearchParams();
   const universeId = searchParams.get("universe") || ORG_UNIVERSE_ID;
   const storyId = searchParams.get("story");
+  /** UniverseForm의 "이 AU로 관찰 모드 시작하기" 버튼처럼, 목록이 아니라
+   *  바로 새 이야기 폼부터 보여줘야 하는 진입점 표시. 목록 화면은
+   *  browseSessions(다른 유니버스 포함)가 비어 있을 때만 폼을 자동으로
+   *  띄우는데, 다른 유니버스에 이야기가 하나라도 있으면 정작 이 AU가
+   *  비어 있어도 폼 대신 목록이 뜨는 문제가 있어 이 파라미터로 우회한다. */
+  const forceNewForm = searchParams.get("new") === "1";
 
   const [universe, setUniverse] = useState<Universe | null>(null);
   const [allCharacters, setAllCharacters] = useState<Character[]>([]);
@@ -112,7 +118,7 @@ function ObservePageInner() {
   useEffect(() => {
     setStories(null);
     setOtherStories([]);
-    setShowNewForm(false);
+    setShowNewForm(forceNewForm);
     setSelectedIds([]);
     setImportIds([]);
     setTopic("");

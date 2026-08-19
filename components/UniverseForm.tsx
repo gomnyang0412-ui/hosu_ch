@@ -475,7 +475,7 @@ export default function UniverseForm({ universe }: { universe?: Universe }) {
                     ))}
                 </div>
                 <Link
-                  href={`/observe?universe=${base.id}`}
+                  href={`/observe?universe=${base.id}&new=1`}
                   className="rounded-xl border border-border py-2.5 text-center text-sm font-semibold"
                 >
                   이 AU로 관찰 모드 시작하기
@@ -499,7 +499,7 @@ export default function UniverseForm({ universe }: { universe?: Universe }) {
                   ))}
                 </div>
                 <Link
-                  href={`/observe?universe=${base.id}`}
+                  href={`/observe?universe=${base.id}&new=1`}
                   className="rounded-xl border border-border py-2.5 text-center text-sm font-semibold"
                 >
                   이 AU로 관찰 모드 시작하기
