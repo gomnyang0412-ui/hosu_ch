@@ -3,10 +3,22 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import BottomNav from "@/components/BottomNav";
-import { EditIcon, GlobeIcon, SparkleIcon, WarningIcon } from "@/components/icons";
+import {
+  EditIcon,
+  GlobeIcon,
+  PlusIcon,
+  SparkleIcon,
+  TrashIcon,
+  WarningIcon,
+} from "@/components/icons";
 import { moodPlaceholderImage } from "@/lib/image";
 import { SAMPLE_AUS } from "@/lib/sampleAus";
-import { getUniverses, saveUniverse, storageErrorMessage } from "@/lib/storage";
+import {
+  deleteUniverse,
+  getUniverses,
+  saveUniverse,
+  storageErrorMessage,
+} from "@/lib/storage";
 import { hasUnresolvedRoles } from "@/lib/template";
 import { RELATION_SLOT_COUNT, type Universe } from "@/lib/types";
 
@@ -33,6 +45,7 @@ export default function AuListPage() {
   const [universes, setUniverses] = useState<Universe[] | null>(null);
   const [error, setError] = useState("");
   const [addingSamples, setAddingSamples] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -48,6 +61,26 @@ export default function AuListPage() {
   const aus = universes?.filter((u) => u.type === "au") ?? [];
   const existingTitles = new Set(aus.map((u) => u.title));
   const missingSamples = SAMPLE_AUS.filter((s) => !existingTitles.has(s.title));
+
+  async function handleDeleteAu(u: Universe) {
+    if (
+      !window.confirm(
+        `"${u.title || "이 AU"}"를 삭제할까요? 이 AU에서 나눈 대화 기록은 남지만 목록에서는 사라져요.`
+      )
+    )
+      return;
+    setDeletingId(u.id);
+    try {
+      await deleteUniverse(u.id);
+      setUniverses((prev) => (prev ?? []).filter((x) => x.id !== u.id));
+    } catch (err) {
+      setError(
+        storageErrorMessage(err, "삭제 중 문제가 생겼어요. 잠시 후 다시 시도해 주세요.")
+      );
+    } finally {
+      setDeletingId(null);
+    }
+  }
 
   async function handleAddSamples() {
     setAddingSamples(true);
@@ -86,6 +119,14 @@ export default function AuListPage() {
     <div className="flex flex-1 flex-col">
       <header className="flex items-center justify-between px-4 pt-5 pb-3">
         <h1 className="text-xl font-bold">세계관</h1>
+        <Link
+          href="/au/new"
+          aria-label="AU 추가"
+          title="AU 추가"
+          className="flex h-9 w-9 items-center justify-center rounded-full bg-primary text-primary-foreground transition-transform hover:scale-[1.05] active:scale-[0.95]"
+        >
+          <PlusIcon />
+        </Link>
       </header>
 
       <main className="flex-1 px-4 pb-4">
@@ -117,11 +158,11 @@ export default function AuListPage() {
         ) : (
           <ul className="mb-4 grid grid-cols-1 gap-2 lg:grid-cols-2 lg:gap-3">
             {aus.map((u) => (
-              <li key={u.id}>
-                <Link
-                  href={`/au/${u.id}/edit`}
-                  className="glass flex items-center gap-3 rounded-2xl p-3 transition-transform hover:-translate-y-0.5"
-                >
+              <li
+                key={u.id}
+                className="glass flex items-center gap-3 rounded-2xl p-3 transition-transform hover:-translate-y-0.5"
+              >
+                <Link href={`/au/${u.id}/edit`} className="flex min-w-0 flex-1 items-center gap-3">
                   <UniverseThumb universe={u} />
                   <div className="min-w-0 flex-1">
                     <p className="truncate font-semibold">{u.title}</p>
@@ -140,6 +181,16 @@ export default function AuListPage() {
                     )}
                   </div>
                 </Link>
+                <button
+                  type="button"
+                  onClick={() => handleDeleteAu(u)}
+                  disabled={deletingId === u.id}
+                  aria-label="AU 삭제"
+                  title="AU 삭제"
+                  className="shrink-0 text-base text-muted transition-transform hover:scale-110 hover:text-red-600 disabled:opacity-40"
+                >
+                  <TrashIcon />
+                </button>
               </li>
             ))}
           </ul>
