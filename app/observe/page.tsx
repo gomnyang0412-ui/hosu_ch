@@ -104,6 +104,8 @@ function ObservePageInner() {
   const [importIds, setImportIds] = useState<string[]>([]);
   const [topic, setTopic] = useState("");
   const [directive, setDirective] = useState("");
+  const [twoPartMode, setTwoPartMode] = useState(false);
+  const [generatingPart, setGeneratingPart] = useState<1 | 2 | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<SceneErrorState | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -123,6 +125,7 @@ function ObservePageInner() {
     setImportIds([]);
     setTopic("");
     setDirective("");
+    setTwoPartMode(false);
     setError(null);
     (async () => {
       try {
@@ -400,31 +403,57 @@ function ObservePageInner() {
     }
   }
 
+  /**
+   * "2화로 나눠 쓰기" 체크 시 자동으로 덧붙는 지시. 사용자가 직접 "2편"
+   * 같은 키워드를 입력하게 하는 대신, 체크박스로 명시적으로 켠 경우에만
+   * 코드에서 붙인다 — 지문에 우연히 비슷한 단어가 들어가도 오작동하지
+   * 않는다.
+   */
+  const TWO_PART_NOTES: Record<1 | 2, string> = {
+    1: "이 사건은 이번 화와 다음 화, 두 화에 걸쳐 다룬다. 이번 화에서는 사건을 매듭짓지 말고 자연스럽게 이어질 지점에서 멈춘다.",
+    2: "직전 화에 바로 이어서 이 사건을 마무리한다.",
+  };
+
   async function handleContinue() {
     if (!session || !universe) return;
     const resolvedUniverse = resolveUniverseTemplate(universe, allCharacters);
-    const current = await compactArcIfNeeded(session, resolvedUniverse);
+    let current = await compactArcIfNeeded(session, resolvedUniverse);
     // 구간 요약 저장에 실패해도(onSaveError 생략 = 조용히 무시) 화 쓰기는
     // 계속 진행한다 — 다음 이어쓰기 때 다시 시도된다
     if (current !== session) await persistStoryUpdate(current);
-    const episode = await requestEpisode({
-      characters: sceneCharacters,
-      topic: current.topic,
-      previousEpisodes: current.episodes,
-      characterContext: current.characterContext,
-      arcSummaries: current.arcSummaries,
-      directive: directive.trim() || undefined,
-    });
-    if (!episode) return;
-    const updated: ObservationSession = {
-      ...current,
-      episodes: [...current.episodes, episode],
-      updatedAt: Date.now(),
-    };
-    await persistStoryUpdate(updated, {
-      onSaveError: "이번 화를 저장하지 못했어요.",
-      afterUpdate: () => setDirective(""),
-    });
+
+    const userDirective = directive.trim();
+    const parts: (1 | 2)[] = twoPartMode ? [1, 2] : [1];
+
+    for (const part of parts) {
+      setGeneratingPart(twoPartMode ? part : null);
+      const combinedDirective = twoPartMode
+        ? [part === 1 ? userDirective : "", TWO_PART_NOTES[part]].filter(Boolean).join(" ")
+        : userDirective;
+      const episode = await requestEpisode({
+        characters: sceneCharacters,
+        topic: current.topic,
+        previousEpisodes: current.episodes,
+        characterContext: current.characterContext,
+        arcSummaries: current.arcSummaries,
+        directive: combinedDirective || undefined,
+      });
+      if (!episode) {
+        setGeneratingPart(null);
+        return;
+      }
+      current = {
+        ...current,
+        episodes: [...current.episodes, episode],
+        updatedAt: Date.now(),
+      };
+      const isLastPart = part === parts[parts.length - 1];
+      await persistStoryUpdate(current, {
+        onSaveError: "이번 화를 저장하지 못했어요.",
+        afterUpdate: isLastPart ? () => setDirective("") : undefined,
+      });
+    }
+    setGeneratingPart(null);
   }
 
   async function handleDeleteStory(id: string, targetUniverseId = universeId) {
@@ -683,7 +712,7 @@ function ObservePageInner() {
                   />
                 </label>
                 <p className="-mt-3 text-xs text-muted">
-                  한 화당 5000자 안팎의 단편소설로 이어져요.
+                  한 화당 3000~3600자 안팎의 단편소설로 이어져요.
                 </p>
 
                 {selectedIds.some((id) => hasHistoryIds.has(id)) && (
@@ -935,7 +964,7 @@ function ObservePageInner() {
 
             {loading && (
               <p className="text-center text-sm text-muted">
-                다음 화를 쓰는 중…
+                {generatingPart ? `${generatingPart}/2화 쓰는 중…` : "다음 화를 쓰는 중…"}
               </p>
             )}
 
@@ -966,12 +995,23 @@ function ObservePageInner() {
                     className="resize-none rounded-xl border border-border bg-card p-2.5 text-sm outline-none focus:border-primary/50"
                   />
                 </label>
+                <label className="flex items-center gap-2 text-xs text-muted">
+                  <input
+                    type="checkbox"
+                    checked={twoPartMode}
+                    onChange={(e) => setTwoPartMode(e.target.checked)}
+                    className="h-4 w-4"
+                  />
+                  이 사건, 2화로 나눠 쓰기
+                </label>
                 <button
                   type="button"
                   onClick={handleContinue}
                   className="group flex items-center justify-center gap-2 rounded-xl bg-accent py-3 pr-3 pl-5 text-sm font-semibold text-accent-foreground transition-transform hover:scale-[1.01] active:scale-[0.98]"
                 >
-                  {session.episodes.length + 1}화 이어쓰기
+                  {twoPartMode
+                    ? `${session.episodes.length + 1}~${session.episodes.length + 2}화 이어쓰기`
+                    : `${session.episodes.length + 1}화 이어쓰기`}
                   <span className="flex h-7 w-7 items-center justify-center rounded-full bg-accent-foreground/20 transition-transform group-hover:translate-x-0.5">
                     <ChevronRightIcon />
                   </span>
