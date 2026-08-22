@@ -16,6 +16,7 @@ import {
   ChevronRightIcon,
   ClapperIcon,
   CloseIcon,
+  EditIcon,
   PlusIcon,
   StarIcon,
   TrashIcon,
@@ -333,6 +334,40 @@ function ObservePageInner() {
       setCoverImage(await resizeImageFile(file, 640));
     } catch {
       setError({ message: "표지 이미지를 불러오지 못했어요.", kind: "unknown" });
+    } finally {
+      setCoverImageLoading(false);
+    }
+  }
+
+  /** 이미 진행 중인 이야기에서 표지를 나중에 새로 넣거나 바꿀 때 쓴다.
+   *  새 이야기 시작 폼의 coverImage(초안 상태)와 달리, 여기서는 선택하는
+   *  즉시 그 이야기에 바로 저장한다. */
+  async function handleSessionCoverChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || !session) return;
+    setCoverImageLoading(true);
+    try {
+      const dataUrl = await resizeImageFile(file, 640);
+      await persistStoryUpdate(
+        { ...session, coverImage: dataUrl, updatedAt: Date.now() },
+        { onSaveError: "표지 이미지를 저장하지 못했어요." }
+      );
+    } catch {
+      setError({ message: "표지 이미지를 불러오지 못했어요.", kind: "unknown" });
+    } finally {
+      setCoverImageLoading(false);
+    }
+  }
+
+  async function handleRemoveSessionCover() {
+    if (!session) return;
+    setCoverImageLoading(true);
+    try {
+      await persistStoryUpdate(
+        { ...session, coverImage: undefined, updatedAt: Date.now() },
+        { onSaveError: "표지 이미지를 지우지 못했어요." }
+      );
     } finally {
       setCoverImageLoading(false);
     }
@@ -944,6 +979,54 @@ function ObservePageInner() {
         ) : (
           <div className="flex flex-col gap-6">
             <div className="flex flex-col gap-2">
+              {session.coverImage ? (
+                <div className="relative w-full overflow-hidden rounded-2xl">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={session.coverImage}
+                    alt=""
+                    className="h-40 w-full object-cover"
+                  />
+                  <div className="absolute top-2 right-2 flex gap-1.5">
+                    <label className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full bg-black/50 text-white transition-transform hover:scale-110">
+                      <EditIcon />
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleSessionCoverChange}
+                        disabled={coverImageLoading}
+                        className="hidden"
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      onClick={handleRemoveSessionCover}
+                      disabled={coverImageLoading}
+                      aria-label="표지 이미지 삭제"
+                      className="flex h-7 w-7 items-center justify-center rounded-full bg-black/50 text-white transition-transform hover:scale-110 disabled:opacity-40"
+                    >
+                      <CloseIcon />
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <label className="inline-flex w-fit cursor-pointer items-center gap-1.5 self-start rounded-full border border-dashed border-border px-2.5 py-1 text-xs text-muted">
+                  {coverImageLoading ? (
+                    "불러오는 중…"
+                  ) : (
+                    <>
+                      <PlusIcon /> 표지 추가
+                    </>
+                  )}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleSessionCoverChange}
+                    disabled={coverImageLoading}
+                    className="hidden"
+                  />
+                </label>
+              )}
               <p className="text-xs text-muted">주제: {session.topic}</p>
               <div className="flex flex-wrap items-center gap-2">
                 {sceneCharacters.map((c) => (
