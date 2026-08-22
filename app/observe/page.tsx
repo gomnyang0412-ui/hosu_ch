@@ -980,7 +980,7 @@ function ObservePageInner() {
           <div className="flex flex-col gap-6">
             <div className="flex flex-col gap-2">
               {session.coverImage ? (
-                <div className="relative aspect-[2/3] w-full max-w-[220px] overflow-hidden rounded-2xl">
+                <div className="relative aspect-[2/3] w-full overflow-hidden rounded-2xl">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={session.coverImage}
