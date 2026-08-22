@@ -74,6 +74,23 @@ export function ChevronRightIcon(props: IconProps) {
   );
 }
 
+export function ChevronLeftIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <path d="M12.5 5l-5 5 5 5" />
+    </svg>
+  );
+}
+
+export function BookIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <path d="M10 6.2C8.6 5.1 6.7 4.6 4 4.6v10.6c2.7 0 4.6.5 6 1.6 1.4-1.1 3.3-1.6 6-1.6V4.6c-2.7 0-4.6.5-6 1.6z" />
+      <path d="M10 6.2v10.6" />
+    </svg>
+  );
+}
+
 export function BackArrowIcon(props: IconProps) {
   return (
     <svg {...base(props)}>

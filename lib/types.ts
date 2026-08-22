@@ -232,6 +232,9 @@ export interface ObservationSession {
   /** 너무 오래돼 전문/한 줄 요약 범위 밖으로 밀려난 화들을 묶어 압축한
    *  구간 요약들. 오래된 순. lib/story.ts의 nextArcRange가 관리한다. */
   arcSummaries?: ArcSummary[];
+  /** 이야기 시작할 때 사용자가 고른 책 표지 이미지 (base64 dataURL). 관찰
+   *  목록의 책장 화면에서 이 이야기의 표지로 쓰인다. 없으면 기본 표지로 표시. */
+  coverImage?: string;
   createdAt: number;
   updatedAt: number;
 }

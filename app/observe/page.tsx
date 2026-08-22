@@ -9,13 +9,18 @@ import CharacterAvatar from "@/components/CharacterAvatar";
 import EpisodeJumpPanel, { episodeAnchorId } from "@/components/EpisodeJumpPanel";
 import {
   BackArrowIcon,
+  BookIcon,
   BookmarkRibbonIcon,
   ChatBubbleIcon,
+  ChevronLeftIcon,
   ChevronRightIcon,
   ClapperIcon,
+  CloseIcon,
+  PlusIcon,
   StarIcon,
   TrashIcon,
 } from "@/components/icons";
+import { resizeImageFile } from "@/lib/image";
 import { sourceLabel } from "@/lib/modelLabel";
 import {
   getCharacters,
@@ -62,12 +67,8 @@ function storyTitle(session: ObservationSession, characters: Character[]): strin
   return session.topic.trim() ? `${namePart} · ${session.topic.trim()}` : namePart;
 }
 
-function formatDate(ts: number): string {
-  return new Date(ts).toLocaleDateString("ko-KR", {
-    month: "long",
-    day: "numeric",
-  });
-}
+/** 책장 한 페이지에 보이는 책 수 (가로 3권 x 세로 3권) */
+const BOOKS_PER_PAGE = 9;
 
 export default function ObservePage() {
   return (
@@ -103,6 +104,9 @@ function ObservePageInner() {
   const [hasHistoryIds, setHasHistoryIds] = useState<Set<string>>(new Set());
   const [importIds, setImportIds] = useState<string[]>([]);
   const [topic, setTopic] = useState("");
+  const [coverImage, setCoverImage] = useState<string | undefined>(undefined);
+  const [coverImageLoading, setCoverImageLoading] = useState(false);
+  const [shelfPage, setShelfPage] = useState(0);
   const [directive, setDirective] = useState("");
   const [twoPartMode, setTwoPartMode] = useState(false);
   const [generatingPart, setGeneratingPart] = useState<1 | 2 | null>(null);
@@ -124,6 +128,8 @@ function ObservePageInner() {
     setSelectedIds([]);
     setImportIds([]);
     setTopic("");
+    setCoverImage(undefined);
+    setShelfPage(0);
     setDirective("");
     setTwoPartMode(false);
     setError(null);
@@ -318,6 +324,20 @@ function ObservePageInner() {
     }
   }
 
+  async function handleCoverImageChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setCoverImageLoading(true);
+    try {
+      setCoverImage(await resizeImageFile(file, 640));
+    } catch {
+      setError({ message: "표지 이미지를 불러오지 못했어요.", kind: "unknown" });
+    } finally {
+      setCoverImageLoading(false);
+    }
+  }
+
   async function handleStart() {
     if (selectedIds.length < 2 || !topic.trim() || !universe) return;
     const characters = allCharacters.filter((c) => selectedIds.includes(c.id));
@@ -343,6 +363,7 @@ function ObservePageInner() {
       topic: topic.trim(),
       episodes: [episode],
       characterContext: characterContext || undefined,
+      coverImage,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -601,6 +622,12 @@ function ObservePageInner() {
     ...otherStories,
   ].sort((a, b) => b.updatedAt - a.updatedAt);
   const showForm = showNewForm || browseSessions.length === 0;
+  const shelfTotalPages = Math.max(1, Math.ceil(browseSessions.length / BOOKS_PER_PAGE));
+  const shelfPageClamped = Math.min(shelfPage, shelfTotalPages - 1);
+  const shelfBooks = browseSessions.slice(
+    shelfPageClamped * BOOKS_PER_PAGE,
+    shelfPageClamped * BOOKS_PER_PAGE + BOOKS_PER_PAGE
+  );
 
   return (
     <div className="flex flex-1 flex-col">
@@ -670,6 +697,43 @@ function ObservePageInner() {
               </p>
             ) : showForm ? (
               <>
+                <div className="relative aspect-[2/3] w-full overflow-hidden rounded-2xl border border-dashed border-border bg-card">
+                  <label className="flex h-full w-full cursor-pointer items-center justify-center">
+                    {coverImage ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={coverImage} alt="" className="h-full w-full object-cover" />
+                    ) : (
+                      <span className="flex flex-col items-center gap-1.5 text-muted">
+                        {coverImageLoading ? (
+                          <span className="text-xs">불러오는 중…</span>
+                        ) : (
+                          <>
+                            <PlusIcon className="text-3xl" />
+                            <span className="text-xs">책 표지 넣기 (선택)</span>
+                          </>
+                        )}
+                      </span>
+                    )}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleCoverImageChange}
+                      disabled={coverImageLoading}
+                      className="hidden"
+                    />
+                  </label>
+                  {coverImage && (
+                    <button
+                      type="button"
+                      onClick={() => setCoverImage(undefined)}
+                      aria-label="표지 이미지 삭제"
+                      className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-black/50 text-white transition-transform hover:scale-110"
+                    >
+                      <CloseIcon />
+                    </button>
+                  )}
+                </div>
+
                 <div>
                   <p className="mb-2 text-sm font-medium">
                     등장할 캐릭터 (2명 이상)
@@ -786,40 +850,94 @@ function ObservePageInner() {
                 )}
               </>
             ) : (
-              <div className="flex flex-col gap-2">
-                {browseSessions.map((s) => (
-                  <div
-                    key={s.id}
-                    className="card-shadow flex items-center gap-3 rounded-2xl bg-card p-3"
-                  >
-                    <Link
-                      href={`/observe?universe=${s.universeId}&story=${s.id}`}
-                      className="min-w-0 flex-1"
-                    >
-                      <p className="truncate font-semibold">
-                        {s.isAu && (
-                          <span className="mr-1.5 rounded-full bg-accent/15 px-1.5 py-0.5 align-middle text-[10px] font-bold text-accent">
-                            AU
-                          </span>
-                        )}
-                        {storyTitle(s, allCharacters)}
-                      </p>
-                      <p className="text-xs text-muted">
-                        {s.episodes.length}화 · {formatDate(s.updatedAt)}
-                        {s.isAu && ` · ${s.universeTitle}`}
-                      </p>
-                    </Link>
+              <div className="flex flex-col gap-3">
+                <div className="rounded-2xl border border-border bg-card p-3">
+                  <div className="grid grid-cols-3 gap-3">
+                    {shelfBooks.map((s) => (
+                      <div
+                        key={s.id}
+                        className="group relative aspect-[2/3] overflow-hidden rounded-lg shadow-md ring-1 ring-black/10 transition-transform hover:-translate-y-1"
+                      >
+                        <Link
+                          href={`/observe?universe=${s.universeId}&story=${s.id}`}
+                          className="absolute inset-0"
+                        >
+                          {s.coverImage ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={s.coverImage}
+                              alt=""
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <div
+                              className={`flex h-full w-full flex-col items-center justify-center gap-1.5 p-2 text-center ${
+                                s.isAu ? "bg-accent/15" : "bg-primary/15"
+                              }`}
+                            >
+                              <BookIcon className="text-2xl text-muted" />
+                              <span className="line-clamp-3 text-[10px] font-medium text-foreground">
+                                {storyTitle(s, allCharacters)}
+                              </span>
+                            </div>
+                          )}
+                          {s.coverImage && (
+                            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent px-1.5 pt-5 pb-1.5">
+                              <p className="truncate text-[10px] font-semibold text-white">
+                                {storyTitle(s, allCharacters)}
+                              </p>
+                            </div>
+                          )}
+                          {s.isAu && (
+                            <span className="absolute top-1 left-1 rounded-full bg-accent px-1.5 py-0.5 text-[9px] font-bold text-accent-foreground">
+                              AU
+                            </span>
+                          )}
+                        </Link>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteStory(s.id, s.universeId)}
+                          disabled={deletingId === s.id}
+                          aria-label="이야기 삭제"
+                          className="absolute top-1 right-1 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-black/50 text-white transition-transform hover:scale-110 disabled:opacity-40"
+                        >
+                          <TrashIcon />
+                        </button>
+                      </div>
+                    ))}
+                    {Array.from({ length: BOOKS_PER_PAGE - shelfBooks.length }).map((_, i) => (
+                      <div key={`empty-${i}`} className="aspect-[2/3]" />
+                    ))}
+                  </div>
+                </div>
+
+                {shelfTotalPages > 1 && (
+                  <div className="flex items-center justify-center gap-4">
                     <button
                       type="button"
-                      onClick={() => handleDeleteStory(s.id, s.universeId)}
-                      disabled={deletingId === s.id}
-                      aria-label="이야기 삭제"
-                      className="shrink-0 text-base text-muted transition-transform hover:scale-110 hover:text-red-600 disabled:opacity-40"
+                      onClick={() => setShelfPage((p) => Math.max(0, p - 1))}
+                      disabled={shelfPageClamped === 0}
+                      aria-label="이전 페이지"
+                      className="flex h-8 w-8 items-center justify-center rounded-full border border-border transition-transform hover:scale-110 disabled:opacity-30"
                     >
-                      <TrashIcon />
+                      <ChevronLeftIcon />
+                    </button>
+                    <span className="text-xs text-muted">
+                      {shelfPageClamped + 1} / {shelfTotalPages}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setShelfPage((p) => Math.min(shelfTotalPages - 1, p + 1))
+                      }
+                      disabled={shelfPageClamped === shelfTotalPages - 1}
+                      aria-label="다음 페이지"
+                      className="flex h-8 w-8 items-center justify-center rounded-full border border-border transition-transform hover:scale-110 disabled:opacity-30"
+                    >
+                      <ChevronRightIcon />
                     </button>
                   </div>
-                ))}
+                )}
               </div>
             )}
           </div>
