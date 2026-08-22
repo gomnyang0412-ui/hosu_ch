@@ -720,10 +720,10 @@ function ObservePageInner() {
         onClose={() => setShowEpisodeJump(false)}
       />
 
-      <main className="mx-auto w-full max-w-[680px] flex-1 px-4 pb-4">
+      <main className="mx-auto flex w-full max-w-[680px] flex-1 flex-col px-4 pb-4">
         {loadError && <p className="mb-3 text-sm text-red-600">{loadError}</p>}
         {!session ? (
-          <div className="flex flex-col gap-5">
+          <div className="flex flex-1 flex-col gap-5">
             {allCharacters.length < 2 ? (
               <p className="mt-8 text-center text-sm text-muted">
                 관찰 모드를 쓰려면 캐릭터가 2명 이상 필요해요.
@@ -885,13 +885,13 @@ function ObservePageInner() {
                 )}
               </>
             ) : (
-              <div className="flex flex-col gap-3">
-                <div className="rounded-2xl border border-border bg-card p-3">
-                  <div className="grid grid-cols-3 gap-3">
+              <div className="flex flex-1 flex-col gap-3">
+                <div className="flex-1 rounded-2xl border border-border bg-card p-3">
+                  <div className="grid h-full grid-cols-3 grid-rows-3 gap-3">
                     {shelfBooks.map((s) => (
                       <div
                         key={s.id}
-                        className="group relative aspect-[2/3] overflow-hidden rounded-lg shadow-md ring-1 ring-black/10 transition-transform hover:-translate-y-1"
+                        className="group relative overflow-hidden rounded-lg shadow-md ring-1 ring-black/10 transition-transform hover:-translate-y-1"
                       >
                         <Link
                           href={`/observe?universe=${s.universeId}&story=${s.id}`}
@@ -941,7 +941,7 @@ function ObservePageInner() {
                       </div>
                     ))}
                     {Array.from({ length: BOOKS_PER_PAGE - shelfBooks.length }).map((_, i) => (
-                      <div key={`empty-${i}`} className="aspect-[2/3]" />
+                      <div key={`empty-${i}`} />
                     ))}
                   </div>
                 </div>
