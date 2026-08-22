@@ -127,10 +127,17 @@ function buildUserText(
   arcSummaries: ArcSummary[] | undefined,
   directive?: string
 ): string {
-  const blocks = [`주제: ${topic}`];
+  const blocks = [`[이야기가 시작된 계기]\n${topic}`];
   const all = previousEpisodes ?? [];
   const recentFull = all.slice(-RECENT_FULL_COUNT);
   const earlier = all.slice(0, -RECENT_FULL_COUNT).slice(-RECAP_LIMIT);
+
+  if (all.length > 0) {
+    blocks.push(
+      ``,
+      `위 [이야기가 시작된 계기]는 이야기가 맨 처음 어떻게 시작됐는지일 뿐, 지금도 그 상황이 계속되고 있다는 뜻이 아니다. 실제 지금 상황은 아래 [지난 구간 요약]·[지금까지의 줄거리]·[최근 화 전문]에 나온 가장 최근 사건을 기준으로 판단한다. 이야기가 이미 그 계기가 됐던 상황(예: 특정 사건, 관계 단계 등)을 지나 다음 국면으로 넘어갔다면, 그 초기 상황을 다시 꺼내오거나 이야기를 그 지점으로 되돌리지 않는다.`
+    );
+  }
 
   if (arcSummaries && arcSummaries.length > 0) {
     blocks.push(
