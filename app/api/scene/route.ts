@@ -135,7 +135,21 @@ function buildUserText(
 ): string {
   const all = previousEpisodes ?? [];
   const recentFull = all.slice(-RECENT_FULL_COUNT);
-  const earlier = all.slice(0, -RECENT_FULL_COUNT).slice(-RECAP_LIMIT);
+  // 구간 요약(arcSummaries)은 ARC_CHUNK_SIZE화씩 모여야 한 번 생성되니,
+  // 마지막 구간 요약이 끝난 지점(coveredThrough)과 최근 화 전문이
+  // 시작되는 지점 사이에 최대 ARC_CHUNK_SIZE-1화만큼 "아직 구간
+  // 요약에도, 최근 N화 목록에도 안 걸리는" 화가 생길 수 있었다 —
+  // 그 화들은 어디에도 언급되지 않아 통째로 사라진 것처럼 보였다.
+  // RECAP_LIMIT로 고정폭을 자르는 대신 coveredThrough까지 창을 넓혀서
+  // 그 구간을 [지금까지의 줄거리] 한 줄 요약으로라도 반드시 덮는다
+  // (추가 Gemini 호출 없이 문자열 슬라이싱만 늘어나는 정도라 비용은 거의 없다).
+  const coveredThrough =
+    arcSummaries && arcSummaries.length > 0
+      ? Math.max(...arcSummaries.map((a) => a.toIndex))
+      : 0;
+  const normalRecapStart = all.length - RECENT_FULL_COUNT - RECAP_LIMIT;
+  const earlierStart = Math.max(0, Math.min(coveredThrough, normalRecapStart));
+  const earlier = all.slice(earlierStart, Math.max(0, all.length - RECENT_FULL_COUNT));
   // 1화를 시작할 때만 주제 원문을 보여준다. 화가 하나라도 쌓인 뒤에는
   // 이 원문을 계속 반복해서 보여주지 않는다 — "참고만 하라"는 안내문을
   // 덧붙여도 매 화 프롬프트 맨 앞에 반복 노출되는 것 자체가 강한 앵커가

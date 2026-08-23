@@ -443,6 +443,7 @@ function ObservePageInner() {
           characters: sceneCharacters.map(toCharacterProfile),
           universe: resolvedUniverse,
           episodes: chunk,
+          previousSummaries: target.arcSummaries,
         }),
       });
       const data = await res.json().catch(() => ({}));

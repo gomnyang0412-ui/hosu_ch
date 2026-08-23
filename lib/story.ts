@@ -11,8 +11,12 @@ import type { ArcSummary } from "./types";
 export const RECENT_FULL_COUNT = 3;
 /** 한 줄 줄거리 요약에 넣는 화 개수 상한(최근 화 제외) */
 export const RECAP_LIMIT = 50;
+// 구간 하나가 20화(약 6~7만 자)를 3~6문장으로 압축하면 손실이 너무
+// 커서, 이야기가 100화 넘게 길어지면 초반의 작지만 나중에 다시 쓰일
+// 법한 디테일(약속, 복선)이 사라지기 쉬웠다. 10화 단위로 좁혀서 묶음당
+// 압축률을 낮췄다(대신 구간 요약 호출은 그만큼 더 자주 일어난다).
 /** 구간 요약 하나가 묶는 화 개수 */
-export const ARC_CHUNK_SIZE = 20;
+export const ARC_CHUNK_SIZE = 10;
 
 /**
  * (RECENT_FULL_COUNT + RECAP_LIMIT)화보다 오래된 화는 지금까지 그냥

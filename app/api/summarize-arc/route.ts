@@ -6,7 +6,7 @@ import {
   geminiErrorResponse,
   worldBlock,
 } from "@/lib/gemini";
-import type { CharacterProfile, StoryEpisode, Universe } from "@/lib/types";
+import type { ArcSummary, CharacterProfile, StoryEpisode, Universe } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -16,11 +16,16 @@ interface SummarizeArcRequestBody {
   universe: Universe;
   /** 압축할 화 묶음 (연속된 여러 화) */
   episodes: StoryEpisode[];
+  /** 이 구간보다 앞서 이미 만들어진 구간 요약들(오래된 순). 각 구간이
+   *  서로 모르는 채 독립적으로 요약되면 강조점이 어긋나거나 같은
+   *  내용을 다르게 서술할 수 있어서, 이어지는 흐름을 참고하라고 같이 준다. */
+  previousSummaries?: ArcSummary[];
 }
 
 function buildSystemInstruction(
   characters: CharacterProfile[],
-  universe: Universe
+  universe: Universe,
+  previousSummaries?: ArcSummary[]
 ): string {
   const blocks: string[] = [];
 
@@ -41,15 +46,29 @@ function buildSystemInstruction(
         .join("\n")
   );
 
+  if (previousSummaries && previousSummaries.length > 0) {
+    blocks.push(
+      `[이전 구간 요약]\n` +
+        previousSummaries
+          .map((a) => `- ${a.fromIndex}~${a.toIndex}화: ${a.summary}`)
+          .join("\n")
+    );
+  }
+
   blocks.push(
     [
       `[역할]`,
       `너는 아래 여러 화짜리 단편소설 구간을, 이야기가 계속 길어져도 나중에 다시 참고할 수 있게 압축 요약하는 편집자다.`,
       `이 구간이 지나면 본문 전체는 더 이상 참고되지 않고 이 요약만 남으니, 나중 전개에 계속 영향을 줄 만한 것 위주로 남긴다 — 사건의 전개, 인물들 사이 관계·감정 변화, 중요한 결정이나 약속, 아직 안 풀린 떡밥.`,
+      previousSummaries && previousSummaries.length > 0
+        ? `[이전 구간 요약]과 이어지는 흐름으로 쓰되, 그 내용을 다시 반복하지 말고 이번 구간에서 새로 일어난 일만 요약한다.`
+        : "",
       `대사를 그대로 인용하지 않고, 있었던 일과 감정선 위주의 3인칭 과거형 요약 문단으로 쓴다.`,
-      `3~6문장 정도로, 이 구간을 통째로 다시 읽지 않아도 이후 전개를 자연스럽게 이어갈 수 있을 만큼만 압축한다.`,
+      `6~10문장 정도로, 이 구간을 통째로 다시 읽지 않아도 이후 전개를 자연스럽게 이어갈 수 있을 만큼 담는다. 사소해 보여도 나중에 다시 언급될 수 있는 약속·복선·소품은 생략하지 않는다.`,
       `설명이나 따옴표 없이 요약 문단만 출력한다.`,
-    ].join("\n")
+    ]
+      .filter(Boolean)
+      .join("\n")
   );
 
   return blocks.join("\n\n");
@@ -79,7 +98,11 @@ export async function POST(request: Request) {
 
   try {
     const summary = await generateSummaryText({
-      systemInstruction: buildSystemInstruction(body.characters, body.universe),
+      systemInstruction: buildSystemInstruction(
+        body.characters,
+        body.universe,
+        body.previousSummaries
+      ),
       contents,
     });
     const trimmed = summary.trim();
