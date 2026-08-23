@@ -1,7 +1,13 @@
 import { NextResponse } from "next/server";
-import { DbConfigError, getCharacters, getRooms, getUniverses } from "@/lib/db";
+import {
+  DbConfigError,
+  getCharacters,
+  getRooms,
+  getStories,
+  getUniverses,
+} from "@/lib/db";
 import { syncCharacterMemory } from "@/lib/memoryService";
-import type { Room } from "@/lib/types";
+import type { ObservationSession, Room } from "@/lib/types";
 
 export const runtime = "nodejs";
 // 캐릭터 × 유니버스 조합마다 밀린 날짜만큼 Gemini 요약 호출이 이어질
@@ -28,6 +34,11 @@ export async function POST() {
         universes.map(async (u) => [u.id, await getRooms(u.id)] as const)
       )
     );
+    const storiesByUniverse: Record<string, ObservationSession[]> = Object.fromEntries(
+      await Promise.all(
+        universes.map(async (u) => [u.id, await getStories(u.id)] as const)
+      )
+    );
 
     const pairs = characters.flatMap((character) =>
       universes.map((universe) => ({ character, universe }))
@@ -44,7 +55,8 @@ export async function POST() {
         character,
         universe.id,
         characters,
-        roomsByUniverse[universe.id] ?? []
+        roomsByUniverse[universe.id] ?? [],
+        storiesByUniverse[universe.id] ?? []
       );
       addedDays += result.addedDays;
       if (result.more) more = true;

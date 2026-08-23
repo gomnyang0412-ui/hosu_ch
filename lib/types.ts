@@ -203,6 +203,10 @@ export interface StoryEpisode {
   model?: string;
   /** GEMINI_API_KEY에 등록된 몇 번째 키(1부터)로 호출했는지 */
   keyIndex?: number;
+  /** 이 화가 생성된 시각. lib/memoryService.ts가 캐릭터 기억을 날짜별로
+   *  쌓을 때 쓴다. 이 필드가 생기기 전 화들은 undefined일 수 있고,
+   *  그런 화는 날짜를 특정할 수 없어 기억 동기화 대상에서 제외한다. */
+  createdAt?: number;
 }
 
 /**
