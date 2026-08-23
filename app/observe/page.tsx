@@ -120,6 +120,7 @@ function ObservePageInner() {
   const [startChatError, setStartChatError] = useState("");
   const [showEpisodeJump, setShowEpisodeJump] = useState(false);
   const [showAddCharacter, setShowAddCharacter] = useState(false);
+  const [showCurrentState, setShowCurrentState] = useState(false);
   const [addingCharacterId, setAddingCharacterId] = useState<string | null>(null);
 
   const [loadError, setLoadError] = useState("");
@@ -291,7 +292,8 @@ function ObservePageInner() {
     arcSummaries?: ArcSummary[];
     directive?: string;
     elapsedDays?: number;
-  }) {
+    currentState?: string;
+  }): Promise<{ episode: StoryEpisode; currentState?: string } | null> {
     if (!universe) return null;
     setLoading(true);
     setError(null);
@@ -308,6 +310,7 @@ function ObservePageInner() {
           arcSummaries: params.arcSummaries,
           directive: params.directive,
           elapsedDays: params.elapsedDays,
+          currentState: params.currentState,
         }),
       });
       const data = await res.json();
@@ -318,7 +321,10 @@ function ObservePageInner() {
         });
         return null;
       }
-      return data.episode as StoryEpisode;
+      return {
+        episode: data.episode as StoryEpisode,
+        currentState: typeof data.currentState === "string" ? data.currentState : undefined,
+      };
     } catch {
       setError({
         message: "네트워크 문제로 이번 화를 만들지 못했어요.",
@@ -390,18 +396,19 @@ function ObservePageInner() {
           )
         : "";
     setLoading(false);
-    const episode = await requestEpisode({
+    const result = await requestEpisode({
       characters,
       topic: topic.trim(),
       characterContext,
     });
-    if (!episode) return;
+    if (!result) return;
     const newStory: ObservationSession = {
       id: crypto.randomUUID(),
       universeId,
       characterIds: selectedIds,
       topic: topic.trim(),
-      episodes: [episode],
+      episodes: [result.episode],
+      currentState: result.currentState,
       characterContext: characterContext || undefined,
       coverImage,
       createdAt: Date.now(),
@@ -512,7 +519,7 @@ function ObservePageInner() {
             .filter(Boolean)
             .join(" ")
         : [userDirective, skipNote].filter(Boolean).join(" ");
-      const episode = await requestEpisode({
+      const result = await requestEpisode({
         characters: sceneCharacters,
         topic: current.topic,
         previousEpisodes: current.episodes,
@@ -520,14 +527,16 @@ function ObservePageInner() {
         arcSummaries: current.arcSummaries,
         directive: combinedDirective || undefined,
         elapsedDays: current.elapsedDays,
+        currentState: current.currentState,
       });
-      if (!episode) {
+      if (!result) {
         setGeneratingPart(null);
         return;
       }
       current = {
         ...current,
-        episodes: [...current.episodes, episode],
+        episodes: [...current.episodes, result.episode],
+        currentState: result.currentState ?? current.currentState,
         updatedAt: Date.now(),
       };
       const isLastPart = part === parts[parts.length - 1];
@@ -1084,6 +1093,26 @@ function ObservePageInner() {
                   + 인물 추가
                 </button>
               </div>
+
+              {session.currentState?.trim() && (
+                <div className="flex flex-col gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setShowCurrentState((v) => !v)}
+                    className="flex w-fit items-center gap-1 text-xs text-muted"
+                  >
+                    <ChevronRightIcon
+                      className={showCurrentState ? "rotate-90" : ""}
+                    />
+                    지금 이야기 상태
+                  </button>
+                  {showCurrentState && (
+                    <pre className="whitespace-pre-wrap rounded-2xl border border-border bg-card p-3 text-xs text-muted">
+                      {session.currentState.trim()}
+                    </pre>
+                  )}
+                </div>
+              )}
 
               {showAddCharacter && (
                 <div className="flex flex-col gap-1.5 rounded-2xl border border-border bg-card p-3">

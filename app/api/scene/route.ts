@@ -43,7 +43,15 @@ interface SceneRequestBody {
    *  요약으로 압축돼도 사라지지 않도록 있으면 매 화 프롬프트에 명시적으로
    *  포함한다. */
   elapsedDays?: number;
+  /** 관계·감정·외형·비밀·목표 등 "지금 상태"를 담은 내부 기록(있으면).
+   *  구간 요약과 달리 압축되지 않고 항상 최신 값 그대로 매 화 프롬프트에
+   *  재주입된다. lib/types.ts의 ObservationSession.currentState 참고. */
+  currentState?: string;
 }
+
+/** AI 응답에서 화 본문과 "지금 상태" 기록을 나누는 구분자. 본문을 다
+ *  쓴 뒤 이 줄만 단독으로 쓰고 그 아래에 상태를 적으라고 지시한다. */
+const STATE_DELIMITER = "###STATE###";
 
 /** 앞선 화들을 매번 전문으로 다시 보내면 갈수록 느려지니, 최근 몇 화만
  *  전문으로 주고 그 이전 화들은 첫 문장 정도의 줄거리 개요로 압축한다 */
@@ -117,8 +125,17 @@ function buildSystemInstruction(
   blocks.push(
     [
       `[출력 형식]`,
-      `소설 본문 텍스트만 출력한다.`,
-      `제목, 화수 표시("1화" 등), 설명, 마크다운 기호 없이 본문 문단만 쓴다.`,
+      `먼저 소설 본문 텍스트만 쓴다. 제목, 화수 표시("1화" 등), 설명, 마크다운 기호 없이 본문 문단만 쓴다.`,
+      `본문을 다 쓴 다음, 새 줄에 정확히 "${STATE_DELIMITER}"만 단독으로 쓰고, 그 아래에 지금 이야기 상태를 항목별로 간결하게(서술형 문장이 아니라 개조식으로) 적는다:`,
+      `- 인물 간 관계: (조합마다 지금 관계·감정)`,
+      `- 인물별 성격·감정 상태`,
+      `- 인물별 외형·부상·복장`,
+      `- 현재 위치/상황`,
+      `- 각 인물이 알고 있는 정보(비밀 등)`,
+      `- 진행 중인 목표`,
+      `- 아직 해결되지 않은 약속·복선`,
+      `- 되돌릴 수 없는 주요 사건(있다면)`,
+      `[현재 상태]로 이전 값이 주어졌다면 그걸 기준으로 이번 화에서 실제로 달라진 항목만 갱신하고, 안 바뀐 항목은 이전 값을 그대로 옮겨 적는다(비워두거나 생략하지 않는다). 이 블록은 독자에게 보이는 본문이 아니라 다음 화를 쓸 때 참고할 내부 기록이다.`,
     ].join("\n")
   );
 
@@ -131,7 +148,8 @@ function buildUserText(
   nextIndex: number,
   arcSummaries: ArcSummary[] | undefined,
   directive?: string,
-  elapsedDays?: number
+  elapsedDays?: number,
+  currentState?: string
 ): string {
   const all = previousEpisodes ?? [];
   const recentFull = all.slice(-RECENT_FULL_COUNT);
@@ -167,6 +185,12 @@ function buildUserText(
       `[이야기 속 경과 시간]`,
       `이야기가 시작된 시점으로부터 지금까지 총 ${formatElapsedDays(elapsedDays)}이 지났다.`
     );
+  }
+
+  // 구간 요약과 달리 압축을 거치지 않는 값이라, 화가 아무리 쌓여도
+  // 항상 최신 상태 그대로 매 화 다시 보여준다.
+  if (currentState?.trim()) {
+    blocks.push(``, `[현재 상태]`, currentState.trim());
   }
 
   if (arcSummaries && arcSummaries.length > 0) {
@@ -248,7 +272,8 @@ export async function POST(request: Request) {
     nextIndex,
     body.arcSummaries,
     body.directive,
-    body.elapsedDays
+    body.elapsedDays,
+    body.currentState
   );
   const contents: Content[] = [{ role: "user", parts: [{ text: userText }] }];
 
@@ -262,17 +287,28 @@ export async function POST(request: Request) {
       contents,
     });
     const trimmed = text.trim();
-    if (!trimmed) {
+    // AI가 본문 뒤에 붙인 "지금 상태" 기록을 분리해낸다. 구분자가 안
+    // 보이면(모델이 지시를 안 따랐거나 실패) 전체를 본문으로 취급하고
+    // 상태는 갱신하지 않는다 — 잘못된 빈 값으로 기존 상태를 덮어써서
+    // 지워버리지 않기 위해서다.
+    const delimIndex = trimmed.indexOf(STATE_DELIMITER);
+    const episodeText =
+      delimIndex === -1 ? trimmed : trimmed.slice(0, delimIndex).trim();
+    const parsedState =
+      delimIndex === -1
+        ? undefined
+        : trimmed.slice(delimIndex + STATE_DELIMITER.length).trim() || undefined;
+    if (!episodeText) {
       throw new Error("이번 화를 만들어내지 못했어요. 다시 시도해 주세요.");
     }
     const episode: StoryEpisode = {
       index: nextIndex,
-      text: trimmed,
+      text: episodeText,
       directive: body.directive?.trim() || undefined,
       model,
       keyIndex,
     };
-    return NextResponse.json({ episode });
+    return NextResponse.json({ episode, currentState: parsedState });
   } catch (err) {
     return geminiErrorResponse(err);
   }

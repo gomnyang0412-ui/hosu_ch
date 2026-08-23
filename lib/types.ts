@@ -240,6 +240,17 @@ export interface ObservationSession {
    *  이 값 자체는 안 사라지도록, 있으면 매 화 프롬프트에 항상 명시적으로
    *  포함한다(app/api/scene/route.ts). */
   elapsedDays?: number;
+  /**
+   * 인물 간 관계·감정, 외형·부상, 위치, 알고 있는 비밀, 진행 중인 목표,
+   * 미회수 복선 등 "지금 이야기가 어떤 상태인지"를 항목별로 간결하게
+   * 적은 내부 기록. 화를 쓸 때마다 AI가 본문 뒤에 이어서 통째로 새로
+   * 써서 덮어쓴다(구간 요약처럼 오래된 값을 다시 압축하는 게 아니라
+   * 항상 최신 상태로 교체) — 그래서 화가 아무리 쌓여도 크기가 늘지
+   * 않고, 서술형 요약과 달리 손실 없이 "지금 상태"를 유지한다.
+   * app/api/scene/route.ts가 매 화 프롬프트에 그대로 재주입하고, AI
+   * 응답 끝의 구분자 뒤 블록을 파싱해 갱신한다.
+   */
+  currentState?: string;
   createdAt: number;
   updatedAt: number;
 }
