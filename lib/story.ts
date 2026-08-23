@@ -32,3 +32,20 @@ export function nextArcRange(
   if (boundary - coveredThrough < ARC_CHUNK_SIZE) return null;
   return { fromIndex: coveredThrough + 1, toIndex: coveredThrough + ARC_CHUNK_SIZE };
 }
+
+/**
+ * 경과 일수를 "2년 3개월", "5개월", "12일" 같은 한국어 문구로 바꾼다.
+ * 1개월=30일, 1년=365일로 근사한다 — 실제 날짜 계산이 아니라 이야기
+ * 속 시간 흐름을 대략적으로 보여주기 위한 표기용이다.
+ */
+export function formatElapsedDays(days: number): string {
+  if (days <= 0) return "";
+  const years = Math.floor(days / 365);
+  const months = Math.floor((days % 365) / 30);
+  const remDays = days % 365 % 30;
+  const parts: string[] = [];
+  if (years > 0) parts.push(`${years}년`);
+  if (months > 0) parts.push(`${months}개월`);
+  if (years === 0 && months === 0 && remDays > 0) parts.push(`${remDays}일`);
+  return parts.join(" ") || `${days}일`;
+}

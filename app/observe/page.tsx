@@ -34,7 +34,7 @@ import {
   saveRoom,
   storageErrorMessage,
 } from "@/lib/storage";
-import { nextArcRange } from "@/lib/story";
+import { formatElapsedDays, nextArcRange } from "@/lib/story";
 import { resolveUniverseTemplate } from "@/lib/template";
 import {
   ORG_UNIVERSE_ID,
@@ -110,6 +110,8 @@ function ObservePageInner() {
   const [shelfPage, setShelfPage] = useState(0);
   const [directive, setDirective] = useState("");
   const [twoPartMode, setTwoPartMode] = useState(false);
+  const [timeSkipAmount, setTimeSkipAmount] = useState("");
+  const [timeSkipUnit, setTimeSkipUnit] = useState<"day" | "month" | "year">("month");
   const [generatingPart, setGeneratingPart] = useState<1 | 2 | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<SceneErrorState | null>(null);
@@ -133,6 +135,7 @@ function ObservePageInner() {
     setShelfPage(0);
     setDirective("");
     setTwoPartMode(false);
+    setTimeSkipAmount("");
     setError(null);
     (async () => {
       try {
@@ -287,6 +290,7 @@ function ObservePageInner() {
     characterContext?: string;
     arcSummaries?: ArcSummary[];
     directive?: string;
+    elapsedDays?: number;
   }) {
     if (!universe) return null;
     setLoading(true);
@@ -303,6 +307,7 @@ function ObservePageInner() {
           characterContext: params.characterContext,
           arcSummaries: params.arcSummaries,
           directive: params.directive,
+          elapsedDays: params.elapsedDays,
         }),
       });
       const data = await res.json();
@@ -481,11 +486,31 @@ function ObservePageInner() {
     const userDirective = directive.trim();
     const parts: (1 | 2)[] = twoPartMode ? [1, 2] : [1];
 
+    // "+ 시간 경과" 입력을 일 단위로 환산해 누적 총량에 더한다. 지시문
+    // 텍스트로만 흘려보내면 화가 쌓이며 흐려질 수 있어서, 총량 자체를
+    // 이야기에 저장해두고 매 화 프롬프트에 항상 다시 보낸다.
+    const skipAmount = Number(timeSkipAmount);
+    const skipDays =
+      Number.isFinite(skipAmount) && skipAmount > 0
+        ? Math.round(
+            skipAmount * (timeSkipUnit === "year" ? 365 : timeSkipUnit === "month" ? 30 : 1)
+          )
+        : 0;
+    if (skipDays > 0) {
+      current = { ...current, elapsedDays: (current.elapsedDays ?? 0) + skipDays };
+    }
+    const skipNote =
+      skipDays > 0
+        ? `[시간 경과] 이번 화는 직전 화로부터 약 ${formatElapsedDays(skipDays)} 지난 시점부터 시작한다.`
+        : "";
+
     for (const part of parts) {
       setGeneratingPart(twoPartMode ? part : null);
       const combinedDirective = twoPartMode
-        ? [part === 1 ? userDirective : "", TWO_PART_NOTES[part]].filter(Boolean).join(" ")
-        : userDirective;
+        ? [part === 1 ? userDirective : "", part === 1 ? skipNote : "", TWO_PART_NOTES[part]]
+            .filter(Boolean)
+            .join(" ")
+        : [userDirective, skipNote].filter(Boolean).join(" ");
       const episode = await requestEpisode({
         characters: sceneCharacters,
         topic: current.topic,
@@ -493,6 +518,7 @@ function ObservePageInner() {
         characterContext: current.characterContext,
         arcSummaries: current.arcSummaries,
         directive: combinedDirective || undefined,
+        elapsedDays: current.elapsedDays,
       });
       if (!episode) {
         setGeneratingPart(null);
@@ -506,7 +532,12 @@ function ObservePageInner() {
       const isLastPart = part === parts[parts.length - 1];
       await persistStoryUpdate(current, {
         onSaveError: "이번 화를 저장하지 못했어요.",
-        afterUpdate: isLastPart ? () => setDirective("") : undefined,
+        afterUpdate: isLastPart
+          ? () => {
+              setDirective("");
+              setTimeSkipAmount("");
+            }
+          : undefined,
       });
     }
     setGeneratingPart(null);
@@ -1027,7 +1058,12 @@ function ObservePageInner() {
                   />
                 </label>
               )}
-              <p className="text-xs text-muted">주제: {session.topic}</p>
+              <p className="text-xs text-muted">
+                주제: {session.topic}
+                {session.elapsedDays && session.elapsedDays > 0 ? (
+                  <> · 이야기 속 경과 {formatElapsedDays(session.elapsedDays)}</>
+                ) : null}
+              </p>
               <div className="flex flex-wrap items-center gap-2">
                 {sceneCharacters.map((c) => (
                   <span
@@ -1205,6 +1241,28 @@ function ObservePageInner() {
                   />
                   이 사건, 2화로 나눠 쓰기
                 </label>
+                <div className="flex items-center gap-1.5 text-xs text-muted">
+                  <span>시간 경과 (선택, 직전 화로부터)</span>
+                  <input
+                    type="number"
+                    min={0}
+                    value={timeSkipAmount}
+                    onChange={(e) => setTimeSkipAmount(e.target.value)}
+                    placeholder="0"
+                    className="w-16 rounded-lg border border-border bg-card px-2 py-1 text-sm outline-none focus:border-primary/50"
+                  />
+                  <select
+                    value={timeSkipUnit}
+                    onChange={(e) =>
+                      setTimeSkipUnit(e.target.value as "day" | "month" | "year")
+                    }
+                    className="rounded-lg border border-border bg-card px-2 py-1 text-sm outline-none focus:border-primary/50"
+                  >
+                    <option value="day">일</option>
+                    <option value="month">개월</option>
+                    <option value="year">년</option>
+                  </select>
+                </div>
                 <button
                   type="button"
                   onClick={handleContinue}

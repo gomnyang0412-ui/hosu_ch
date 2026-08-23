@@ -6,7 +6,7 @@ import {
   geminiErrorResponse,
   worldBlock,
 } from "@/lib/gemini";
-import { RECAP_LIMIT, RECENT_FULL_COUNT } from "@/lib/story";
+import { RECAP_LIMIT, RECENT_FULL_COUNT, formatElapsedDays } from "@/lib/story";
 import type {
   ArcSummary,
   CharacterProfile,
@@ -39,6 +39,10 @@ interface SceneRequestBody {
   arcSummaries?: ArcSummary[];
   /** 사용자가 이번 화에 반드시 들어가길 바라는 사건 한 줄 (없으면 자유 전개) */
   directive?: string;
+  /** 이야기 시작 시점으로부터 지금까지 흐른 시간(일 단위 누적). 구간
+   *  요약으로 압축돼도 사라지지 않도록 있으면 매 화 프롬프트에 명시적으로
+   *  포함한다. */
+  elapsedDays?: number;
 }
 
 /** 앞선 화들을 매번 전문으로 다시 보내면 갈수록 느려지니, 최근 몇 화만
@@ -105,6 +109,7 @@ function buildSystemInstruction(
       `사용자가 [다음 화 지시]를 줬다면 그 사건이 이번 화 안에서 분명히 일어나게 하되, 그 사건에 이르는 과정·전후 전개·세부 묘사는 자유롭게 창작한다.`,
       `대사의 말투(자주 쓰는 어미·화법)는 앞선 화들의 흐름과 무관하게 위 [등장 인물] 항목에 적힌 원래 말투를 매번 기준으로 삼는다. 특히 앞선 화들의 전문을 읽고 나면 그 화들에서 굳어진 말투를 무의식적으로 따라가기 쉬운데, 말투가 원래 설정과 조금이라도 달라졌다면 반드시 원래 말투 쪽으로 되돌아온다. 단, 사용자가 [다음 화 지시]로 특정 인물의 말투를 명시적으로 바꿔달라고 요청했다면 그 지시를 우선한다 — 이 경우엔 원래 말투로 되돌리지 않고, 지시받은 새 말투를 그 화부터 새 기준으로 삼는다.`,
       `반면 인물의 성격·감정 상태·서로에 대한 태도·관계는 말투와 다르게 이야기가 진행되며 실제로 조금씩 바뀔 수 있다. [등장 인물]에 적힌 성격은 이야기 시작 시점의 모습일 뿐, 화가 거듭돼도 고정된 값이 아니다. [지난 구간 요약]·[지금까지의 줄거리]·[최근 화 전문]에서 이미 일어난 사건들이 쌓아온 변화(성격이 누그러지거나 날카로워짐, 감정, 관계 등)를 그대로 유지하며 계속 발전시킨다. 다만 근거 없이 갑자기 다른 사람처럼 바뀌지는 않고, 그동안 벌어진 사건으로 자연스럽게 설명되는 변화여야 한다.`,
+      `인물의 외형(나이 든 모습, 헤어스타일, 부상·흉터, 옷차림 등)도 성격과 마찬가지로 [등장 인물]에 적힌 모습이 이야기 시작 시점 기준일 뿐, 고정값이 아니다. 특히 아래 [이야기 속 경과 시간]에 의미 있는 시간(몇 달 이상)이 흘렀다면, 그 시간에 맞게 인물의 외형이나 처한 상황이 자연스럽게 달라졌는지 신경 써서 반영한다. 역시 근거 없이 갑자기 바뀌지는 않고, 경과 시간이나 그동안 벌어진 사건으로 설명되는 변화여야 한다.`,
       `설정에 없는 부분은 각 인물의 성격에 맞게 자연스럽게 채우되 세계관과 모순되지 않게 한다.`,
     ].join("\n")
   );
@@ -125,7 +130,8 @@ function buildUserText(
   previousEpisodes: StoryEpisode[] | undefined,
   nextIndex: number,
   arcSummaries: ArcSummary[] | undefined,
-  directive?: string
+  directive?: string,
+  elapsedDays?: number
 ): string {
   const all = previousEpisodes ?? [];
   const recentFull = all.slice(-RECENT_FULL_COUNT);
@@ -137,6 +143,17 @@ function buildUserText(
   // 화부터는 [지난 구간 요약]·[지금까지의 줄거리]·[최근 화 전문]이
   // 이야기의 현재 상태를 그 자체로 충분히 보여준다.
   const blocks: string[] = all.length === 0 ? [`주제: ${topic}`] : [];
+
+  // 구간 요약으로 압축돼도 사라지지 않도록, 경과 시간이 있으면 매 화
+  // 명시적으로 다시 보여준다(한 번 지시문으로만 흘려보내면 화가 쌓이면서
+  // 흐려질 수 있다).
+  if (elapsedDays && elapsedDays > 0) {
+    blocks.push(
+      ``,
+      `[이야기 속 경과 시간]`,
+      `이야기가 시작된 시점으로부터 지금까지 총 ${formatElapsedDays(elapsedDays)}이 지났다.`
+    );
+  }
 
   if (arcSummaries && arcSummaries.length > 0) {
     blocks.push(
@@ -216,7 +233,8 @@ export async function POST(request: Request) {
     body.previousEpisodes,
     nextIndex,
     body.arcSummaries,
-    body.directive
+    body.directive,
+    body.elapsedDays
   );
   const contents: Content[] = [{ role: "user", parts: [{ text: userText }] }];
 

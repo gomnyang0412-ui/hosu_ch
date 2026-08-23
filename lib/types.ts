@@ -235,6 +235,11 @@ export interface ObservationSession {
   /** 이야기 시작할 때 사용자가 고른 책 표지 이미지 (base64 dataURL). 관찰
    *  목록의 책장 화면에서 이 이야기의 표지로 쓰인다. 없으면 기본 표지로 표시. */
   coverImage?: string;
+  /** 이야기 속에서 지금까지 흐른 시간(일 단위 누적). 이어쓰기 화면의
+   *  "+ 시간 경과" 입력으로 쌓인다. 화가 많이 쌓여 구간 요약으로 압축돼도
+   *  이 값 자체는 안 사라지도록, 있으면 매 화 프롬프트에 항상 명시적으로
+   *  포함한다(app/api/scene/route.ts). */
+  elapsedDays?: number;
   createdAt: number;
   updatedAt: number;
 }
