@@ -271,7 +271,6 @@ export async function POST(request: Request) {
       directive: body.directive?.trim() || undefined,
       model,
       keyIndex,
-      createdAt: Date.now(),
     };
     return NextResponse.json({ episode });
   } catch (err) {

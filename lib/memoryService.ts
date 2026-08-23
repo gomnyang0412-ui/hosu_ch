@@ -22,7 +22,6 @@ import type {
   CharacterMemory,
   ChatMessage,
   MemoryEntry,
-  ObservationSession,
   Room,
   RoomItem,
 } from "./types";
@@ -111,7 +110,6 @@ async function summarizeForMemory(
       ? `1~3문장, 소설 지문체(3인칭, 과거형)로 요약한다.`
       : `2~4문장으로 더 압축해서 요약한다. 사소한 디테일은 버리고 중요한 사건·감정 변화 위주로 남긴다.`,
     `대사를 그대로 인용하지 않고, 있었던 일과 감정선만 남긴다.`,
-    `기록 안에 "(관찰모드 n화 - 주제)"라고 표시된 부분이 있다면, 이는 같은 세계관 안에서도 서로 다른 갈래로 진행된 별개의 이야기일 수 있다. 주제가 다른 관찰모드 사건끼리, 또는 관찰모드 사건과 실제 1:1·그룹 대화 사건을 하나로 뭉뚱그리지 말고, 어느 이야기에서 있었던 일인지 구분되게 요약한다.`,
     `설명이나 따옴표 없이 요약 문장만 출력한다.`,
   ]
     .filter(Boolean)
@@ -202,24 +200,22 @@ async function compactMemoryEntries(
 /**
  * 캐릭터 한 명이 한 유니버스 안에서 (역할 반전으로 다른 캐릭터 방에서
  * 연기한 경우까지 포함해) "본인"으로 실제 말한 1:1 방 + 참가한 그룹
- * 대화방의 대화 + 등장한 관찰 모드 이야기의 화들을, 아직 정리 안 된
- * 지난 날짜만 골라 하루 단위로 요약해 그 유니버스 전용 기억에 쌓는다.
- * 오늘 날짜는 아직 안 끝났으니 제외한다.
+ * 대화방의 대화를, 아직 정리 안 된 지난 날짜만 골라 하루 단위로
+ * 요약해 그 유니버스 전용 기억에 쌓는다. 오늘 날짜는 아직 안 끝났으니
+ * 제외한다.
  *
  * 기억은 유니버스별로 완전히 분리된다 — 다른 유니버스(특히 ORG)의
  * 서사가 AU 롤플레이로 새어 들어가지 않게 하기 위해서다. 그래서 이
  * 함수는 유니버스 하나당 한 번씩 호출해야 한다(호출부가 캐릭터 ×
  * 유니버스 조합을 돌면서 부른다).
  *
- * rooms/stories는 호출부가 이 유니버스의 방·이야기 목록을 한 번만
- * 불러와 넘겨준다.
+ * rooms는 호출부가 이 유니버스의 방 목록을 한 번만 불러와 넘겨준다.
  */
 export async function syncCharacterMemory(
   character: Character,
   universeId: string,
   allCharacters: Character[],
-  rooms: Room[],
-  stories: ObservationSession[]
+  rooms: Room[]
 ): Promise<{ addedDays: number; more: boolean }> {
   const today = todayKST();
   const existing = await getCharacterMemory(character.id, universeId);
@@ -239,13 +235,7 @@ export async function syncCharacterMemory(
     (r) => r.kind === "group" && r.characterIds.includes(character.id)
   );
 
-  const relevantStories = stories.filter((s) => s.characterIds.includes(character.id));
-
-  if (
-    singleRoomCharacters.length === 0 &&
-    groupRooms.length === 0 &&
-    relevantStories.length === 0
-  ) {
+  if (singleRoomCharacters.length === 0 && groupRooms.length === 0) {
     return { addedDays: 0, more: false };
   }
 
@@ -271,22 +261,6 @@ export async function syncCharacterMemory(
       if (date >= today || date <= memory.summarizedThrough) continue;
       const line = groupItemLine(item, room, allCharacters).trim();
       if (!line) continue;
-      const arr = byDate.get(date) ?? [];
-      arr.push(line);
-      byDate.set(date, arr);
-    }
-  }
-  // 화 자체엔 날짜가 없던 시절(createdAt 필드 생기기 전)에 쓰인 화는
-  // 어느 날짜로 묶어야 할지 알 수 없어 건너뛴다 — 억지로 세션의
-  // updatedAt 하나에 몰아넣으면 몇 주치 화가 하루로 뭉개져 요약이
-  // 부정확해진다. 그런 화들은 그냥 기억 동기화 대상에서 빠질 뿐,
-  // 이야기 자체나 관찰 모드 표시에는 전혀 영향이 없다.
-  for (const story of relevantStories) {
-    for (const episode of story.episodes) {
-      if (!episode.createdAt) continue;
-      const date = kstDateString(episode.createdAt);
-      if (date >= today || date <= memory.summarizedThrough) continue;
-      const line = `(관찰모드 ${episode.index}화 - ${story.topic}) ${episode.text}`.trim();
       const arr = byDate.get(date) ?? [];
       arr.push(line);
       byDate.set(date, arr);
