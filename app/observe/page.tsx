@@ -122,6 +122,8 @@ function ObservePageInner() {
   const [showAddCharacter, setShowAddCharacter] = useState(false);
   const [showCurrentState, setShowCurrentState] = useState(false);
   const [addingCharacterId, setAddingCharacterId] = useState<string | null>(null);
+  const [editingEpisode, setEditingEpisode] = useState(false);
+  const [episodeEditText, setEpisodeEditText] = useState("");
 
   const [loadError, setLoadError] = useState("");
 
@@ -190,6 +192,15 @@ function ObservePageInner() {
       }
     })();
   }, [universeId]);
+
+  // 다른 이야기로 넘어갔는데 편집 중이던 텍스트가 남아있으면, 그 새
+  // 이야기의 최근 화 위에 엉뚱한(이전 이야기의) 내용으로 저장 버튼이
+  // 떠 있는 위험한 상태가 된다 — 화 편집은 실제로 덮어쓰는 동작이라
+  // 조용히 넘어가면 안 된다.
+  useEffect(() => {
+    setEditingEpisode(false);
+    setEpisodeEditText("");
+  }, [storyId]);
 
   /**
    * 목록의 이야기 하나를 갱신해서 화면에 반영하고, 그대로 서버에도
@@ -663,6 +674,39 @@ function ObservePageInner() {
       updatedAt: Date.now(),
     };
     await persistStoryUpdate(updated, { onSaveError: "화를 지우지 못했어요." });
+  }
+
+  // 전체적으로 마음에 드는 화인데 한 군데만 어색해서 통째로 지우고
+  // 다시 생성하기는 아까울 때, 가장 최근 화의 본문을 직접 고쳐 쓸 수
+  // 있게 한다. 이전 화들은 이미 [최근 N화 전문]/[지금까지의 줄거리]/
+  // [지난 구간 요약]으로 다음 화 프롬프트에 반영된 적이 있어서, 지금
+  // 고쳐도 그 반영분까지 소급되진 않는다 — 그래서 가장 최근 화로만
+  // 제한한다(다음 이어쓰기부터는 고친 내용이 그대로 반영된다).
+  function startEditLatestEpisode() {
+    if (!session || session.episodes.length === 0) return;
+    setEpisodeEditText(session.episodes[session.episodes.length - 1].text);
+    setEditingEpisode(true);
+  }
+
+  function cancelEditLatestEpisode() {
+    setEditingEpisode(false);
+    setEpisodeEditText("");
+  }
+
+  async function submitEditLatestEpisode() {
+    const text = episodeEditText.trim();
+    if (!text || !session || session.episodes.length === 0) return;
+    const lastIndex = session.episodes.length - 1;
+    const updated: ObservationSession = {
+      ...session,
+      episodes: session.episodes.map((ep, i) =>
+        i === lastIndex ? { ...ep, text } : ep
+      ),
+      updatedAt: Date.now(),
+    };
+    setEditingEpisode(false);
+    setEpisodeEditText("");
+    await persistStoryUpdate(updated, { onSaveError: "화 내용을 저장하지 못했어요." });
   }
 
   async function toggleBookmark(index: number) {
@@ -1176,50 +1220,91 @@ function ObservePageInner() {
                     <h2 className="text-sm font-semibold text-muted">
                       {ep.index}화
                     </h2>
-                    <div className="flex items-center gap-3">
-                      {ep.index === session.episodes.length && (
+                    {!(editingEpisode && ep.index === session.episodes.length) && (
+                      <div className="flex items-center gap-3">
+                        {ep.index === session.episodes.length && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={startEditLatestEpisode}
+                              aria-label="이 화 수정"
+                              title="가장 최근 화만 수정할 수 있어요"
+                              className="text-sm leading-none text-muted opacity-60 transition-transform hover:scale-110 hover:text-foreground hover:opacity-100"
+                            >
+                              <EditIcon />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={deleteLatestEpisode}
+                              aria-label="이 화 삭제"
+                              title="가장 최근 화만 지울 수 있어요"
+                              className="text-sm leading-none text-muted opacity-60 transition-transform hover:scale-110 hover:text-red-600 hover:opacity-100"
+                            >
+                              <TrashIcon />
+                            </button>
+                          </>
+                        )}
                         <button
                           type="button"
-                          onClick={deleteLatestEpisode}
-                          aria-label="이 화 삭제"
-                          title="가장 최근 화만 지울 수 있어요"
-                          className="text-sm leading-none text-muted opacity-60 transition-transform hover:scale-110 hover:text-red-600 hover:opacity-100"
+                          onClick={() => toggleBookmark(ep.index)}
+                          aria-label={ep.bookmarked ? "북마크 해제" : "북마크 하기"}
+                          title={ep.bookmarked ? "북마크 해제" : "북마크 하기"}
+                          className={`text-base leading-none transition-transform hover:scale-110 ${
+                            ep.bookmarked ? "text-accent" : "text-muted opacity-40 hover:opacity-70"
+                          }`}
                         >
-                          <TrashIcon />
+                          <StarIcon filled={ep.bookmarked} />
                         </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => toggleBookmark(ep.index)}
-                        aria-label={ep.bookmarked ? "북마크 해제" : "북마크 하기"}
-                        title={ep.bookmarked ? "북마크 해제" : "북마크 하기"}
-                        className={`text-base leading-none transition-transform hover:scale-110 ${
-                          ep.bookmarked ? "text-accent" : "text-muted opacity-40 hover:opacity-70"
-                        }`}
-                      >
-                        <StarIcon filled={ep.bookmarked} />
-                      </button>
-                    </div>
+                      </div>
+                    )}
                   </div>
                   {ep.directive && (
                     <p className="flex items-center gap-1 text-xs italic text-muted">
                       <ClapperIcon /> 지시: {ep.directive}
                     </p>
                   )}
-                  <div className="flex flex-col gap-4">
-                    {ep.text
-                      .split(/\n+/)
-                      .map((p) => p.trim())
-                      .filter(Boolean)
-                      .map((paragraph, i) => (
-                        <p
-                          key={i}
-                          className="text-[15px] leading-[1.9] tracking-[0.01em] text-foreground"
+                  {editingEpisode && ep.index === session.episodes.length ? (
+                    <div className="flex flex-col gap-2">
+                      <AutoGrowTextarea
+                        value={episodeEditText}
+                        onChange={setEpisodeEditText}
+                        maxHeightPx={600}
+                        className="resize-none rounded-xl border border-border bg-card p-3 text-[15px] leading-[1.9] tracking-[0.01em] text-foreground outline-none focus:border-primary/50"
+                      />
+                      <div className="flex justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={cancelEditLatestEpisode}
+                          className="rounded-full border border-border px-3 py-1.5 text-xs text-muted transition-transform hover:scale-[1.03] active:scale-[0.97]"
                         >
-                          {paragraph}
-                        </p>
-                      ))}
-                  </div>
+                          취소
+                        </button>
+                        <button
+                          type="button"
+                          onClick={submitEditLatestEpisode}
+                          disabled={!episodeEditText.trim()}
+                          className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition-transform hover:scale-[1.03] active:scale-[0.97] disabled:opacity-40 disabled:hover:scale-100"
+                        >
+                          저장
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-4">
+                      {ep.text
+                        .split(/\n+/)
+                        .map((p) => p.trim())
+                        .filter(Boolean)
+                        .map((paragraph, i) => (
+                          <p
+                            key={i}
+                            className="text-[15px] leading-[1.9] tracking-[0.01em] text-foreground"
+                          >
+                            {paragraph}
+                          </p>
+                        ))}
+                    </div>
+                  )}
                   {sourceLabel(ep.model, ep.keyIndex) && (
                     <span className="text-[10px] text-muted/70">
                       {sourceLabel(ep.model, ep.keyIndex)}
