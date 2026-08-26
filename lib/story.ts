@@ -53,3 +53,100 @@ export function formatElapsedDays(days: number): string {
   if (years === 0 && months === 0 && remDays > 0) parts.push(`${remDays}일`);
   return parts.join(" ") || `${days}일`;
 }
+
+/**
+ * [현재 상태](ObservationSession.currentState)가 인정하는 항목 태그.
+ * app/api/scene/route.ts가 이 목록 그대로 시스템 프롬프트에 나열해서
+ * AI가 상태 델타를 쓸 때 정확히 이 대괄호 표기를 쓰게 지시한다 — 여기서
+ * 하나라도 벗어나면(오타, 다른 표현) mergeStateDelta가 새 항목으로
+ * 잘못 갈라서 그 항목의 이전 값을 이어받지 못한다.
+ */
+export const STATE_CATEGORIES = [
+  "관계",
+  "성격·감정",
+  "지위·소속·역할",
+  "외형·부상·복장",
+  "경과 시간 반영",
+  "위치/상황",
+  "아는 정보",
+  "목표",
+  "미해결 약속·복선",
+  "돌이킬 수 없는 사건",
+] as const;
+
+// 이번 화 전에 이미 저장돼 있던 상태 문구 중, 대괄호 태그가 하나도 안
+// 붙은 부분(예전 방식 — 안 바뀐 항목도 매번 통째로 다시 썼던 시절의
+// 텍스트, 또는 AI가 태그를 안 붙이고 쓴 잡담)을 담아두는 자리.
+// 태그가 없다고 버리면 그 시점까지 쌓인 상태가 통째로 사라지므로,
+// 내용은 그대로 보존하되 화면에 보일 때 맨 앞에 얹는다.
+const LEGACY_TAG = "__legacy__";
+
+/** "[태그] 내용" 형식의 텍스트를 태그별 내용 맵으로 나눈다. 태그가 붙기
+ *  전에 나온 줄들은 LEGACY_TAG로 묶는다. */
+function parseStateBlock(text: string): Map<string, string> {
+  const map = new Map<string, string>();
+  let currentTag: string | null = null;
+  let buffer: string[] = [];
+  const preTagBuffer: string[] = [];
+  const flush = () => {
+    if (currentTag) {
+      const content = buffer.join("\n").trim();
+      if (content) map.set(currentTag, content);
+    }
+    buffer = [];
+  };
+  for (const line of text.split("\n")) {
+    const match = line.match(/^\[([^\]]+)\]\s?(.*)$/);
+    if (match) {
+      flush();
+      currentTag = match[1].trim();
+      buffer = match[2] ? [match[2]] : [];
+    } else if (currentTag) {
+      buffer.push(line);
+    } else {
+      preTagBuffer.push(line);
+    }
+  }
+  flush();
+  const legacy = preTagBuffer.join("\n").trim();
+  if (legacy) map.set(LEGACY_TAG, legacy);
+  return map;
+}
+
+/** 태그별 내용 맵을 다시 "[태그]\n내용" 블록들로 합친다. STATE_CATEGORIES
+ *  순서대로 정렬하고, legacy(태그 없는 옛 내용)는 맨 앞에 그대로 둔다. */
+function serializeStateMap(map: Map<string, string>): string {
+  const blocks: string[] = [];
+  const legacy = map.get(LEGACY_TAG);
+  if (legacy) blocks.push(legacy);
+  for (const tag of STATE_CATEGORIES) {
+    const content = map.get(tag);
+    if (content) blocks.push(`[${tag}]\n${content}`);
+  }
+  const knownTags = new Set<string>([LEGACY_TAG, ...STATE_CATEGORIES]);
+  for (const [tag, content] of map) {
+    if (!knownTags.has(tag)) blocks.push(`[${tag}]\n${content}`);
+  }
+  return blocks.join("\n\n");
+}
+
+/**
+ * AI가 이번 화에서 실제로 바뀐 항목만 적어 보낸 델타(delta)를 이전
+ * [현재 상태]에 병합한다. 안 바뀐 항목은 AI가 매번 통째로 옮겨 적을
+ * 필요가 없어 출력이 훨씬 짧아지고, "안 바뀐 값을 옮겨 적다 미묘하게
+ * 달라지는" 드리프트 위험도 없앤다 — 안 바뀐 부분은 이 함수가 이전
+ * 값을 그대로 유지해준다.
+ *
+ * delta가 비어있거나(그 화에서 아무것도 안 바뀜) 형식을 못 알아보면
+ * previousState를 그대로 돌려준다(빈 값으로 덮어쓰지 않는다).
+ */
+export function mergeStateDelta(
+  previousState: string | undefined,
+  delta: string | undefined
+): string | undefined {
+  const deltaMap = delta?.trim() ? parseStateBlock(delta) : new Map<string, string>();
+  if (deltaMap.size === 0) return previousState;
+  const baseMap = previousState ? parseStateBlock(previousState) : new Map<string, string>();
+  for (const [tag, content] of deltaMap) baseMap.set(tag, content);
+  return serializeStateMap(baseMap) || undefined;
+}

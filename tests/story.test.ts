@@ -3,6 +3,7 @@ import {
   ARC_CHUNK_SIZE,
   RECAP_LIMIT,
   RECENT_FULL_COUNT,
+  mergeStateDelta,
   nextArcRange,
 } from "@/lib/story";
 
@@ -35,5 +36,44 @@ describe("관찰 모드 구간 요약 범위", () => {
       fromIndex: 21,
       toIndex: 30,
     });
+  });
+});
+
+describe("관찰 모드 현재 상태 델타 병합", () => {
+  it("이전 상태가 없을 때 첫 델타로 상태를 만든다", () => {
+    const merged = mergeStateDelta(undefined, "[관계]\n민준과 서연은 서먹하다");
+    expect(merged).toBe("[관계]\n민준과 서연은 서먹하다");
+  });
+
+  it("델타가 비어있으면(그 화에서 변화 없음) 이전 상태를 그대로 돌려준다", () => {
+    const prev = "[관계]\n민준과 서연은 서먹하다";
+    expect(mergeStateDelta(prev, undefined)).toBe(prev);
+    expect(mergeStateDelta(prev, "")).toBe(prev);
+    expect(mergeStateDelta(prev, "   ")).toBe(prev);
+  });
+
+  it("델타에 없는 항목은 이전 값을 그대로 유지하고, 언급된 항목만 갱신한다", () => {
+    const prev = ["[관계]\n민준과 서연은 서먹하다", "[목표]\n승진하기"].join("\n\n");
+    const merged = mergeStateDelta(prev, "[관계]\n민준과 서연이 가까워졌다");
+    expect(merged).toBe(
+      ["[관계]\n민준과 서연이 가까워졌다", "[목표]\n승진하기"].join("\n\n")
+    );
+  });
+
+  it("여러 항목을 한 번에 갱신할 수 있다", () => {
+    const prev = "[관계]\n서먹하다";
+    const delta = ["[관계]\n가까워졌다", "[지위·소속·역할]\n민준: 과장으로 승진"].join(
+      "\n"
+    );
+    const merged = mergeStateDelta(prev, delta);
+    expect(merged).toBe(
+      ["[관계]\n가까워졌다", "[지위·소속·역할]\n민준: 과장으로 승진"].join("\n\n")
+    );
+  });
+
+  it("대괄호 태그가 없는 예전 형식 상태는 잃어버리지 않고 맨 앞에 보존한다", () => {
+    const legacy = "- 인물 간 관계: 민준과 서연은 서먹하다";
+    const merged = mergeStateDelta(legacy, "[목표]\n승진하기");
+    expect(merged).toBe([legacy, "[목표]\n승진하기"].join("\n\n"));
   });
 });

@@ -6,7 +6,13 @@ import {
   geminiErrorResponse,
   worldBlock,
 } from "@/lib/gemini";
-import { RECAP_LIMIT, RECENT_FULL_COUNT, formatElapsedDays } from "@/lib/story";
+import {
+  RECAP_LIMIT,
+  RECENT_FULL_COUNT,
+  STATE_CATEGORIES,
+  formatElapsedDays,
+  mergeStateDelta,
+} from "@/lib/story";
 import type {
   ArcSummary,
   CharacterProfile,
@@ -129,18 +135,10 @@ function buildSystemInstruction(
     [
       `[출력 형식]`,
       `먼저 소설 본문 텍스트만 쓴다. 제목, 화수 표시("1화" 등), 설명, 마크다운 기호 없이 본문 문단만 쓴다.`,
-      `본문을 다 쓴 다음, 새 줄에 정확히 "${STATE_DELIMITER}"만 단독으로 쓰고, 그 아래에 지금 이야기 상태를 항목별로 간결하게(서술형 문장이 아니라 개조식으로) 적는다:`,
-      `- 인물 간 관계: (조합마다 지금 관계·감정)`,
-      `- 인물별 성격·감정 상태`,
-      `- 인물별 지위·소속·역할(직함, 계급, 소속 집단 등 — 승진·강등·소속 변경이 있었다면 반드시 최신 값으로)`,
-      `- 인물별 외형·부상·복장`,
-      `- 경과 시간 반영 상태: [이야기 속 경과 시간]이 있다면, 지금이 이야기 시작 후 총 얼마가 지난 시점인지와 그게 인물들에게 실제로 어떤 의미인지(나이·외형·상황 등) 한 줄로 다시 확인`,
-      `- 현재 위치/상황`,
-      `- 각 인물이 알고 있는 정보(비밀 등)`,
-      `- 진행 중인 목표`,
-      `- 아직 해결되지 않은 약속·복선`,
-      `- 되돌릴 수 없는 주요 사건(있다면)`,
-      `[현재 상태]로 이전 값이 주어졌다면 그걸 기준으로 이번 화에서 실제로 달라진 항목만 갱신하고, 안 바뀐 항목은 이전 값을 그대로 옮겨 적는다(비워두거나 생략하지 않는다). 이 블록은 독자에게 보이는 본문이 아니라 다음 화를 쓸 때 참고할 내부 기록이다.`,
+      `본문을 다 쓴 다음, 새 줄에 정확히 "${STATE_DELIMITER}"만 단독으로 쓰고, 그 아래에 이번 화에서 실제로 달라진 항목만 적는다. 안 바뀐 항목은 아예 언급하지 않는다 — [현재 상태]로 주어진 이전 값이 자동으로 유지되니 옮겨 적을 필요가 없다. 이번 화에서 아무것도 안 바뀌었다면 "${STATE_DELIMITER}" 뒤에 아무것도 안 쓰거나 이 블록 자체를 생략해도 된다.`,
+      `항목마다 아래 대괄호 표기를 정확히 그대로 써서 구분한다(표기를 다르게 쓰거나 순서를 바꾸면 다음 화로 안 이어진다):`,
+      ...STATE_CATEGORIES.map((tag) => `[${tag}]`),
+      `각 태그 아래엔 서술형 문장이 아니라 개조식으로 간결하게, 그 항목의 지금 상태(직전과 달라진 부분 중심)를 적는다. 인물별로 나뉘는 항목(관계·성격·감정·지위·외형 등)은 이번 화에서 실제로 바뀐 인물만 적으면 된다. "경과 시간 반영" 항목은 [이야기 속 경과 시간]에 의미 있는 변화가 있었을 때만 쓴다. 이 블록은 독자에게 보이는 본문이 아니라 다음 화를 쓸 때 참고할 내부 기록이다.`,
     ].join("\n")
   );
 
@@ -305,14 +303,14 @@ export async function POST(request: Request) {
       contents,
     });
     const trimmed = text.trim();
-    // AI가 본문 뒤에 붙인 "지금 상태" 기록을 분리해낸다. 구분자가 안
-    // 보이면(모델이 지시를 안 따랐거나 실패) 전체를 본문으로 취급하고
-    // 상태는 갱신하지 않는다 — 잘못된 빈 값으로 기존 상태를 덮어써서
-    // 지워버리지 않기 위해서다.
+    // AI가 본문 뒤에 붙인 "이번 화에서 달라진 항목" 델타를 분리해낸다.
+    // 구분자가 안 보이면(모델이 지시를 안 따랐거나 실패) 전체를 본문으로
+    // 취급하고 델타는 빈 것으로 본다 — mergeStateDelta가 빈 델타는
+    // 무시하고 이전 상태를 그대로 돌려주므로 기존 상태가 지워지지 않는다.
     const delimIndex = trimmed.indexOf(STATE_DELIMITER);
     const episodeText =
       delimIndex === -1 ? trimmed : trimmed.slice(0, delimIndex).trim();
-    const parsedState =
+    const stateDelta =
       delimIndex === -1
         ? undefined
         : trimmed.slice(delimIndex + STATE_DELIMITER.length).trim() || undefined;
@@ -326,7 +324,8 @@ export async function POST(request: Request) {
       model,
       keyIndex,
     };
-    return NextResponse.json({ episode, currentState: parsedState });
+    const mergedState = mergeStateDelta(body.currentState, stateDelta);
+    return NextResponse.json({ episode, currentState: mergedState });
   } catch (err) {
     return geminiErrorResponse(err);
   }
