@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import AutoGrowTextarea from "@/components/AutoGrowTextarea";
 import BottomNav from "@/components/BottomNav";
 import CharacterAvatar from "@/components/CharacterAvatar";
@@ -71,9 +71,24 @@ function storyTitle(session: ObservationSession, characters: Character[]): strin
 /** 책장 한 페이지에 보이는 책 수 (가로 3권 x 세로 3권) */
 const BOOKS_PER_PAGE = 9;
 
-/** ms만큼 기다린다. Gemini 연속 호출 사이 텀을 두거나, 실패 후 재시도 전 잠깐 쉴 때 쓴다. */
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+/** ms만큼 기다린다. Gemini 연속 호출 사이 텀을 두거나, 실패 후 재시도 전 잠깐 쉴 때 쓴다.
+ *  signal이 중간에 abort되면(사용자가 취소) 기다리다 말고 즉시 AbortError로 거절한다. */
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException("Aborted", "AbortError"));
+      return;
+    }
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        reject(new DOMException("Aborted", "AbortError"));
+      },
+      { once: true }
+    );
+  });
 }
 
 // 화 하나를 만들다 일시적인 오류(타임아웃·서버 혼잡)가 나면 사용자에게
@@ -131,6 +146,10 @@ function ObservePageInner() {
   const [generatingPart, setGeneratingPart] = useState<1 | 2 | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<SceneErrorState | null>(null);
+  // 화 생성 중(재시도 대기, 2화 사이 텀 포함)에 사용자가 취소할 수 있게
+  // 하는 컨트롤러. handleStart·handleContinue가 시작할 때 새로 만들어
+  // 채워 넣고, requestEpisode와 화 사이 대기(sleep)가 이걸 공유해서 쓴다.
+  const abortRef = useRef<AbortController | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [startingChat, setStartingChat] = useState(false);
   const [startChatError, setStartChatError] = useState("");
@@ -325,6 +344,7 @@ function ObservePageInner() {
     setLoading(true);
     setError(null);
     const resolvedUniverse = resolveUniverseTemplate(universe, allCharacters);
+    const signal = abortRef.current?.signal;
     for (let attempt = 1; attempt <= EPISODE_MAX_ATTEMPTS; attempt++) {
       let failure: SceneErrorState;
       try {
@@ -342,6 +362,7 @@ function ObservePageInner() {
             elapsedDays: params.elapsedDays,
             currentState: params.currentState,
           }),
+          signal,
         });
         const data = await res.json();
         if (res.ok) {
@@ -355,7 +376,13 @@ function ObservePageInner() {
           message: data.error ?? "이번 화를 만들지 못했어요.",
           kind: data.kind ?? "unknown",
         };
-      } catch {
+      } catch (err) {
+        // 사용자가 취소 버튼을 눌러 abort된 경우 — 실패가 아니라 의도한
+        // 중단이니 에러 메시지 없이 조용히 빠져나간다.
+        if (err instanceof DOMException && err.name === "AbortError") {
+          setLoading(false);
+          return null;
+        }
         failure = {
           message: "네트워크 문제로 이번 화를 만들지 못했어요.",
           kind: "network",
@@ -373,10 +400,20 @@ function ObservePageInner() {
         setLoading(false);
         return null;
       }
-      await sleep(EPISODE_RETRY_DELAY_MS);
+      try {
+        await sleep(EPISODE_RETRY_DELAY_MS, signal);
+      } catch {
+        setLoading(false);
+        return null;
+      }
     }
     setLoading(false);
     return null;
+  }
+
+  /** 화 생성(재시도 대기·2화 사이 텀 포함)을 취소한다. */
+  function cancelGeneration() {
+    abortRef.current?.abort();
   }
 
   async function handleCoverImageChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -439,11 +476,13 @@ function ObservePageInner() {
           )
         : "";
     setLoading(false);
+    abortRef.current = new AbortController();
     const result = await requestEpisode({
       characters,
       topic: topic.trim(),
       characterContext,
     });
+    abortRef.current = null;
     if (!result) return;
     const newStory: ObservationSession = {
       id: crypto.randomUUID(),
@@ -555,13 +594,23 @@ function ObservePageInner() {
         ? `[시간 경과] 이번 화는 직전 화로부터 약 ${formatElapsedDays(skipDays)} 지난 시점부터 시작한다.`
         : "";
 
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     for (let i = 0; i < parts.length; i++) {
       const part = parts[i];
       if (i > 0) {
         // 같은 API 키에 화 두 개 분량 요청이 바로 붙어서 나가면 분당
         // 요청 한도에 몰릴 수 있어, 다음 화를 시작하기 전에 짧게 쉰다.
         setLoading(true);
-        await sleep(TWO_PART_GAP_MS);
+        try {
+          await sleep(TWO_PART_GAP_MS, controller.signal);
+        } catch {
+          setGeneratingPart(null);
+          setLoading(false);
+          abortRef.current = null;
+          return;
+        }
       }
       setGeneratingPart(twoPartMode ? part : null);
       const combinedDirective = twoPartMode
@@ -581,6 +630,7 @@ function ObservePageInner() {
       });
       if (!result) {
         setGeneratingPart(null);
+        abortRef.current = null;
         return;
       }
       current = {
@@ -601,6 +651,7 @@ function ObservePageInner() {
       });
     }
     setGeneratingPart(null);
+    abortRef.current = null;
   }
 
   async function handleDeleteStory(id: string, targetUniverseId = universeId) {
@@ -978,25 +1029,36 @@ function ObservePageInner() {
                   </div>
                 )}
 
-                <button
-                  type="button"
-                  onClick={handleStart}
-                  disabled={selectedIds.length < 2 || !topic.trim() || loading}
-                  className="group flex items-center justify-center gap-2 rounded-xl bg-primary py-3 pr-3 pl-5 text-sm font-semibold text-primary-foreground transition-transform hover:scale-[1.01] active:scale-[0.98] disabled:opacity-40 disabled:hover:scale-100"
-                >
-                  {loading
-                    ? importIds.length > 0
-                      ? "이전 대화 요약하는 중…"
-                      : "1화를 쓰는 중…"
-                    : (
-                      <>
-                        이야기 시작
-                        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary-foreground/20 transition-transform group-hover:translate-x-0.5">
-                          <ChevronRightIcon />
-                        </span>
-                      </>
-                    )}
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleStart}
+                    disabled={selectedIds.length < 2 || !topic.trim() || loading}
+                    className="group flex flex-1 items-center justify-center gap-2 rounded-xl bg-primary py-3 pr-3 pl-5 text-sm font-semibold text-primary-foreground transition-transform hover:scale-[1.01] active:scale-[0.98] disabled:opacity-40 disabled:hover:scale-100"
+                  >
+                    {loading
+                      ? importIds.length > 0
+                        ? "이전 대화 요약하는 중…"
+                        : "1화를 쓰는 중…"
+                      : (
+                        <>
+                          이야기 시작
+                          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary-foreground/20 transition-transform group-hover:translate-x-0.5">
+                            <ChevronRightIcon />
+                          </span>
+                        </>
+                      )}
+                  </button>
+                  {loading && (
+                    <button
+                      type="button"
+                      onClick={cancelGeneration}
+                      className="rounded-full border border-border px-3 py-3 text-xs text-muted transition-transform hover:scale-[1.03] active:scale-[0.97]"
+                    >
+                      취소
+                    </button>
+                  )}
+                </div>
 
                 {browseSessions.length > 0 && (
                   <button
@@ -1354,9 +1416,18 @@ function ObservePageInner() {
             </div>
 
             {loading && (
-              <p className="text-center text-sm text-muted">
-                {generatingPart ? `${generatingPart}/2화 쓰는 중…` : "다음 화를 쓰는 중…"}
-              </p>
+              <div className="flex items-center justify-center gap-3">
+                <p className="text-sm text-muted">
+                  {generatingPart ? `${generatingPart}/2화 쓰는 중…` : "다음 화를 쓰는 중…"}
+                </p>
+                <button
+                  type="button"
+                  onClick={cancelGeneration}
+                  className="rounded-full border border-border px-3 py-1 text-xs text-muted transition-transform hover:scale-[1.03] active:scale-[0.97]"
+                >
+                  취소
+                </button>
+              </div>
             )}
 
             {error && (
