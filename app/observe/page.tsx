@@ -71,6 +71,22 @@ function storyTitle(session: ObservationSession, characters: Character[]): strin
 /** 책장 한 페이지에 보이는 책 수 (가로 3권 x 세로 3권) */
 const BOOKS_PER_PAGE = 9;
 
+/** ms만큼 기다린다. Gemini 연속 호출 사이 텀을 두거나, 실패 후 재시도 전 잠깐 쉴 때 쓴다. */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// 화 하나를 만들다 일시적인 오류(타임아웃·서버 혼잡)가 나면 사용자에게
+// 바로 실패를 보여주는 대신 짧게 쉬었다가 한 번 더 시도한다. quota(오늘
+// 사용량 소진)는 재시도해도 똑같이 실패할 뿐이라 재시도 대상에서 뺐다.
+const EPISODE_MAX_ATTEMPTS = 2;
+const EPISODE_RETRY_DELAY_MS = 3000;
+
+// "2화로 나눠 쓰기"는 같은 API 키에 화 두 개 분량의 요청을 몇 초 간격으로
+// 연달아 보낸다. 분당 요청 한도(RPM)에 몰리면 두 번째 화가 더 자주
+// 실패하는 경향이 있어서, 화 사이에 짧은 텀을 둬 그 부담을 완화한다.
+const TWO_PART_GAP_MS = 4000;
+
 export default function ObservePage() {
   return (
     <Suspense fallback={null}>
@@ -308,43 +324,59 @@ function ObservePageInner() {
     if (!universe) return null;
     setLoading(true);
     setError(null);
-    try {
-      const res = await fetch("/api/scene", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          characters: params.characters.map(toCharacterProfile),
-          universe: resolveUniverseTemplate(universe, allCharacters),
-          topic: params.topic,
-          previousEpisodes: params.previousEpisodes,
-          characterContext: params.characterContext,
-          arcSummaries: params.arcSummaries,
-          directive: params.directive,
-          elapsedDays: params.elapsedDays,
-          currentState: params.currentState,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError({
+    const resolvedUniverse = resolveUniverseTemplate(universe, allCharacters);
+    for (let attempt = 1; attempt <= EPISODE_MAX_ATTEMPTS; attempt++) {
+      let failure: SceneErrorState;
+      try {
+        const res = await fetch("/api/scene", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            characters: params.characters.map(toCharacterProfile),
+            universe: resolvedUniverse,
+            topic: params.topic,
+            previousEpisodes: params.previousEpisodes,
+            characterContext: params.characterContext,
+            arcSummaries: params.arcSummaries,
+            directive: params.directive,
+            elapsedDays: params.elapsedDays,
+            currentState: params.currentState,
+          }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          setLoading(false);
+          return {
+            episode: data.episode as StoryEpisode,
+            currentState: typeof data.currentState === "string" ? data.currentState : undefined,
+          };
+        }
+        failure = {
           message: data.error ?? "이번 화를 만들지 못했어요.",
           kind: data.kind ?? "unknown",
-        });
+        };
+      } catch {
+        failure = {
+          message: "네트워크 문제로 이번 화를 만들지 못했어요.",
+          kind: "network",
+        };
+      }
+      // 타임아웃·서버 혼잡(overloaded)처럼 잠깐 후 다시 시도하면 풀릴 수
+      // 있는 오류만 재시도한다. quota는 오늘 한도가 다 찬 것이라 바로
+      // 또 불러도 똑같이 실패할 뿐이고, unknown(안전 정책 차단 등)도
+      // 재시도로 나아질 가능성이 낮다.
+      const canRetry =
+        attempt < EPISODE_MAX_ATTEMPTS &&
+        (failure.kind === "network" || failure.kind === "overloaded");
+      if (!canRetry) {
+        setError(failure);
+        setLoading(false);
         return null;
       }
-      return {
-        episode: data.episode as StoryEpisode,
-        currentState: typeof data.currentState === "string" ? data.currentState : undefined,
-      };
-    } catch {
-      setError({
-        message: "네트워크 문제로 이번 화를 만들지 못했어요.",
-        kind: "network",
-      });
-      return null;
-    } finally {
-      setLoading(false);
+      await sleep(EPISODE_RETRY_DELAY_MS);
     }
+    setLoading(false);
+    return null;
   }
 
   async function handleCoverImageChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -523,7 +555,14 @@ function ObservePageInner() {
         ? `[시간 경과] 이번 화는 직전 화로부터 약 ${formatElapsedDays(skipDays)} 지난 시점부터 시작한다.`
         : "";
 
-    for (const part of parts) {
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
+      if (i > 0) {
+        // 같은 API 키에 화 두 개 분량 요청이 바로 붙어서 나가면 분당
+        // 요청 한도에 몰릴 수 있어, 다음 화를 시작하기 전에 짧게 쉰다.
+        setLoading(true);
+        await sleep(TWO_PART_GAP_MS);
+      }
       setGeneratingPart(twoPartMode ? part : null);
       const combinedDirective = twoPartMode
         ? [part === 1 ? userDirective : "", part === 1 ? skipNote : "", TWO_PART_NOTES[part]]
@@ -896,7 +935,7 @@ function ObservePageInner() {
                   />
                 </label>
                 <p className="-mt-3 text-xs text-muted">
-                  한 화당 3000~3600자 안팎의 단편소설로 이어져요.
+                  한 화당 2800~3000자 안팎의 단편소설로 이어져요.
                 </p>
 
                 {selectedIds.some((id) => hasHistoryIds.has(id)) && (
