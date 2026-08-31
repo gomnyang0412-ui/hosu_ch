@@ -357,6 +357,7 @@ async function generate(params: {
         );
       }
       const ai = clients[i];
+      const attemptStartedAt = Date.now();
       try {
         const response = await ai.models.generateContent({
           model,
@@ -387,6 +388,11 @@ async function generate(params: {
             "unknown"
           );
         }
+        // 타임아웃 값을 다음에 데이터 기반으로 조정할 수 있게, 실제 걸린
+        // 시간을 서버 콘솔에 남긴다(Redis 스키마 변경 없이 로그로만).
+        console.log(
+          `[gemini] ${model} key#${i + 1} 성공, ${Date.now() - attemptStartedAt}ms`
+        );
         // 서버리스 환경에서는 응답을 반환한 뒤 실행이 곧바로 얼어붙을 수
         // 있어서, fire-and-forget이 아니라 기록이 끝나길 기다린 뒤 반환한다
         // (recordApiUsage 자체는 내부에서 실패를 삼켜 절대 던지지 않는다).
@@ -395,6 +401,9 @@ async function generate(params: {
       } catch (err) {
         if (isModelUnavailable(err)) break; // 이 모델 자체가 없음 → 바로 다음 모델로
         const mapped = toGeminiError(err);
+        console.warn(
+          `[gemini] ${model} key#${i + 1} 실패(${mapped.kind}), ${Date.now() - attemptStartedAt}ms`
+        );
         // 사용량 초과(quota)나 서버 혼잡(overloaded)이 아닌 오류는 다른
         // 키/모델로 시도해도 똑같이 실패할 가능성이 높으니 바로 실패
         // 처리한다. 이 둘일 때만, 그리고 retryOnTimeout이 켜져 있으면
@@ -423,25 +432,23 @@ async function generate(params: {
   );
 }
 
-// 1:1/멀티 대화 응답은 짧은 대사 한 마디라 관찰모드용 기본 타임아웃(35초)을
-// 그대로 쓸 이유가 없다 — 오래 걸려도 12초면 충분하고, 그 안에 안 오면
-// (retryOnTimeout) 바로 다음 모델·키로 넘어가는 게 사용자를 오래 기다리게
-// 붙잡아두는 것보다 낫다. 예전엔 재시도 없이 35초 기다렸다가 실패하는
-// 구조라 quota가 하루 한도에 가까워질수록(첫 모델이 혼잡해 응답이 느려짐)
-// "네트워크 오류"가 잦아지는 문제가 있었다.
-//
 // room-chat 라우트(maxDuration 80초)는 검증 실패 시 이 함수를 최대 2번
 // 순차 호출할 수 있어서(app/api/room-chat/route.ts의 attemptTarget()),
 // 한 번의 호출이 예산 없이 5개 모델 × 키 개수를 전부 재시도하면 두
 // 번째 호출을 시작하기도 전에 route의 maxDuration을 플랫폼이 먼저
 // 끊어버릴 수 있다(generateStoryEpisode에서 이미 겪은 것과 같은
-// 클래스의 버그). 30초로 예산을 두면 두 번을 합쳐도 60초로 80초 안에
-// 여유 있게 들어온다. overallDeadlineMs(30초)를 timeoutMs(12초)의 정확히
-// 2배가 아니라 2.5배로 잡은 것도 같은 이유 — 이 코드베이스에서 "정확히
-// 2배"가 첫 시도의 아주 작은 오버헤드만 더해져도 재시도를 시작도 못 해보고
-// 실패하는 버그를 이미 두 번 만들었다(generateStoryEpisode 주석 참고).
-const CHAT_REPLY_TIMEOUT_MS = 12_000;
-const CHAT_REPLY_DEADLINE_MS = 30_000;
+// 클래스의 버그). 36초로 예산을 두면 두 번을 합쳐도 72초로 80초 안에
+// 여유 있게 들어온다.
+//
+// (한때 개별 타임아웃을 12초로 줄이고 retryOnTimeout을 켜본 적이 있는데,
+// 실제 응답 시간이 12초를 넘는 경우가 드물지 않아서 오히려 "AI 응답이
+// 너무 오래 걸렸다" 실패가 더 잦아졌다 — 30초 예산 안에서 재시도하려면
+// 개별 타임아웃을 12초까지 줄여야 했는데, 그게 정상적인 응답 시간보다도
+// 짧았던 것. 이 앱엔 실제 응답 시간을 재는 로깅이 없어서 추측으로 값을
+// 잡았던 게 원인이라, generate() 안에 시도별 소요 시간을 콘솔에 남기는
+// 로그를 추가해뒀다 — 다음에 타임아웃 값을 조정할 땐 그 로그로 실제
+// 분포를 보고 결정할 것.)
+const CHAT_REPLY_DEADLINE_MS = 36_000;
 
 /** 1:1 대화 응답 (지문 + 대사 한 쌍. say는 스키마상 필수) */
 export async function generateChatReply(params: {
@@ -452,8 +459,6 @@ export async function generateChatReply(params: {
     ...params,
     json: true,
     models: DIALOGUE_MODEL_CHAIN,
-    timeoutMs: CHAT_REPLY_TIMEOUT_MS,
-    retryOnTimeout: true,
     overallDeadlineMs: CHAT_REPLY_DEADLINE_MS,
   });
 }
