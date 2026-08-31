@@ -440,14 +440,21 @@ async function generate(params: {
 // 클래스의 버그). 36초로 예산을 두면 두 번을 합쳐도 72초로 80초 안에
 // 여유 있게 들어온다.
 //
-// (한때 개별 타임아웃을 12초로 줄이고 retryOnTimeout을 켜본 적이 있는데,
-// 실제 응답 시간이 12초를 넘는 경우가 드물지 않아서 오히려 "AI 응답이
-// 너무 오래 걸렸다" 실패가 더 잦아졌다 — 30초 예산 안에서 재시도하려면
-// 개별 타임아웃을 12초까지 줄여야 했는데, 그게 정상적인 응답 시간보다도
-// 짧았던 것. 이 앱엔 실제 응답 시간을 재는 로깅이 없어서 추측으로 값을
-// 잡았던 게 원인이라, generate() 안에 시도별 소요 시간을 콘솔에 남기는
-// 로그를 추가해뒀다 — 다음에 타임아웃 값을 조정할 땐 그 로그로 실제
-// 분포를 보고 결정할 것.)
+// timeoutMs를 반드시 명시해야 한다 — 비워두면 generate()의 예산 검사가
+// "다음 시도도 최악의 경우 기본값(35초) 걸릴 것"으로 가정해버려서, 이
+// 36초짜리 예산에서는 슬랙이 1초(36-35초)밖에 안 남는다. quota 초과처럼
+// 0.5초 안에 빠르게 실패하는 경우조차 이 가정 때문에 키 2~3개만 시도해
+// 보고 나머지 모델(2.5-flash 등)은 시도조차 못 해본 채 포기해버리는
+// 실제 버그였다(2026-08-31 진단). timeoutMs를 15초로 명시하면 슬랙이
+// 21초로 늘어나서, 빠르게 실패하는 시도는 사실상 전체 체인을 다 훑어볼
+// 수 있고, 느린 시도도 15초면 포기하고 다음으로 넘어간다.
+//
+// (한때 개별 타임아웃을 12초로 줄이고 overallDeadlineMs를 30초로 같이
+// 좁혀본 적이 있는데, 그러면 최대 2번밖에 시도가 안 돼서 오히려 실패가
+// 잦아졌다. 지금은 overallDeadlineMs는 검증된 36초 그대로 두고
+// timeoutMs만 명시해서, 빠른 실패는 훨씬 많이 재시도하면서도 느린
+// 시도의 개별 인내심은 15초로 유지한다.)
+const CHAT_REPLY_TIMEOUT_MS = 15_000;
 const CHAT_REPLY_DEADLINE_MS = 36_000;
 
 /** 1:1 대화 응답 (지문 + 대사 한 쌍. say는 스키마상 필수) */
@@ -459,6 +466,8 @@ export async function generateChatReply(params: {
     ...params,
     json: true,
     models: DIALOGUE_MODEL_CHAIN,
+    timeoutMs: CHAT_REPLY_TIMEOUT_MS,
+    retryOnTimeout: true,
     overallDeadlineMs: CHAT_REPLY_DEADLINE_MS,
   });
 }
@@ -526,6 +535,12 @@ export async function generateStoryEpisode(params: {
 
 // character-profile 라우트는 maxDuration 60초에 이 함수를 한 번만
 // 호출한다. 10초 여유를 두고 50초로 제한한다.
+//
+// generateChatReply와 같은 이유로 timeoutMs를 명시한다 — 안 그러면
+// 예산 검사가 기본값(35초)을 다음 시도의 최악값으로 가정해서 슬랙이
+// 15초(50-35초)밖에 안 남는다. 15초로 명시하면 슬랙이 35초로 늘어나서
+// 5개 모델 체인을 빠른 실패(quota) 기준으로 사실상 다 훑어볼 수 있다.
+const CHARACTER_PROFILE_TIMEOUT_MS = 15_000;
 const CHARACTER_PROFILE_DEADLINE_MS = 50_000;
 
 /** 대화 기록을 참고해 캐릭터 설정 항목별로 다듬은 글을 제안 (JSON 객체) */
@@ -538,6 +553,8 @@ export async function generateCharacterProfile(params: {
     json: true,
     responseSchema: CHARACTER_PROFILE_SCHEMA,
     models: DIALOGUE_MODEL_CHAIN,
+    timeoutMs: CHARACTER_PROFILE_TIMEOUT_MS,
+    retryOnTimeout: true,
     overallDeadlineMs: CHARACTER_PROFILE_DEADLINE_MS,
   });
 }
