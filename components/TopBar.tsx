@@ -26,7 +26,7 @@ export default function TopBar({
       >
         <BackArrowIcon />
       </button>
-      <h1 className="flex-1 truncate text-base font-semibold">{title}</h1>
+      <h1 className="min-w-0 flex-1 truncate text-base font-semibold">{title}</h1>
       {right}
     </header>
   );
