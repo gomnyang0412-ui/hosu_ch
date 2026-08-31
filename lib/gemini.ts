@@ -53,9 +53,16 @@ const BLOCKED_FINISH_REASONS = new Set<string>([
 // 다 떨어지면(전체 키에서 전부 quota 에러) 다음 Flash 모델로 넘어가고,
 // Flash를 전부 소진하면 마지막으로 Flash-Lite까지 내려가 대화가 완전히
 // 끊기지는 않게 한다.
+// gemini-2.5-flash는 2026-08-31 기준 이 계정에서 더 이상 응답하지
+// 않는다(404로 조용히 건너뛰어짐 — AI Studio 사용량 그래프에서도 8월
+// 중순 이후로 요청이 0으로 끊긴 게 확인됨). 대신 gemini-3.7-flash를
+// 새 백업으로 추가했다 — 다만 이 모델도 무료 하루 한도(RPD)가 20으로
+// 낮아서(AI Studio Rate Limit 페이지 확인, 2026-08-31), 만능 해결책은
+// 아니고 "한 바구니 더" 정도의 추가 여유다. gemini-3.6-flash가 이미
+// 실적이 검증된 1순위라 순서는 그대로 두고 2순위 자리에 넣었다.
 const DIALOGUE_MODELS = [
   "gemini-3.6-flash",
-  "gemini-2.5-flash",
+  "gemini-3.7-flash",
   "gemini-3-flash-preview",
   "gemini-3.5-flash",
 ];
