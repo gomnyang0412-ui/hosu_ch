@@ -437,39 +437,55 @@ async function generate(params: {
 // 한 번의 호출이 예산 없이 5개 모델 × 키 개수를 전부 재시도하면 두
 // 번째 호출을 시작하기도 전에 route의 maxDuration을 플랫폼이 먼저
 // 끊어버릴 수 있다(generateStoryEpisode에서 이미 겪은 것과 같은
-// 클래스의 버그). 36초로 예산을 두면 두 번을 합쳐도 72초로 80초 안에
-// 여유 있게 들어온다.
+// 클래스의 버그). 총예산을 36초로 두면 두 번을 합쳐도 72초로 80초 안에
+// 여유 있게 들어온다 — 아래 두 단계로 나눠 쓰지만 합쳐서 36초는 넘지
+// 않는다.
 //
 // timeoutMs를 반드시 명시해야 한다 — 비워두면 generate()의 예산 검사가
-// "다음 시도도 최악의 경우 기본값(35초) 걸릴 것"으로 가정해버려서, 이
-// 36초짜리 예산에서는 슬랙이 1초(36-35초)밖에 안 남는다. quota 초과처럼
-// 0.5초 안에 빠르게 실패하는 경우조차 이 가정 때문에 키 2~3개만 시도해
-// 보고 나머지 모델(2.5-flash 등)은 시도조차 못 해본 채 포기해버리는
-// 실제 버그였다(2026-08-31 진단). timeoutMs를 15초로 명시하면 슬랙이
-// 21초로 늘어나서, 빠르게 실패하는 시도는 사실상 전체 체인을 다 훑어볼
+// "다음 시도도 최악의 경우 기본값(35초) 걸릴 것"으로 가정해버려서
+// 슬랙이 거의 안 남는다(2026-08-31 진단). timeoutMs를 15초로 명시하면
+// 빠르게 실패하는 시도(quota 초과 등)는 사실상 전체 체인을 다 훑어볼
 // 수 있고, 느린 시도도 15초면 포기하고 다음으로 넘어간다.
 //
-// (한때 개별 타임아웃을 12초로 줄이고 overallDeadlineMs를 30초로 같이
-// 좁혀본 적이 있는데, 그러면 최대 2번밖에 시도가 안 돼서 오히려 실패가
-// 잦아졌다. 지금은 overallDeadlineMs는 검증된 36초 그대로 두고
-// timeoutMs만 명시해서, 빠른 실패는 훨씬 많이 재시도하면서도 느린
-// 시도의 개별 인내심은 15초로 유지한다.)
+// 그런데도 Flash 계열 앞쪽 모델 중 하나가 quota가 아니라 진짜 느리게
+// 응답 없이 15초를 다 채우면, 그 한 번의 시도가 예산을 크게 갉아먹어서
+// 체인의 마지막인 lite까지 예산이 안 남아 시도조차 못 해보고 전체가
+// 실패하는 경우가 있었다 — Flash 단계와 lite 단계의 예산을 공용 풀로
+// 같이 쓰다 보니, lite가 앞쪽 모델들에게 예산을 다 뺏길 수 있었던 것.
+// 그래서 아래처럼 예산을 아예 분리한다: Flash 계열(28초)이 전부
+// 실패해도, lite에게는 항상 별도로 떼어둔 8초가 보장된다 — 앞쪽에서
+// 무슨 일이 있었든 lite는 최소 한 번은 시도해본다. (관찰모드는 lite로
+// 캐릭터가 무너지는 문제가 있어 이 안전망을 안 쓴다 — generateStoryEpisode
+// 참고.)
 const CHAT_REPLY_TIMEOUT_MS = 15_000;
-const CHAT_REPLY_DEADLINE_MS = 36_000;
+const CHAT_REPLY_FLASH_DEADLINE_MS = 28_000;
+const CHAT_REPLY_LITE_TIMEOUT_MS = 8_000;
 
-/** 1:1 대화 응답 (지문 + 대사 한 쌍. say는 스키마상 필수) */
+/** 1:1/멀티 대화 응답 (지문 + 대사 한 쌍. say는 스키마상 필수) */
 export async function generateChatReply(params: {
   systemInstruction: string;
   contents: Content[];
 }): Promise<{ text: string; model: string; keyIndex: number }> {
-  return generate({
-    ...params,
-    json: true,
-    models: DIALOGUE_MODEL_CHAIN,
-    timeoutMs: CHAT_REPLY_TIMEOUT_MS,
-    retryOnTimeout: true,
-    overallDeadlineMs: CHAT_REPLY_DEADLINE_MS,
-  });
+  try {
+    return await generate({
+      ...params,
+      json: true,
+      models: DIALOGUE_MODELS,
+      timeoutMs: CHAT_REPLY_TIMEOUT_MS,
+      retryOnTimeout: true,
+      overallDeadlineMs: CHAT_REPLY_FLASH_DEADLINE_MS,
+    });
+  } catch {
+    // Flash 계열이 전부 실패해도 lite는 별도로 떼어둔 예산으로 반드시
+    // 한 번 시도해본다.
+    return generate({
+      ...params,
+      json: true,
+      models: [LITE_MODEL],
+      timeoutMs: CHAT_REPLY_LITE_TIMEOUT_MS,
+      overallDeadlineMs: CHAT_REPLY_LITE_TIMEOUT_MS,
+    });
+  }
 }
 
 // 요약 라우트(summarize/summarize-arc/summarize-story)는 모두
