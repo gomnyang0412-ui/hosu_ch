@@ -337,6 +337,16 @@ async function generate(params: {
    * 이 시간이 되면 지금까지의 오류로 깔끔하게 실패 응답을 주는 게 낫다.
    */
   overallDeadlineMs?: number;
+  /**
+   * quota/overloaded로 다음 모델·키로 넘어가기 전에 잠깐 쉬는 시간(ms).
+   * 기본은 0(안 쉼) — quota 초과는 보통 0.3~0.5초 안에 빠르게 실패해서,
+   * 모델×키 조합이 많으면(관찰모드는 4모델×N키) 짧은 시간에 요청이
+   * 몰려서 나가버려 분당 요청 한도(RPM)를 오히려 넘기기 쉽다(2026-09-01,
+   * 관찰모드 2화 이어쓰기에서 확인된 문제). 관찰모드처럼 애초에 여유
+   * 시간이 넉넉한 호출에서만 켠다 — 1:1/멀티 대화처럼 예산이 빠듯한
+   * 호출에서 켜면 그만큼 시도 횟수가 줄어들 수 있어 기본값은 그대로 둔다.
+   */
+  retryDelayMs?: number;
 }): Promise<{ text: string; model: string; keyIndex: number }> {
   const clients = getClients();
   let lastError: GeminiRequestError | null = null;
@@ -426,6 +436,9 @@ async function generate(params: {
           (mapped.kind === "network" && params.retryOnTimeout);
         if (!retryable) throw mapped;
         lastError = mapped;
+        if (params.retryDelayMs) {
+          await new Promise((resolve) => setTimeout(resolve, params.retryDelayMs));
+        }
       }
     }
   }
@@ -553,6 +566,12 @@ export async function generateStoryEpisode(params: {
     timeoutMs: 50_000,
     retryOnTimeout: true,
     overallDeadlineMs: 170_000,
+    // quota 초과가 보통 0.3~0.5초 안에 빠르게 실패해서, 4개 모델 × 키
+    // 여러 개를 거의 동시에 두드리면 분당 요청 한도(RPM)를 오히려
+    // 넘겨버릴 수 있다 — 특히 2화 이어쓰기처럼 짧은 간격으로 이 함수를
+    // 두 번 부르는 경우 확인됨(2026-09-01). 400ms씩 쉬어가며 넘어가서
+    // 같은 분 안에 요청이 몰리는 걸 완화한다.
+    retryDelayMs: 400,
   });
 }
 

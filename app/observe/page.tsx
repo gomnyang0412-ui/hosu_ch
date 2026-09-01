@@ -100,7 +100,11 @@ const EPISODE_RETRY_DELAY_MS = 3000;
 // "2화로 나눠 쓰기"는 같은 API 키에 화 두 개 분량의 요청을 몇 초 간격으로
 // 연달아 보낸다. 분당 요청 한도(RPM)에 몰리면 두 번째 화가 더 자주
 // 실패하는 경향이 있어서, 화 사이에 짧은 텀을 둬 그 부담을 완화한다.
-const TWO_PART_GAP_MS = 4000;
+// 1화 생성 자체가 quota 초과로 여러 모델×키를 빠르게 훑으면(각각
+// lib/gemini.ts의 retryDelayMs로 400ms씩 쉬긴 하지만) 그것만으로도 이번
+// 분의 RPM을 상당히 써버릴 수 있어서, 4초로는 부족한 경우가 있었다
+// (2026-09-01 진단). 8초로 늘려 다음 분으로 넘어갈 여유를 더 준다.
+const TWO_PART_GAP_MS = 8000;
 
 export default function ObservePage() {
   return (
