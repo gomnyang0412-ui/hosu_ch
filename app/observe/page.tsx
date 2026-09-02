@@ -108,6 +108,12 @@ const EPISODE_RETRY_DELAY_MS = 3000;
 // (2026-09-01 진단). 8초로 늘려 다음 분으로 넘어갈 여유를 더 준다.
 const TWO_PART_GAP_MS = 8000;
 
+// "쓰는 중…" 진행 바가 서서히 차오르는 속도의 기준값. 정확한 %가 아니라
+// 추정치라(위 requestEpisode 주석 참고) 화 하나가 보통 이 정도 걸린다는
+// 대략적인 감각만 반영한다 — 실제로 이보다 빨리 끝나도 늦게 끝나도 상관
+// 없이, 92%에서 멈춰 기다리다가 응답이 오면 화면 자체가 사라진다.
+const ESTIMATED_EPISODE_MS = 20_000;
+
 export default function ObservePage() {
   return (
     <Suspense fallback={null}>
@@ -151,11 +157,21 @@ function ObservePageInner() {
   const [timeSkipUnit, setTimeSkipUnit] = useState<"day" | "month" | "year">("month");
   const [generatingPart, setGeneratingPart] = useState<1 | 2 | null>(null);
   const [loading, setLoading] = useState(false);
+  const [genProgress, setGenProgress] = useState(0);
   const [error, setError] = useState<SceneErrorState | null>(null);
   // 화 생성 중(재시도 대기, 2화 사이 텀 포함)에 사용자가 취소할 수 있게
   // 하는 컨트롤러. handleStart·handleContinue가 시작할 때 새로 만들어
   // 채워 넣고, requestEpisode와 화 사이 대기(sleep)가 이걸 공유해서 쓴다.
   const abortRef = useRef<AbortController | null>(null);
+  // handleStart·handleContinue 중복 실행 방지. loading state만으로는
+  // 막을 수 없다 — 오류가 나서 "다시 시도" 버튼을 빠르게 여러 번 누르면
+  // React가 loading=true로 리렌더링하기 전에 클릭 이벤트가 먼저 여러 번
+  // 들어와서, 같은 화(같은 인덱스)를 만드는 요청이 동시에 여러 개
+  // 나가버린다 — 그러면 서로 다른 초안이 각자 완성되는 순서대로 저장을
+  // 덮어써서, 방금 본 화 본문이 조금 뒤 다른 내용으로 바뀌어 보이는
+  // 버그였다(2026-09-02 사용자 리포트). ref는 리렌더링을 안 기다리고
+  // 즉시 갱신되니 이 경우엔 state보다 ref로 막아야 한다.
+  const isGeneratingRef = useRef(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [startingChat, setStartingChat] = useState(false);
   const [startChatError, setStartChatError] = useState("");
@@ -351,72 +367,89 @@ function ObservePageInner() {
     if (!universe) return null;
     setLoading(true);
     setError(null);
-    const resolvedUniverse = resolveUniverseTemplate(universe, allCharacters);
-    const signal = abortRef.current?.signal;
-    for (let attempt = 1; attempt <= EPISODE_MAX_ATTEMPTS; attempt++) {
-      let failure: SceneErrorState;
-      try {
-        const res = await fetch("/api/scene", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            characters: params.characters.map(toCharacterProfile),
-            universe: resolvedUniverse,
-            topic: params.topic,
-            previousEpisodes: params.previousEpisodes,
-            characterContext: params.characterContext,
-            arcSummaries: params.arcSummaries,
-            directive: params.directive,
-            elapsedDays: params.elapsedDays,
-            currentState: params.currentState,
-          }),
-          signal,
-        });
-        const data = await res.json();
-        if (res.ok) {
-          setLoading(false);
-          return {
-            episode: data.episode as StoryEpisode,
-            currentState: typeof data.currentState === "string" ? data.currentState : undefined,
+    setGenProgress(0);
+    // 진짜 진행률이 아니라 "그럴듯한" 추정치다 — Gemini 호출이 완전히
+    // 끝나야 응답이 오는 방식(스트리밍 아님)이라 서버도 지금 몇 %인지
+    // 전혀 모른다. 그래서 보통 걸리는 시간을 기준으로 서서히 차오르다가
+    // 92%에서 멈춰 기다리고, 실제로 응답이 오면 그 즉시 로딩 화면
+    // 자체가 사라진다(2026-09-02).
+    const genStartedAt = Date.now();
+    const progressTimer = setInterval(() => {
+      const elapsed = Date.now() - genStartedAt;
+      setGenProgress(
+        Math.min(92, Math.round((1 - Math.exp(-elapsed / (ESTIMATED_EPISODE_MS / 2.5))) * 92))
+      );
+    }, 200);
+    try {
+      const resolvedUniverse = resolveUniverseTemplate(universe, allCharacters);
+      const signal = abortRef.current?.signal;
+      for (let attempt = 1; attempt <= EPISODE_MAX_ATTEMPTS; attempt++) {
+        let failure: SceneErrorState;
+        try {
+          const res = await fetch("/api/scene", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              characters: params.characters.map(toCharacterProfile),
+              universe: resolvedUniverse,
+              topic: params.topic,
+              previousEpisodes: params.previousEpisodes,
+              characterContext: params.characterContext,
+              arcSummaries: params.arcSummaries,
+              directive: params.directive,
+              elapsedDays: params.elapsedDays,
+              currentState: params.currentState,
+            }),
+            signal,
+          });
+          const data = await res.json();
+          if (res.ok) {
+            setLoading(false);
+            return {
+              episode: data.episode as StoryEpisode,
+              currentState: typeof data.currentState === "string" ? data.currentState : undefined,
+            };
+          }
+          failure = {
+            message: data.error ?? "이번 화를 만들지 못했어요.",
+            kind: data.kind ?? "unknown",
+          };
+        } catch (err) {
+          // 사용자가 취소 버튼을 눌러 abort된 경우 — 실패가 아니라 의도한
+          // 중단이니 에러 메시지 없이 조용히 빠져나간다.
+          if (err instanceof DOMException && err.name === "AbortError") {
+            setLoading(false);
+            return null;
+          }
+          failure = {
+            message: "네트워크 문제로 이번 화를 만들지 못했어요.",
+            kind: "network",
           };
         }
-        failure = {
-          message: data.error ?? "이번 화를 만들지 못했어요.",
-          kind: data.kind ?? "unknown",
-        };
-      } catch (err) {
-        // 사용자가 취소 버튼을 눌러 abort된 경우 — 실패가 아니라 의도한
-        // 중단이니 에러 메시지 없이 조용히 빠져나간다.
-        if (err instanceof DOMException && err.name === "AbortError") {
+        // 타임아웃·서버 혼잡(overloaded)처럼 잠깐 후 다시 시도하면 풀릴 수
+        // 있는 오류만 재시도한다. quota는 오늘 한도가 다 찬 것이라 바로
+        // 또 불러도 똑같이 실패할 뿐이고, unknown(안전 정책 차단 등)도
+        // 재시도로 나아질 가능성이 낮다.
+        const canRetry =
+          attempt < EPISODE_MAX_ATTEMPTS &&
+          (failure.kind === "network" || failure.kind === "overloaded");
+        if (!canRetry) {
+          setError(failure);
           setLoading(false);
           return null;
         }
-        failure = {
-          message: "네트워크 문제로 이번 화를 만들지 못했어요.",
-          kind: "network",
-        };
+        try {
+          await sleep(EPISODE_RETRY_DELAY_MS, signal);
+        } catch {
+          setLoading(false);
+          return null;
+        }
       }
-      // 타임아웃·서버 혼잡(overloaded)처럼 잠깐 후 다시 시도하면 풀릴 수
-      // 있는 오류만 재시도한다. quota는 오늘 한도가 다 찬 것이라 바로
-      // 또 불러도 똑같이 실패할 뿐이고, unknown(안전 정책 차단 등)도
-      // 재시도로 나아질 가능성이 낮다.
-      const canRetry =
-        attempt < EPISODE_MAX_ATTEMPTS &&
-        (failure.kind === "network" || failure.kind === "overloaded");
-      if (!canRetry) {
-        setError(failure);
-        setLoading(false);
-        return null;
-      }
-      try {
-        await sleep(EPISODE_RETRY_DELAY_MS, signal);
-      } catch {
-        setLoading(false);
-        return null;
-      }
+      setLoading(false);
+      return null;
+    } finally {
+      clearInterval(progressTimer);
     }
-    setLoading(false);
-    return null;
   }
 
   /** 화 생성(재시도 대기·2화 사이 텀 포함)을 취소한다. */
@@ -474,46 +507,52 @@ function ObservePageInner() {
 
   async function handleStart() {
     if (selectedIds.length < 2 || !topic.trim() || !universe) return;
-    const characters = allCharacters.filter((c) => selectedIds.includes(c.id));
-    setLoading(true);
-    const characterContext =
-      importIds.length > 0
-        ? await buildCharacterContext(
-            characters,
-            resolveUniverseTemplate(universe, allCharacters)
-          )
-        : "";
-    setLoading(false);
-    abortRef.current = new AbortController();
-    const result = await requestEpisode({
-      characters,
-      topic: topic.trim(),
-      characterContext,
-    });
-    abortRef.current = null;
-    if (!result) return;
-    const newStory: ObservationSession = {
-      id: crypto.randomUUID(),
-      universeId,
-      characterIds: selectedIds,
-      topic: topic.trim(),
-      episodes: [result.episode],
-      currentState: result.currentState,
-      characterContext: characterContext || undefined,
-      coverImage,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    };
-    setStories((prev) => [...(prev ?? []), newStory]);
+    if (isGeneratingRef.current) return;
+    isGeneratingRef.current = true;
     try {
-      await saveStory(newStory);
-    } catch (err) {
-      setError({
-        message: storageErrorMessage(err, "이번 화를 저장하지 못했어요."),
-        kind: "unknown",
+      const characters = allCharacters.filter((c) => selectedIds.includes(c.id));
+      setLoading(true);
+      const characterContext =
+        importIds.length > 0
+          ? await buildCharacterContext(
+              characters,
+              resolveUniverseTemplate(universe, allCharacters)
+            )
+          : "";
+      setLoading(false);
+      abortRef.current = new AbortController();
+      const result = await requestEpisode({
+        characters,
+        topic: topic.trim(),
+        characterContext,
       });
+      abortRef.current = null;
+      if (!result) return;
+      const newStory: ObservationSession = {
+        id: crypto.randomUUID(),
+        universeId,
+        characterIds: selectedIds,
+        topic: topic.trim(),
+        episodes: [result.episode],
+        currentState: result.currentState,
+        characterContext: characterContext || undefined,
+        coverImage,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      setStories((prev) => [...(prev ?? []), newStory]);
+      try {
+        await saveStory(newStory);
+      } catch (err) {
+        setError({
+          message: storageErrorMessage(err, "이번 화를 저장하지 못했어요."),
+          kind: "unknown",
+        });
+      }
+      router.push(`/observe?universe=${universeId}&story=${newStory.id}`);
+    } finally {
+      isGeneratingRef.current = false;
     }
-    router.push(`/observe?universe=${universeId}&story=${newStory.id}`);
   }
 
   /**
@@ -575,91 +614,97 @@ function ObservePageInner() {
 
   async function handleContinue() {
     if (!session || !universe) return;
-    const resolvedUniverse = resolveUniverseTemplate(universe, allCharacters);
-    let current = await compactArcIfNeeded(session, resolvedUniverse);
-    // 구간 요약 저장에 실패해도(onSaveError 생략 = 조용히 무시) 화 쓰기는
-    // 계속 진행한다 — 다음 이어쓰기 때 다시 시도된다
-    if (current !== session) await persistStoryUpdate(current);
+    if (isGeneratingRef.current) return;
+    isGeneratingRef.current = true;
+    try {
+      const resolvedUniverse = resolveUniverseTemplate(universe, allCharacters);
+      let current = await compactArcIfNeeded(session, resolvedUniverse);
+      // 구간 요약 저장에 실패해도(onSaveError 생략 = 조용히 무시) 화 쓰기는
+      // 계속 진행한다 — 다음 이어쓰기 때 다시 시도된다
+      if (current !== session) await persistStoryUpdate(current);
 
-    const userDirective = directive.trim();
-    const parts: (1 | 2)[] = twoPartMode ? [1, 2] : [1];
+      const userDirective = directive.trim();
+      const parts: (1 | 2)[] = twoPartMode ? [1, 2] : [1];
 
-    // "+ 시간 경과" 입력을 일 단위로 환산해 누적 총량에 더한다. 지시문
-    // 텍스트로만 흘려보내면 화가 쌓이며 흐려질 수 있어서, 총량 자체를
-    // 이야기에 저장해두고 매 화 프롬프트에 항상 다시 보낸다.
-    const skipAmount = Number(timeSkipAmount);
-    const skipDays =
-      Number.isFinite(skipAmount) && skipAmount > 0
-        ? Math.round(
-            skipAmount * (timeSkipUnit === "year" ? 365 : timeSkipUnit === "month" ? 30 : 1)
-          )
-        : 0;
-    if (skipDays > 0) {
-      current = { ...current, elapsedDays: (current.elapsedDays ?? 0) + skipDays };
-    }
-    const skipNote =
-      skipDays > 0
-        ? `[시간 경과] 이번 화는 직전 화로부터 약 ${formatElapsedDays(skipDays)} 지난 시점부터 시작한다.`
-        : "";
+      // "+ 시간 경과" 입력을 일 단위로 환산해 누적 총량에 더한다. 지시문
+      // 텍스트로만 흘려보내면 화가 쌓이며 흐려질 수 있어서, 총량 자체를
+      // 이야기에 저장해두고 매 화 프롬프트에 항상 다시 보낸다.
+      const skipAmount = Number(timeSkipAmount);
+      const skipDays =
+        Number.isFinite(skipAmount) && skipAmount > 0
+          ? Math.round(
+              skipAmount * (timeSkipUnit === "year" ? 365 : timeSkipUnit === "month" ? 30 : 1)
+            )
+          : 0;
+      if (skipDays > 0) {
+        current = { ...current, elapsedDays: (current.elapsedDays ?? 0) + skipDays };
+      }
+      const skipNote =
+        skipDays > 0
+          ? `[시간 경과] 이번 화는 직전 화로부터 약 ${formatElapsedDays(skipDays)} 지난 시점부터 시작한다.`
+          : "";
 
-    const controller = new AbortController();
-    abortRef.current = controller;
+      const controller = new AbortController();
+      abortRef.current = controller;
 
-    for (let i = 0; i < parts.length; i++) {
-      const part = parts[i];
-      if (i > 0) {
-        // 같은 API 키에 화 두 개 분량 요청이 바로 붙어서 나가면 분당
-        // 요청 한도에 몰릴 수 있어, 다음 화를 시작하기 전에 짧게 쉰다.
-        setLoading(true);
-        try {
-          await sleep(TWO_PART_GAP_MS, controller.signal);
-        } catch {
+      for (let i = 0; i < parts.length; i++) {
+        const part = parts[i];
+        if (i > 0) {
+          // 같은 API 키에 화 두 개 분량 요청이 바로 붙어서 나가면 분당
+          // 요청 한도에 몰릴 수 있어, 다음 화를 시작하기 전에 짧게 쉰다.
+          setLoading(true);
+          try {
+            await sleep(TWO_PART_GAP_MS, controller.signal);
+          } catch {
+            setGeneratingPart(null);
+            setLoading(false);
+            abortRef.current = null;
+            return;
+          }
+        }
+        setGeneratingPart(twoPartMode ? part : null);
+        const combinedDirective = twoPartMode
+          ? [part === 1 ? userDirective : "", part === 1 ? skipNote : "", TWO_PART_NOTES[part]]
+              .filter(Boolean)
+              .join(" ")
+          : [userDirective, skipNote].filter(Boolean).join(" ");
+        const result = await requestEpisode({
+          characters: sceneCharacters,
+          topic: current.topic,
+          previousEpisodes: current.episodes,
+          characterContext: current.characterContext,
+          arcSummaries: current.arcSummaries,
+          directive: combinedDirective || undefined,
+          elapsedDays: current.elapsedDays,
+          currentState: current.currentState,
+        });
+        if (!result) {
           setGeneratingPart(null);
-          setLoading(false);
           abortRef.current = null;
           return;
         }
+        current = {
+          ...current,
+          episodes: [...current.episodes, result.episode],
+          currentState: result.currentState ?? current.currentState,
+          updatedAt: Date.now(),
+        };
+        const isLastPart = part === parts[parts.length - 1];
+        await persistStoryUpdate(current, {
+          onSaveError: "이번 화를 저장하지 못했어요.",
+          afterUpdate: isLastPart
+            ? () => {
+                setDirective("");
+                setTimeSkipAmount("");
+              }
+            : undefined,
+        });
       }
-      setGeneratingPart(twoPartMode ? part : null);
-      const combinedDirective = twoPartMode
-        ? [part === 1 ? userDirective : "", part === 1 ? skipNote : "", TWO_PART_NOTES[part]]
-            .filter(Boolean)
-            .join(" ")
-        : [userDirective, skipNote].filter(Boolean).join(" ");
-      const result = await requestEpisode({
-        characters: sceneCharacters,
-        topic: current.topic,
-        previousEpisodes: current.episodes,
-        characterContext: current.characterContext,
-        arcSummaries: current.arcSummaries,
-        directive: combinedDirective || undefined,
-        elapsedDays: current.elapsedDays,
-        currentState: current.currentState,
-      });
-      if (!result) {
-        setGeneratingPart(null);
-        abortRef.current = null;
-        return;
-      }
-      current = {
-        ...current,
-        episodes: [...current.episodes, result.episode],
-        currentState: result.currentState ?? current.currentState,
-        updatedAt: Date.now(),
-      };
-      const isLastPart = part === parts[parts.length - 1];
-      await persistStoryUpdate(current, {
-        onSaveError: "이번 화를 저장하지 못했어요.",
-        afterUpdate: isLastPart
-          ? () => {
-              setDirective("");
-              setTimeSkipAmount("");
-            }
-          : undefined,
-      });
+      setGeneratingPart(null);
+      abortRef.current = null;
+    } finally {
+      isGeneratingRef.current = false;
     }
-    setGeneratingPart(null);
-    abortRef.current = null;
   }
 
   function handleExportTxt() {
@@ -1110,7 +1155,7 @@ function ObservePageInner() {
                     {loading
                       ? importIds.length > 0
                         ? "이전 대화 요약하는 중…"
-                        : "1화를 쓰는 중…"
+                        : `1화를 쓰는 중… ${genProgress}%`
                       : (
                         <>
                           이야기 시작
@@ -1130,6 +1175,14 @@ function ObservePageInner() {
                     </button>
                   )}
                 </div>
+                {loading && (
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-border">
+                    <div
+                      className="h-full rounded-full bg-primary transition-[width] duration-200"
+                      style={{ width: `${genProgress}%` }}
+                    />
+                  </div>
+                )}
 
                 {browseSessions.length > 0 && (
                   <button
@@ -1487,17 +1540,25 @@ function ObservePageInner() {
             </div>
 
             {loading && (
-              <div className="flex items-center justify-center gap-3">
-                <p className="text-sm text-muted">
-                  {generatingPart ? `${generatingPart}/2화 쓰는 중…` : "다음 화를 쓰는 중…"}
-                </p>
-                <button
-                  type="button"
-                  onClick={cancelGeneration}
-                  className="rounded-full border border-border px-3 py-1 text-xs text-muted transition-transform hover:scale-[1.03] active:scale-[0.97]"
-                >
-                  취소
-                </button>
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center justify-center gap-3">
+                  <p className="text-sm text-muted">
+                    {generatingPart ? `${generatingPart}/2화 쓰는 중… ${genProgress}%` : `다음 화를 쓰는 중… ${genProgress}%`}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={cancelGeneration}
+                    className="rounded-full border border-border px-3 py-1 text-xs text-muted transition-transform hover:scale-[1.03] active:scale-[0.97]"
+                  >
+                    취소
+                  </button>
+                </div>
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-border">
+                  <div
+                    className="h-full rounded-full bg-accent transition-[width] duration-200"
+                    style={{ width: `${genProgress}%` }}
+                  />
+                </div>
               </div>
             )}
 
