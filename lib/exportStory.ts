@@ -1,5 +1,5 @@
 import JSZip from "jszip";
-import type { Character, ObservationSession } from "@/lib/types";
+import type { Character, ObservationSession, StoryEpisode } from "@/lib/types";
 
 /** 관찰 모드 이야기 하나를 txt/epub로 내보내는 유틸. 브라우저(클라이언트)
  *  전용 — Blob·다운로드 링크를 만들어야 해서 서버 라우트에서는 안 쓴다. */
@@ -47,7 +47,19 @@ function paragraphsToXhtml(text: string): string {
     .join("\n    ");
 }
 
-function chapterXhtml(title: string, bodyText: string): string {
+// 화 사이를 완전히 안 나누고 하나로 이어붙이되, 시간 경과·장면 전환이
+// 있었을 지점을 표시할 방법이 아예 없어지진 않도록 아주 옅은 "숨 고르는"
+// 지점만 남긴다. 화마다 별도 xhtml 파일로 나누면 리더가 파일이 바뀔 때
+// "다음 챕터"로 점프하듯 넘어가는 느낌을 주는데(2026-09-02 사용자 피드백),
+// 화 전부를 파일 하나로 합치면 페이지 넘김이 화 경계와 무관하게 글자
+// 양에 따라 자연스럽게만 일어나서 이 문제가 없다 — 그 안에 있는 이
+// 구분 기호는 그냥 본문 중간의 작은 장식일 뿐, 챕터 전환을 만들지 않는다.
+const SCENE_BREAK_XHTML = `<p style="text-align: center; margin: 1.5em 0; letter-spacing: 0.3em;">· · ·</p>`;
+
+function storyBodyXhtml(title: string, episodes: StoryEpisode[]): string {
+  const body = episodes
+    .map((ep) => paragraphsToXhtml(ep.text))
+    .join(`\n    ${SCENE_BREAK_XHTML}\n    `);
   return `<?xml version="1.0" encoding="UTF-8"?>
 <html xmlns="http://www.w3.org/1999/xhtml" xml:lang="ko" lang="ko">
 <head>
@@ -57,7 +69,7 @@ function chapterXhtml(title: string, bodyText: string): string {
 <body>
   <h1>${escapeXml(title)}</h1>
   <div>
-    ${paragraphsToXhtml(bodyText)}
+    ${body}
   </div>
 </body>
 </html>
@@ -97,13 +109,7 @@ export async function buildStoryEpub(
     zip.file(`OEBPS/images/cover.${cover.ext}`, cover.base64, { base64: true });
   }
 
-  const chapters = session.episodes.map((ep) => ({
-    id: `ep${String(ep.index).padStart(4, "0")}`,
-    href: `text/ep${String(ep.index).padStart(4, "0")}.xhtml`,
-    title: `제${ep.index}화`,
-    xhtml: chapterXhtml(`제${ep.index}화`, ep.text),
-  }));
-  chapters.forEach((c) => zip.file(`OEBPS/${c.href}`, c.xhtml));
+  zip.file("OEBPS/text/story.xhtml", storyBodyXhtml(title, session.episodes));
 
   zip.file(
     "OEBPS/nav.xhtml",
@@ -117,7 +123,7 @@ export async function buildStoryEpub(
   <nav epub:type="toc" id="toc">
     <h1>목차</h1>
     <ol>
-      ${chapters.map((c) => `<li><a href="${c.href}">${escapeXml(c.title)}</a></li>`).join("\n      ")}
+      <li><a href="text/story.xhtml">${escapeXml(title)}</a></li>
     </ol>
   </nav>
 </body>
@@ -134,13 +140,9 @@ export async function buildStoryEpub(
           `<item id="cover-img" href="images/cover.${cover.ext}" media-type="image/${cover.ext === "jpg" ? "jpeg" : cover.ext}" properties="cover-image" />`,
         ]
       : []),
-    ...chapters.map(
-      (c) => `<item id="${c.id}" href="${c.href}" media-type="application/xhtml+xml" />`
-    ),
+    `<item id="story" href="text/story.xhtml" media-type="application/xhtml+xml" />`,
   ].join("\n    ");
-  const spineItems = chapters
-    .map((c) => `<itemref idref="${c.id}" />`)
-    .join("\n    ");
+  const spineItems = `<itemref idref="story" />`;
 
   zip.file(
     "OEBPS/content.opf",

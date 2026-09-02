@@ -58,7 +58,7 @@ describe("관찰 모드 이야기 내보내기", () => {
     );
   });
 
-  it("epub는 mimetype이 압축 없이 저장되고 화 수만큼 챕터 파일을 만든다", async () => {
+  it("epub는 mimetype이 압축 없이 저장되고 화 전체가 파일 하나로 이어붙는다", async () => {
     const blob = await buildStoryEpub(makeSession(), characters);
     const zip = await JSZip.loadAsync(await blob.arrayBuffer());
 
@@ -69,15 +69,27 @@ describe("관찰 모드 이야기 내보내기", () => {
     expect(zip.file("META-INF/container.xml")).not.toBeNull();
     expect(zip.file("OEBPS/content.opf")).not.toBeNull();
     expect(zip.file("OEBPS/nav.xhtml")).not.toBeNull();
-    expect(zip.file("OEBPS/text/ep0001.xhtml")).not.toBeNull();
-    expect(zip.file("OEBPS/text/ep0002.xhtml")).not.toBeNull();
+    // 화마다 별도 파일이 아니라 하나로 합쳐진다 — 리더가 파일이 바뀔 때
+    // "다음 챕터"로 점프하는 느낌을 주지 않도록 하기 위함.
+    expect(zip.file("OEBPS/text/ep0001.xhtml")).toBeNull();
+    expect(zip.file("OEBPS/text/story.xhtml")).not.toBeNull();
 
-    const chapter1 = await zip.file("OEBPS/text/ep0001.xhtml")!.async("string");
-    expect(chapter1).toContain("<p>첫 번째 문단.</p>");
-    expect(chapter1).toContain("<p>두 번째 문단.</p>");
+    const story = await zip.file("OEBPS/text/story.xhtml")!.async("string");
+    expect(story).toContain("<p>첫 번째 문단.</p>");
+    expect(story).toContain("<p>두 번째 문단.</p>");
+    expect(story).toContain("<p>이어지는 이야기.</p>");
+    // 1화 본문과 2화 본문 사이에 화 구분 없이 숨 고르는 표시만 있어야 한다.
+    expect(story.indexOf("두 번째 문단.")).toBeLessThan(story.indexOf("· · ·"));
+    expect(story.indexOf("· · ·")).toBeLessThan(story.indexOf("이어지는 이야기."));
+    expect(story).not.toContain("제1화");
+    expect(story).not.toContain("제2화");
+
+    const nav = await zip.file("OEBPS/nav.xhtml")!.async("string");
+    expect(nav).toContain('href="text/story.xhtml"');
 
     const opf = await zip.file("OEBPS/content.opf")!.async("string");
     expect(opf).toContain("<dc:title>민준 X 서연 · 첫 만남</dc:title>");
+    expect(opf).toContain('href="text/story.xhtml"');
   });
 
   it("표지 이미지가 있으면 이미지 파일과 매니페스트 항목이 추가된다", async () => {
