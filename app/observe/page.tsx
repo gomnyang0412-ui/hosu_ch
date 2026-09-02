@@ -16,11 +16,13 @@ import {
   ChevronRightIcon,
   ClapperIcon,
   CloseIcon,
+  DownloadIcon,
   EditIcon,
   PlusIcon,
   StarIcon,
   TrashIcon,
 } from "@/components/icons";
+import { buildStoryEpub, buildStoryTxt, downloadBlob, exportStoryFilename } from "@/lib/exportStory";
 import { resizeImageFile } from "@/lib/image";
 import { sourceLabel } from "@/lib/modelLabel";
 import {
@@ -158,6 +160,8 @@ function ObservePageInner() {
   const [startingChat, setStartingChat] = useState(false);
   const [startChatError, setStartChatError] = useState("");
   const [showEpisodeJump, setShowEpisodeJump] = useState(false);
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  const [exportingEpub, setExportingEpub] = useState(false);
   const [showAddCharacter, setShowAddCharacter] = useState(false);
   const [showCurrentState, setShowCurrentState] = useState(false);
   const [addingCharacterId, setAddingCharacterId] = useState<string | null>(null);
@@ -658,6 +662,31 @@ function ObservePageInner() {
     abortRef.current = null;
   }
 
+  function handleExportTxt() {
+    if (!session) return;
+    const text = buildStoryTxt(session, allCharacters);
+    const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+    downloadBlob(blob, exportStoryFilename(session, allCharacters, "txt"));
+    setShowExportMenu(false);
+  }
+
+  async function handleExportEpub() {
+    if (!session) return;
+    setExportingEpub(true);
+    try {
+      const blob = await buildStoryEpub(session, allCharacters);
+      downloadBlob(blob, exportStoryFilename(session, allCharacters, "epub"));
+      setShowExportMenu(false);
+    } catch {
+      setError({
+        message: "epub 파일을 만들지 못했어요. 다시 시도해 주세요.",
+        kind: "unknown",
+      });
+    } finally {
+      setExportingEpub(false);
+    }
+  }
+
   async function handleDeleteStory(id: string, targetUniverseId = universeId) {
     if (!window.confirm("이 이야기를 삭제할까요? 되돌릴 수 없어요.")) return;
     setDeletingId(id);
@@ -868,6 +897,44 @@ function ObservePageInner() {
               >
                 <BookmarkRibbonIcon />
               </button>
+            )}
+            {session.episodes.length > 0 && (
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowExportMenu((v) => !v)}
+                  aria-label="내보내기"
+                  title="내보내기"
+                  className="rounded-full border border-border bg-card px-3 py-1.5 text-sm text-muted transition-transform hover:scale-[1.03] active:scale-[0.97]"
+                >
+                  <DownloadIcon />
+                </button>
+                {showExportMenu && (
+                  <>
+                    <div
+                      className="fixed inset-0 z-10"
+                      onClick={() => setShowExportMenu(false)}
+                    />
+                    <div className="glass card-shadow absolute top-full right-0 z-20 mt-1 flex w-36 flex-col overflow-hidden rounded-xl">
+                      <button
+                        type="button"
+                        onClick={handleExportTxt}
+                        className="px-3 py-2 text-left text-sm hover:bg-background"
+                      >
+                        TXT로 내보내기
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleExportEpub}
+                        disabled={exportingEpub}
+                        className="px-3 py-2 text-left text-sm hover:bg-background disabled:opacity-40"
+                      >
+                        {exportingEpub ? "만드는 중…" : "EPUB로 내보내기"}
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
             )}
             <button
               type="button"

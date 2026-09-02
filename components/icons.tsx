@@ -272,3 +272,12 @@ export function CalendarIcon(props: IconProps) {
     </svg>
   );
 }
+
+export function DownloadIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <path d="M10 3v9.5M6.2 9.2 10 13l3.8-3.8" />
+      <path d="M3.5 15.5h13" />
+    </svg>
+  );
+}
