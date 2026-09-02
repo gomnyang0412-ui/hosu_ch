@@ -46,7 +46,6 @@ import {
   type Character,
   type ObservationSession,
   type Room,
-  type StoryEpisode,
   type Universe,
 } from "@/lib/types";
 
@@ -356,14 +355,15 @@ function ObservePageInner() {
 
   async function requestEpisode(params: {
     characters: Character[];
-    topic: string;
-    previousEpisodes?: StoryEpisode[];
+    /** 있으면 이 이야기에 이어쓰기, 없으면 topic·characterIds로 새 이야기 시작 */
+    storyId?: string;
+    topic?: string;
+    characterIds?: string[];
     characterContext?: string;
-    arcSummaries?: ArcSummary[];
+    coverImage?: string;
     directive?: string;
-    elapsedDays?: number;
-    currentState?: string;
-  }): Promise<{ episode: StoryEpisode; currentState?: string } | null> {
+    addElapsedDays?: number;
+  }): Promise<{ story: ObservationSession } | null> {
     if (!universe) return null;
     setLoading(true);
     setError(null);
@@ -392,23 +392,20 @@ function ObservePageInner() {
             body: JSON.stringify({
               characters: params.characters.map(toCharacterProfile),
               universe: resolvedUniverse,
+              storyId: params.storyId,
               topic: params.topic,
-              previousEpisodes: params.previousEpisodes,
+              characterIds: params.characterIds,
               characterContext: params.characterContext,
-              arcSummaries: params.arcSummaries,
+              coverImage: params.coverImage,
               directive: params.directive,
-              elapsedDays: params.elapsedDays,
-              currentState: params.currentState,
+              addElapsedDays: params.addElapsedDays,
             }),
             signal,
           });
           const data = await res.json();
           if (res.ok) {
             setLoading(false);
-            return {
-              episode: data.episode as StoryEpisode,
-              currentState: typeof data.currentState === "string" ? data.currentState : undefined,
-            };
+            return { story: data.story as ObservationSession };
           }
           failure = {
             message: data.error ?? "이번 화를 만들지 못했어요.",
@@ -521,35 +518,21 @@ function ObservePageInner() {
           : "";
       setLoading(false);
       abortRef.current = new AbortController();
+      // 화를 만드는 것과 동시에 서버가 바로 Redis에 저장까지 마친다 —
+      // 이 응답을 못 받아도(화면을 꺼뒀거나 탭을 닫아도) 이야기 자체는
+      // 안전하게 저장돼 있다. 여기선 그 결과를 받아 화면에 바로
+      // 반영하고 새 이야기로 이동하기만 하면 된다.
       const result = await requestEpisode({
         characters,
         topic: topic.trim(),
+        characterIds: selectedIds,
         characterContext,
+        coverImage,
       });
       abortRef.current = null;
       if (!result) return;
-      const newStory: ObservationSession = {
-        id: crypto.randomUUID(),
-        universeId,
-        characterIds: selectedIds,
-        topic: topic.trim(),
-        episodes: [result.episode],
-        currentState: result.currentState,
-        characterContext: characterContext || undefined,
-        coverImage,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      };
-      setStories((prev) => [...(prev ?? []), newStory]);
-      try {
-        await saveStory(newStory);
-      } catch (err) {
-        setError({
-          message: storageErrorMessage(err, "이번 화를 저장하지 못했어요."),
-          kind: "unknown",
-        });
-      }
-      router.push(`/observe?universe=${universeId}&story=${newStory.id}`);
+      setStories((prev) => [...(prev ?? []), result.story]);
+      router.push(`/observe?universe=${universeId}&story=${result.story.id}`);
     } finally {
       isGeneratingRef.current = false;
     }
@@ -618,17 +601,17 @@ function ObservePageInner() {
     isGeneratingRef.current = true;
     try {
       const resolvedUniverse = resolveUniverseTemplate(universe, allCharacters);
-      let current = await compactArcIfNeeded(session, resolvedUniverse);
+      const compacted = await compactArcIfNeeded(session, resolvedUniverse);
       // 구간 요약 저장에 실패해도(onSaveError 생략 = 조용히 무시) 화 쓰기는
       // 계속 진행한다 — 다음 이어쓰기 때 다시 시도된다
-      if (current !== session) await persistStoryUpdate(current);
+      if (compacted !== session) await persistStoryUpdate(compacted);
 
       const userDirective = directive.trim();
       const parts: (1 | 2)[] = twoPartMode ? [1, 2] : [1];
 
-      // "+ 시간 경과" 입력을 일 단위로 환산해 누적 총량에 더한다. 지시문
-      // 텍스트로만 흘려보내면 화가 쌓이며 흐려질 수 있어서, 총량 자체를
-      // 이야기에 저장해두고 매 화 프롬프트에 항상 다시 보낸다.
+      // "+ 시간 경과" 입력을 일 단위로 환산한 값. 서버가 저장된 이야기의
+      // elapsedDays에 직접 더해서 저장하므로(2026-09-02), 여기선 텍스트로
+      // 보여줄 skipNote만 만들고 1화 요청에만 addElapsedDays로 실어 보낸다.
       const skipAmount = Number(timeSkipAmount);
       const skipDays =
         Number.isFinite(skipAmount) && skipAmount > 0
@@ -636,9 +619,6 @@ function ObservePageInner() {
               skipAmount * (timeSkipUnit === "year" ? 365 : timeSkipUnit === "month" ? 30 : 1)
             )
           : 0;
-      if (skipDays > 0) {
-        current = { ...current, elapsedDays: (current.elapsedDays ?? 0) + skipDays };
-      }
       const skipNote =
         skipDays > 0
           ? `[시간 경과] 이번 화는 직전 화로부터 약 ${formatElapsedDays(skipDays)} 지난 시점부터 시작한다.`
@@ -670,35 +650,26 @@ function ObservePageInner() {
           : [userDirective, skipNote].filter(Boolean).join(" ");
         const result = await requestEpisode({
           characters: sceneCharacters,
-          topic: current.topic,
-          previousEpisodes: current.episodes,
-          characterContext: current.characterContext,
-          arcSummaries: current.arcSummaries,
+          storyId: compacted.id,
           directive: combinedDirective || undefined,
-          elapsedDays: current.elapsedDays,
-          currentState: current.currentState,
+          addElapsedDays: part === 1 && skipDays > 0 ? skipDays : undefined,
         });
         if (!result) {
           setGeneratingPart(null);
           abortRef.current = null;
           return;
         }
-        current = {
-          ...current,
-          episodes: [...current.episodes, result.episode],
-          currentState: result.currentState ?? current.currentState,
-          updatedAt: Date.now(),
-        };
+        // 서버가 화 생성과 동시에 저장까지 이미 끝냈다 — 여기선 방금
+        // 받은 최신 이야기를 화면에 반영하기만 하면 된다(네트워크
+        // 저장 호출을 또 할 필요 없음).
+        setStories((prev) =>
+          (prev ?? []).map((s) => (s.id === result.story.id ? result.story : s))
+        );
         const isLastPart = part === parts[parts.length - 1];
-        await persistStoryUpdate(current, {
-          onSaveError: "이번 화를 저장하지 못했어요.",
-          afterUpdate: isLastPart
-            ? () => {
-                setDirective("");
-                setTimeSkipAmount("");
-              }
-            : undefined,
-        });
+        if (isLastPart) {
+          setDirective("");
+          setTimeSkipAmount("");
+        }
       }
       setGeneratingPart(null);
       abortRef.current = null;

@@ -1,5 +1,6 @@
 import type { Content } from "@google/genai";
 import { NextResponse } from "next/server";
+import { getStory, saveStory } from "@/lib/db";
 import {
   characterLines,
   generateStoryEpisode,
@@ -16,6 +17,7 @@ import {
 import type {
   ArcSummary,
   CharacterProfile,
+  ObservationSession,
   StoryEpisode,
   Universe,
 } from "@/lib/types";
@@ -36,23 +38,25 @@ export const maxDuration = 190;
 interface SceneRequestBody {
   characters: CharacterProfile[];
   universe: Universe;
-  topic: string;
-  previousEpisodes?: StoryEpisode[];
-  /** 시작할 때 한 번 가져온 등장인물들의 1:1 대화 요약 (있으면 매 화 계속 같이 보냄) */
+  /** 있으면 이 이야기에 이어쓰기(서버가 Redis에서 직접 최신 상태를 읽어
+   *  화를 이어붙인다). 없으면 topic·characterIds로 새 이야기를 시작한다.
+   *  둘 다 화 생성이 끝나면 서버가 그 자리에서 바로 저장까지 마친다 —
+   *  화면을 꺼두거나 탭을 닫아도 서버 쪽 작업은 끊기지 않고 저장이
+   *  완료된다(2026-09-02, 클라이언트가 응답을 받아야만 저장되던 구조를
+   *  서버가 직접 저장하는 구조로 바꿈). */
+  storyId?: string;
+  /** 새 이야기 시작 시에만 필요 */
+  topic?: string;
+  characterIds?: string[];
+  /** 새 이야기 시작할 때 한 번 가져온 등장인물들의 1:1 대화 요약 (있으면 매 화 계속 같이 보냄) */
   characterContext?: string;
-  /** RECENT_FULL_COUNT+RECAP_LIMIT화보다 오래돼 컨텍스트에서 빠진 화들을
-   *  묶어 압축한 구간 요약들(오래된 순). lib/story.ts의 nextArcRange 참고 */
-  arcSummaries?: ArcSummary[];
+  coverImage?: string;
   /** 사용자가 이번 화에 반드시 들어가길 바라는 사건 한 줄 (없으면 자유 전개) */
   directive?: string;
-  /** 이야기 시작 시점으로부터 지금까지 흐른 시간(일 단위 누적). 구간
-   *  요약으로 압축돼도 사라지지 않도록 있으면 매 화 프롬프트에 명시적으로
-   *  포함한다. */
-  elapsedDays?: number;
-  /** 관계·감정·외형·비밀·목표 등 "지금 상태"를 담은 내부 기록(있으면).
-   *  구간 요약과 달리 압축되지 않고 항상 최신 값 그대로 매 화 프롬프트에
-   *  재주입된다. lib/types.ts의 ObservationSession.currentState 참고. */
-  currentState?: string;
+  /** "+ 시간 경과" 입력으로 이번 화에 새로 추가할 일수(이미 환산됨). 2화로
+   *  나눠 쓸 때는 1화 요청에만 실어 보낸다 — 서버가 저장한 값을 2화
+   *  요청이 다시 읽어오므로 중복으로 더할 필요가 없다. */
+  addElapsedDays?: number;
 }
 
 /** AI 응답에서 화 본문과 "지금 상태" 기록을 나누는 구분자. 본문을 다
@@ -270,26 +274,55 @@ export async function POST(request: Request) {
     );
   }
 
-  if (
-    !Array.isArray(body?.characters) ||
-    body.characters.length < 2 ||
-    !body.topic?.trim()
-  ) {
+  if (!Array.isArray(body?.characters) || body.characters.length < 2 || !body.universe?.id) {
     return NextResponse.json(
       { error: "잘못된 요청이에요.", kind: "unknown" },
       { status: 400 }
     );
   }
 
-  const nextIndex = (body.previousEpisodes?.length ?? 0) + 1;
+  const universeId = body.universe.id;
+  const now = Date.now();
+  let session: ObservationSession;
+  if (body.storyId) {
+    const existing = await getStory(universeId, body.storyId);
+    if (!existing) {
+      return NextResponse.json(
+        { error: "이야기를 찾을 수 없어요.", kind: "unknown" },
+        { status: 404 }
+      );
+    }
+    session = existing;
+  } else {
+    if (!body.topic?.trim() || !Array.isArray(body.characterIds) || body.characterIds.length < 2) {
+      return NextResponse.json(
+        { error: "잘못된 요청이에요.", kind: "unknown" },
+        { status: 400 }
+      );
+    }
+    session = {
+      id: crypto.randomUUID(),
+      universeId,
+      characterIds: body.characterIds,
+      topic: body.topic.trim(),
+      episodes: [],
+      characterContext: body.characterContext || undefined,
+      coverImage: body.coverImage,
+      createdAt: now,
+      updatedAt: now,
+    };
+  }
+
+  const elapsedDays = (session.elapsedDays ?? 0) + (body.addElapsedDays ?? 0);
+  const nextIndex = session.episodes.length + 1;
   const userText = buildUserText(
-    body.topic.trim(),
-    body.previousEpisodes,
+    session.topic,
+    session.episodes,
     nextIndex,
-    body.arcSummaries,
+    session.arcSummaries,
     body.directive,
-    body.elapsedDays,
-    body.currentState
+    elapsedDays,
+    session.currentState
   );
   const contents: Content[] = [{ role: "user", parts: [{ text: userText }] }];
 
@@ -298,7 +331,7 @@ export async function POST(request: Request) {
       systemInstruction: buildSystemInstruction(
         body.characters,
         body.universe,
-        body.characterContext
+        session.characterContext
       ),
       contents,
     });
@@ -324,8 +357,19 @@ export async function POST(request: Request) {
       model,
       keyIndex,
     };
-    const mergedState = mergeStateDelta(body.currentState, stateDelta);
-    return NextResponse.json({ episode, currentState: mergedState });
+    const mergedState = mergeStateDelta(session.currentState, stateDelta);
+    const updated: ObservationSession = {
+      ...session,
+      episodes: [...session.episodes, episode],
+      currentState: mergedState,
+      elapsedDays: elapsedDays > 0 ? elapsedDays : session.elapsedDays,
+      updatedAt: Date.now(),
+    };
+    // 화면이 꺼지거나 탭이 닫혀도 이 화는 안전하게 저장돼야 하니, 응답을
+    // 돌려주기 전에 여기서 바로 저장까지 마친다 — 클라이언트가 응답을
+    // 받아서 따로 저장을 호출해줄 필요가 없다(2026-09-02).
+    await saveStory(updated);
+    return NextResponse.json({ story: updated });
   } catch (err) {
     return geminiErrorResponse(err);
   }
