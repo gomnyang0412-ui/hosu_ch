@@ -3,9 +3,23 @@ import JSZip from "jszip";
 import { buildStoryEpub, buildStoryTxt, exportStoryFilename } from "@/lib/exportStory";
 import type { Character, ObservationSession } from "@/lib/types";
 
+function makeCharacter(id: string, name: string): Character {
+  return {
+    id,
+    name,
+    oneLiner: "",
+    personality: "",
+    speechStyle: "",
+    firstMessage: "",
+    accentColor: "#1F9D75",
+    createdAt: 0,
+    updatedAt: 0,
+  };
+}
+
 const characters: Character[] = [
-  { id: "c1", name: "민준", accentColor: "#000" } as Character,
-  { id: "c2", name: "서연", accentColor: "#000" } as Character,
+  makeCharacter("c1", "민준"),
+  makeCharacter("c2", "서연"),
 ];
 
 function makeSession(overrides: Partial<ObservationSession> = {}): ObservationSession {
