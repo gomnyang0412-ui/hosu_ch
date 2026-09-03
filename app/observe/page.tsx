@@ -180,7 +180,8 @@ function ObservePageInner() {
   const [showAddCharacter, setShowAddCharacter] = useState(false);
   const [showCurrentState, setShowCurrentState] = useState(false);
   const [addingCharacterId, setAddingCharacterId] = useState<string | null>(null);
-  const [editingEpisode, setEditingEpisode] = useState(false);
+  // 수정 중인 화의 번호(session.episodes의 index 필드). null이면 편집 중 아님.
+  const [editingEpisodeIndex, setEditingEpisodeIndex] = useState<number | null>(null);
   const [episodeEditText, setEpisodeEditText] = useState("");
 
   const [loadError, setLoadError] = useState("");
@@ -256,7 +257,7 @@ function ObservePageInner() {
   // 떠 있는 위험한 상태가 된다 — 화 편집은 실제로 덮어쓰는 동작이라
   // 조용히 넘어가면 안 된다.
   useEffect(() => {
-    setEditingEpisode(false);
+    setEditingEpisodeIndex(null);
     setEpisodeEditText("");
   }, [storyId]);
 
@@ -804,46 +805,70 @@ function ObservePageInner() {
     }
   }
 
-  async function deleteLatestEpisode() {
-    if (!session || session.episodes.length === 0) return;
-    if (!window.confirm("가장 최근 화를 지울까요? 되돌릴 수 없어요.")) return;
+  // 최근 몇 화 안에 문제 있는 내용(예: 콘텐츠 정책에 걸려 이후 이어쓰기가
+  // 계속 막히는 경우)이 있을 때 되짚어 지울 수 있도록 최근 10화까지 허용한다.
+  // 그보다 오래된 화는 이미 [지난 구간 요약]으로 압축돼 원문 자체가 프롬프트에
+  // 안 실리므로 여기서 손댈 이유가 적다.
+  const EDITABLE_EPISODE_WINDOW = 10;
+
+  function isEpisodeEditable(index: number): boolean {
+    if (!session) return false;
+    return index > session.episodes.length - EDITABLE_EPISODE_WINDOW;
+  }
+
+  async function deleteEpisode(index: number) {
+    if (!session) return;
+    const target = session.episodes.find((ep) => ep.index === index);
+    if (!target) return;
+    const isLatest = index === session.episodes.length;
+    if (
+      !window.confirm(
+        isLatest
+          ? "이 화를 지울까요? 되돌릴 수 없어요."
+          : "이 화를 지울까요? 되돌릴 수 없고, 뒤에 이어지는 화 번호가 하나씩 당겨져요."
+      )
+    )
+      return;
     const updated: ObservationSession = {
       ...session,
-      episodes: session.episodes.slice(0, -1),
+      episodes: session.episodes
+        .filter((ep) => ep.index !== index)
+        .map((ep) => (ep.index > index ? { ...ep, index: ep.index - 1 } : ep)),
       updatedAt: Date.now(),
     };
     await persistStoryUpdate(updated, { onSaveError: "화를 지우지 못했어요." });
   }
 
   // 전체적으로 마음에 드는 화인데 한 군데만 어색해서 통째로 지우고
-  // 다시 생성하기는 아까울 때, 가장 최근 화의 본문을 직접 고쳐 쓸 수
-  // 있게 한다. 이전 화들은 이미 [최근 N화 전문]/[지금까지의 줄거리]/
-  // [지난 구간 요약]으로 다음 화 프롬프트에 반영된 적이 있어서, 지금
-  // 고쳐도 그 반영분까지 소급되진 않는다 — 그래서 가장 최근 화로만
-  // 제한한다(다음 이어쓰기부터는 고친 내용이 그대로 반영된다).
-  function startEditLatestEpisode() {
-    if (!session || session.episodes.length === 0) return;
-    setEpisodeEditText(session.episodes[session.episodes.length - 1].text);
-    setEditingEpisode(true);
+  // 다시 생성하기는 아까울 때, 최근 화의 본문을 직접 고쳐 쓸 수 있게
+  // 한다. 이미 그 화 이후 화들의 프롬프트에 [최근 N화 전문]/[지금까지의
+  // 줄거리]로 반영된 적이 있어서, 지금 고쳐도 그 반영분까지 소급되진
+  // 않는다 — 그래서 최근 10화(EDITABLE_EPISODE_WINDOW)로만 제한한다
+  // (다음 이어쓰기부터는 고친 내용이 그대로 반영된다).
+  function startEditEpisode(index: number) {
+    if (!session) return;
+    const target = session.episodes.find((ep) => ep.index === index);
+    if (!target) return;
+    setEpisodeEditText(target.text);
+    setEditingEpisodeIndex(index);
   }
 
-  function cancelEditLatestEpisode() {
-    setEditingEpisode(false);
+  function cancelEditEpisode() {
+    setEditingEpisodeIndex(null);
     setEpisodeEditText("");
   }
 
-  async function submitEditLatestEpisode() {
+  async function submitEditEpisode() {
     const text = episodeEditText.trim();
-    if (!text || !session || session.episodes.length === 0) return;
-    const lastIndex = session.episodes.length - 1;
+    if (!text || !session || editingEpisodeIndex === null) return;
     const updated: ObservationSession = {
       ...session,
-      episodes: session.episodes.map((ep, i) =>
-        i === lastIndex ? { ...ep, text } : ep
+      episodes: session.episodes.map((ep) =>
+        ep.index === editingEpisodeIndex ? { ...ep, text } : ep
       ),
       updatedAt: Date.now(),
     };
-    setEditingEpisode(false);
+    setEditingEpisodeIndex(null);
     setEpisodeEditText("");
     await persistStoryUpdate(updated, { onSaveError: "화 내용을 저장하지 못했어요." });
   }
@@ -1416,24 +1441,24 @@ function ObservePageInner() {
                     <h2 className="text-sm font-semibold text-muted">
                       {ep.index}화
                     </h2>
-                    {!(editingEpisode && ep.index === session.episodes.length) && (
+                    {!(editingEpisodeIndex === ep.index) && (
                       <div className="flex items-center gap-3">
-                        {ep.index === session.episodes.length && (
+                        {isEpisodeEditable(ep.index) && (
                           <>
                             <button
                               type="button"
-                              onClick={startEditLatestEpisode}
+                              onClick={() => startEditEpisode(ep.index)}
                               aria-label="이 화 수정"
-                              title="가장 최근 화만 수정할 수 있어요"
+                              title="최근 10화까지 수정할 수 있어요"
                               className="text-sm leading-none text-muted opacity-60 transition-transform hover:scale-110 hover:text-foreground hover:opacity-100"
                             >
                               <EditIcon />
                             </button>
                             <button
                               type="button"
-                              onClick={deleteLatestEpisode}
+                              onClick={() => deleteEpisode(ep.index)}
                               aria-label="이 화 삭제"
-                              title="가장 최근 화만 지울 수 있어요"
+                              title="최근 10화까지 지울 수 있어요"
                               className="text-sm leading-none text-muted opacity-60 transition-transform hover:scale-110 hover:text-red-600 hover:opacity-100"
                             >
                               <TrashIcon />
@@ -1459,7 +1484,7 @@ function ObservePageInner() {
                       <ClapperIcon /> 지시: {ep.directive}
                     </p>
                   )}
-                  {editingEpisode && ep.index === session.episodes.length ? (
+                  {editingEpisodeIndex === ep.index ? (
                     <div className="flex flex-col gap-2">
                       <AutoGrowTextarea
                         value={episodeEditText}
@@ -1470,14 +1495,14 @@ function ObservePageInner() {
                       <div className="flex justify-end gap-2">
                         <button
                           type="button"
-                          onClick={cancelEditLatestEpisode}
+                          onClick={cancelEditEpisode}
                           className="rounded-full border border-border px-3 py-1.5 text-xs text-muted transition-transform hover:scale-[1.03] active:scale-[0.97]"
                         >
                           취소
                         </button>
                         <button
                           type="button"
-                          onClick={submitEditLatestEpisode}
+                          onClick={submitEditEpisode}
                           disabled={!episodeEditText.trim()}
                           className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition-transform hover:scale-[1.03] active:scale-[0.97] disabled:opacity-40 disabled:hover:scale-100"
                         >
