@@ -600,3 +600,43 @@ export async function generateCharacterProfile(params: {
     overallDeadlineMs: CHARACTER_PROFILE_DEADLINE_MS,
   });
 }
+
+// "다음 이야기로 넘어가기"(관찰 모드 전체 요약)는 요약 라우트들과 달리
+// 한 번에 아주 긴 입력(수십~수백 화 분량)을 읽고 그 전체를 하나의
+// 자연스러운 산문으로 종합해야 한다. Lite로 처음 만들었더니 이야기
+// 전체가 아니라 사실상 최근 화 위주로만 요약되는 문제가 있었다
+// (2026-09-03 사용자 리포트: "전체내용 요약이라기보단 바로 전 화
+// 요약"). 사용자가 직접 눌렀을 때만 드물게 부르는 호출이라 비용 부담이
+// 적으니, 종합 능력이 더 나은 Flash 계열을 우선 시도하고 전부 실패하면
+// generateChatReply와 같은 방식으로 Lite에 별도 예산을 떼어 최종
+// 폴백한다.
+const OBSERVATION_RECAP_TIMEOUT_MS = 25_000;
+const OBSERVATION_RECAP_FLASH_DEADLINE_MS = 90_000;
+const OBSERVATION_RECAP_LITE_TIMEOUT_MS = 20_000;
+
+/** 관찰 모드 이야기 하나를 통째로 산문 요약 (평문, JSON 아님) */
+export async function generateObservationRecap(params: {
+  systemInstruction: string;
+  contents: Content[];
+}): Promise<string> {
+  try {
+    const { text } = await generate({
+      ...params,
+      json: false,
+      models: DIALOGUE_MODELS,
+      timeoutMs: OBSERVATION_RECAP_TIMEOUT_MS,
+      retryOnTimeout: true,
+      overallDeadlineMs: OBSERVATION_RECAP_FLASH_DEADLINE_MS,
+    });
+    return text;
+  } catch {
+    const { text } = await generate({
+      ...params,
+      json: false,
+      models: [LITE_MODEL],
+      timeoutMs: OBSERVATION_RECAP_LITE_TIMEOUT_MS,
+      overallDeadlineMs: OBSERVATION_RECAP_LITE_TIMEOUT_MS,
+    });
+    return text;
+  }
+}
