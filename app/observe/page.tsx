@@ -183,6 +183,12 @@ function ObservePageInner() {
   // 수정 중인 화의 번호(session.episodes의 index 필드). null이면 편집 중 아님.
   const [editingEpisodeIndex, setEditingEpisodeIndex] = useState<number | null>(null);
   const [episodeEditText, setEpisodeEditText] = useState("");
+  // "다음 이야기로 넘어가기"로 만든 산문 요약. 새 이야기 폼의
+  // characterContext로 이어받아서 매 화 프롬프트에 계속 같이 보낸다.
+  // null이면 이어받은 요약 없음(평범한 새 이야기 시작).
+  const [carryOverSummary, setCarryOverSummary] = useState<string | null>(null);
+  const [summarizingStory, setSummarizingStory] = useState(false);
+  const [summarizeError, setSummarizeError] = useState("");
 
   const [loadError, setLoadError] = useState("");
 
@@ -199,6 +205,8 @@ function ObservePageInner() {
     setTwoPartMode(false);
     setTimeSkipAmount("");
     setError(null);
+    setCarryOverSummary(null);
+    setSummarizeError("");
     (async () => {
       try {
         const [characters, storyList, foundUniverse, universes] = await Promise.all([
@@ -352,6 +360,48 @@ function ObservePageInner() {
       if (part) parts.push(part);
     }
     return parts.join("\n\n");
+  }
+
+  /** 지금 이야기를 처음부터 끝까지 산문체로 요약해서, 등장인물·표지 없이
+   *  새 이야기 폼으로 넘어간다. 요약은 carryOverSummary에 담겨 새 이야기의
+   *  characterContext로 이어받아진다(handleStart 참고) — 화가 너무 많이
+   *  쌓여 매 화 프롬프트가 무거워지기 전에, 같은 인물들로 새 이야기를
+   *  시작하되 지금까지의 서사는 잃지 않게 하기 위한 기능. */
+  async function handleCarryOverToNewStory() {
+    if (!session || !universe) return;
+    setSummarizingStory(true);
+    setSummarizeError("");
+    try {
+      const characters = allCharacters.filter((c) =>
+        session.characterIds.includes(c.id)
+      );
+      const res = await fetch("/api/summarize-observation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          characters: characters.map(toCharacterProfile),
+          universe: resolveUniverseTemplate(universe, allCharacters),
+          storyId: session.id,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || typeof data.summary !== "string" || !data.summary.trim()) {
+        throw new Error(data.error || "이야기를 요약하지 못했어요.");
+      }
+      setCarryOverSummary(data.summary.trim());
+      setSelectedIds(session.characterIds);
+      setImportIds([]);
+      setTopic("");
+      setCoverImage(undefined);
+      setShowNewForm(true);
+      router.push(`/observe?universe=${universeId}`);
+    } catch (err) {
+      setSummarizeError(
+        err instanceof Error ? err.message : "이야기를 요약하지 못했어요."
+      );
+    } finally {
+      setSummarizingStory(false);
+    }
   }
 
   async function requestEpisode(params: {
@@ -510,13 +560,19 @@ function ObservePageInner() {
     try {
       const characters = allCharacters.filter((c) => selectedIds.includes(c.id));
       setLoading(true);
-      const characterContext =
+      const importedContext =
         importIds.length > 0
           ? await buildCharacterContext(
               characters,
               resolveUniverseTemplate(universe, allCharacters)
             )
           : "";
+      // 이전 이야기에서 이어받은 산문 요약(있으면)이 1:1 대화 가져오기
+      // 요약보다 앞에 오도록 합친다 — 둘 다 characterContext 한 필드로
+      // 들어가 매 화 프롬프트에 계속 같이 보내진다.
+      const characterContext = [carryOverSummary, importedContext]
+        .filter((s) => s?.trim())
+        .join("\n\n");
       setLoading(false);
       abortRef.current = new AbortController();
       // 화를 만드는 것과 동시에 서버가 바로 Redis에 저장까지 마친다 —
@@ -532,6 +588,7 @@ function ObservePageInner() {
       });
       abortRef.current = null;
       if (!result) return;
+      setCarryOverSummary(null);
       setStories((prev) => [...(prev ?? []), result.story]);
       router.push(`/observe?universe=${universeId}&story=${result.story.id}`);
     } finally {
@@ -991,7 +1048,10 @@ function ObservePageInner() {
           browseSessions.length > 0 && (
             <button
               type="button"
-              onClick={() => setShowNewForm(true)}
+              onClick={() => {
+                setCarryOverSummary(null);
+                setShowNewForm(true);
+              }}
               className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition-transform hover:scale-[1.03] active:scale-[0.97]"
             >
               + 새 이야기
@@ -1086,6 +1146,33 @@ function ObservePageInner() {
                     })}
                   </div>
                 </div>
+
+                {carryOverSummary !== null && (
+                  <div className="flex flex-col gap-2 rounded-2xl border border-primary/30 bg-primary/5 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-medium">
+                        이전 이야기 요약을 이어받았어요
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setCarryOverSummary(null)}
+                        className="shrink-0 text-xs text-muted underline"
+                      >
+                        지우기
+                      </button>
+                    </div>
+                    <p className="text-xs text-muted">
+                      이 요약이 새 이야기 내내 배경으로 계속 참고돼요. 필요하면
+                      직접 다듬어도 돼요.
+                    </p>
+                    <textarea
+                      value={carryOverSummary}
+                      onChange={(e) => setCarryOverSummary(e.target.value)}
+                      rows={8}
+                      className="rounded-xl border border-border bg-card p-3 text-sm leading-relaxed outline-none focus:border-primary/50"
+                    />
+                  </div>
+                )}
 
                 <label className="flex flex-col gap-1.5">
                   <span className="text-sm font-medium">주제</span>
@@ -1628,6 +1715,26 @@ function ObservePageInner() {
                     <ChevronRightIcon />
                   </span>
                 </button>
+
+                <div className="mt-2 flex flex-col gap-1.5 border-t border-border pt-3">
+                  <p className="text-xs text-muted">
+                    화가 많이 쌓여 무거워졌다면, 지금까지의 이야기를 산문으로
+                    요약해서 같은 인물들로 새 이야기를 시작할 수 있어요.
+                  </p>
+                  {summarizeError && (
+                    <p className="text-xs text-red-600">{summarizeError}</p>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleCarryOverToNewStory}
+                    disabled={summarizingStory}
+                    className="self-start rounded-full border border-border px-3 py-1.5 text-xs font-medium text-muted transition-transform hover:scale-[1.03] active:scale-[0.97] disabled:opacity-40"
+                  >
+                    {summarizingStory
+                      ? "이야기 요약하는 중…"
+                      : "다음 이야기로 넘어가기"}
+                  </button>
+                </div>
               </div>
             )}
           </div>
