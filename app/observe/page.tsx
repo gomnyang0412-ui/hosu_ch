@@ -414,6 +414,7 @@ function ObservePageInner() {
     coverImage?: string;
     directive?: string;
     addElapsedDays?: number;
+    twoPart?: "first" | "second";
   }): Promise<{ story: ObservationSession } | null> {
     if (!universe) return null;
     setLoading(true);
@@ -450,6 +451,7 @@ function ObservePageInner() {
               coverImage: params.coverImage,
               directive: params.directive,
               addElapsedDays: params.addElapsedDays,
+              twoPart: params.twoPart,
             }),
             signal,
           });
@@ -716,6 +718,7 @@ function ObservePageInner() {
           storyId: compacted.id,
           directive: combinedDirective || undefined,
           addElapsedDays: part === 1 && skipDays > 0 ? skipDays : undefined,
+          twoPart: twoPartMode ? (part === 1 ? "first" : "second") : undefined,
         });
         if (!result) {
           setGeneratingPart(null);
