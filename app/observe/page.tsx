@@ -650,7 +650,7 @@ function ObservePageInner() {
    */
   const TWO_PART_NOTES: Record<1 | 2, string> = {
     1: "이 사건은 이번 화와 다음 화, 두 화에 걸쳐 다룬다. 이번 화에서는 사건을 끝까지 다루지 말고, 아직 완결되지 않은 중간 지점에서 멈춘다.",
-    2: "직전 화(1화)에서 이미 벌어진 상황·대사·행동은 절대 다시 서술하거나 되풀이하지 말고, 그 장면이 멈춘 바로 다음 순간부터 곧바로 이어서 쓴다. 같은 사건을 처음부터 다시 그리는 게 아니라, 중단된 지점 이후의 새로운 전개만 쓴다.",
+    2: "위 사건은 직전 화(1화)에서 이미 시작됐다. 그 화에서 벌어진 상황·대사·행동은 절대 다시 서술하거나 되풀이하지 말고, 그 장면이 멈춘 바로 다음 순간부터 곧바로 이어서 써서 위 사건을 이번 화에서 마저 완결한다. 같은 사건을 처음부터 다시 그리는 게 아니라, 중단된 지점 이후의 새로운 전개만 쓴다.",
   };
 
   async function handleContinue() {
@@ -701,8 +701,13 @@ function ObservePageInner() {
           }
         }
         setGeneratingPart(twoPartMode ? part : null);
+        // 2화로 나눠 쓸 때도 사용자 지시문은 두 화 모두에 계속 실어
+        // 보낸다 — 1화에만 보내고 2화는 TWO_PART_NOTES만 보내면, 2화를
+        // 쓰는 AI는 애초에 무슨 사건을 완결해야 하는지 모른 채(1화
+        // 본문에서 눈치껏 짐작하는 수밖에 없어서) 엉뚱한 전개로 새 버리는
+        // 문제가 있었다(2026-09-03 사용자 리포트).
         const combinedDirective = twoPartMode
-          ? [part === 1 ? userDirective : "", part === 1 ? skipNote : "", TWO_PART_NOTES[part]]
+          ? [userDirective, part === 1 ? skipNote : "", TWO_PART_NOTES[part]]
               .filter(Boolean)
               .join(" ")
           : [userDirective, skipNote].filter(Boolean).join(" ");
