@@ -19,6 +19,54 @@ export const RECAP_LIMIT = 50;
 export const ARC_CHUNK_SIZE = 10;
 
 /**
+ * "2화로 나눠 쓰기"에서 사용자 지시문을 앞뒤 절반으로 나눈다.
+ *
+ * 처음엔 지시문 전체를 두 화 모두에 그대로 보내고 "이번 화에서는
+ * 앞부분만 다뤄라" 같은 프롬프트 지시로만 분량을 조절하려 했는데,
+ * 지시문이 길고 구체적일수록 AI가 그 안내보다 지시문 자체의 내용을
+ * 우선해서 결국 1화 안에 전부 욱여넣는 경향이 강했다(2026-09-03
+ * 사용자 리포트: "2화가 되도록 엄청 긴 지시문을 줬는데도 1화에 다
+ * 우겨넣으려 하네"). 그래서 아예 1화 요청에는 지시문의 뒷부분 자체를
+ * 안 보이게 만든다 — 모델이 없는 내용을 미리 당겨쓸 수는 없으니, 프롬프트
+ * 지시에만 의존할 때보다 훨씬 확실하게 분량이 나뉜다.
+ *
+ * 정확한 의미 단위 분할은 아니다. 줄바꿈 → 문장부호 → 단어 순으로,
+ * 나눌 수 있는 가장 자연스러운 단위를 찾아 개수 기준 절반으로 자른다.
+ * 그중 아무 기준으로도 나눌 수 없는 아주 짧은 한 덩어리 지시문이면
+ * 그냥 통째로 양쪽에 준다(애초에 나눠 쓸 만큼 긴 지시문이 아니라는 뜻).
+ */
+export function splitDirectiveInHalf(directive: string): [string, string] {
+  const trimmed = directive.trim();
+  if (!trimmed) return ["", ""];
+
+  const lines = trimmed
+    .split("\n")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (lines.length >= 2) {
+    const mid = Math.ceil(lines.length / 2);
+    return [lines.slice(0, mid).join("\n"), lines.slice(mid).join("\n")];
+  }
+
+  const sentences = trimmed
+    .split(/(?<=[.!?])\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (sentences.length >= 2) {
+    const mid = Math.ceil(sentences.length / 2);
+    return [sentences.slice(0, mid).join(" "), sentences.slice(mid).join(" ")];
+  }
+
+  const words = trimmed.split(/\s+/).filter(Boolean);
+  if (words.length >= 4) {
+    const mid = Math.ceil(words.length / 2);
+    return [words.slice(0, mid).join(" "), words.slice(mid).join(" ")];
+  }
+
+  return [trimmed, trimmed];
+}
+
+/**
  * (RECENT_FULL_COUNT + RECAP_LIMIT)화보다 오래된 화는 지금까지 그냥
  * 컨텍스트에서 사라졌다. 그중 아직 구간 요약으로 안 묶인 화가
  * ARC_CHUNK_SIZE만큼 쌓였으면, 그 범위를 돌려준다(없으면 null).

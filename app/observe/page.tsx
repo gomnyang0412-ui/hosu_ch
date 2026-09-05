@@ -36,7 +36,7 @@ import {
   saveRoom,
   storageErrorMessage,
 } from "@/lib/storage";
-import { formatElapsedDays, nextArcRange } from "@/lib/story";
+import { formatElapsedDays, nextArcRange, splitDirectiveInHalf } from "@/lib/story";
 import { resolveUniverseTemplate } from "@/lib/template";
 import {
   ORG_UNIVERSE_ID,
@@ -649,10 +649,14 @@ function ObservePageInner() {
    * 같은 키워드를 입력하게 하는 대신, 체크박스로 명시적으로 켠 경우에만
    * 코드에서 붙인다 — 지문에 우연히 비슷한 단어가 들어가도 오작동하지
    * 않는다.
+   *
+   * 지시문 원문은 splitDirectiveInHalf로 미리 반씩 잘라서 각 화 요청엔
+   * 그 절반만 보낸다(1화 요청엔 뒷부분 내용 자체가 아예 안 보임) — 이
+   * 안내문은 그 절반이 전체 사건 중 어느 쪽인지만 알려준다.
    */
   const TWO_PART_NOTES: Record<1 | 2, string> = {
-    1: "이 사건은 이번 화와 다음 화, 두 화에 걸쳐 다룬다. 이번 화에서는 사건을 끝까지 다루지 말고, 아직 완결되지 않은 중간 지점에서 멈춘다.",
-    2: "위 사건은 직전 화(1화)에서 이미 시작됐다. 그 화에서 벌어진 상황·대사·행동은 절대 다시 서술하거나 되풀이하지 말고, 그 장면이 멈춘 바로 다음 순간부터 곧바로 이어서 써서 위 사건을 이번 화에서 마저 완결한다. 같은 사건을 처음부터 다시 그리는 게 아니라, 중단된 지점 이후의 새로운 전개만 쓴다.",
+    1: "위 지시문은 이번 화와 다음 화, 두 화에 걸쳐 진행될 사건 중 앞부분 내용만 담고 있다(뒷부분은 다음 화 몫이라 여기 안 보인다). 이 내용만 서두르지 말고 밀도 있게 그리고, 사건을 끝까지 다루려 하지 않는다.",
+    2: "위 지시문은 직전 화(1화)에서 이미 진행된 사건에 곧바로 이어지는 뒷부분 내용이다. 1화에서 벌어진 상황·대사·행동을 다시 서술하거나 되풀이하지 말고, 그 장면이 멈춘 바로 다음 순간부터 위 내용을 자연스럽게 이어서 쓴다.",
   };
 
   async function handleContinue() {
@@ -668,6 +672,13 @@ function ObservePageInner() {
 
       const userDirective = directive.trim();
       const parts: (1 | 2)[] = twoPartMode ? [1, 2] : [1];
+      // 지시문을 미리 반으로 잘라 각 화 요청엔 그 절반만 보낸다 —
+      // "이번 화엔 앞부분만 다뤄라" 같은 프롬프트 지시만으로는 지시문이
+      // 길고 구체적일수록 AI가 결국 1화 안에 전부 욱여넣는 경향이
+      // 강했다(2026-09-03 사용자 리포트, splitDirectiveInHalf 주석 참고).
+      const [directiveFirstHalf, directiveSecondHalf] = twoPartMode
+        ? splitDirectiveInHalf(userDirective)
+        : [userDirective, userDirective];
 
       // "+ 시간 경과" 입력을 일 단위로 환산한 값. 서버가 저장된 이야기의
       // elapsedDays에 직접 더해서 저장하므로(2026-09-02), 여기선 텍스트로
@@ -703,13 +714,12 @@ function ObservePageInner() {
           }
         }
         setGeneratingPart(twoPartMode ? part : null);
-        // 2화로 나눠 쓸 때도 사용자 지시문은 두 화 모두에 계속 실어
-        // 보낸다 — 1화에만 보내고 2화는 TWO_PART_NOTES만 보내면, 2화를
-        // 쓰는 AI는 애초에 무슨 사건을 완결해야 하는지 모른 채(1화
-        // 본문에서 눈치껏 짐작하는 수밖에 없어서) 엉뚱한 전개로 새 버리는
-        // 문제가 있었다(2026-09-03 사용자 리포트).
         const combinedDirective = twoPartMode
-          ? [userDirective, part === 1 ? skipNote : "", TWO_PART_NOTES[part]]
+          ? [
+              part === 1 ? directiveFirstHalf : directiveSecondHalf,
+              part === 1 ? skipNote : "",
+              TWO_PART_NOTES[part],
+            ]
               .filter(Boolean)
               .join(" ")
           : [userDirective, skipNote].filter(Boolean).join(" ");

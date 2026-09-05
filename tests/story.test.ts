@@ -5,6 +5,7 @@ import {
   RECENT_FULL_COUNT,
   mergeStateDelta,
   nextArcRange,
+  splitDirectiveInHalf,
 } from "@/lib/story";
 
 describe("관찰 모드 구간 요약 범위", () => {
@@ -75,5 +76,43 @@ describe("관찰 모드 현재 상태 델타 병합", () => {
     const legacy = "- 인물 간 관계: 민준과 서연은 서먹하다";
     const merged = mergeStateDelta(legacy, "[목표]\n승진하기");
     expect(merged).toBe([legacy, "[목표]\n승진하기"].join("\n\n"));
+  });
+});
+
+describe("관찰 모드 2화 나눠쓰기 지시문 분할", () => {
+  it("줄바꿈으로 구분돼 있으면 줄 단위로 절반씩 나눈다", () => {
+    const [a, b] = splitDirectiveInHalf("첫째 줄\n둘째 줄\n셋째 줄\n넷째 줄");
+    expect(a).toBe("첫째 줄\n둘째 줄");
+    expect(b).toBe("셋째 줄\n넷째 줄");
+  });
+
+  it("줄바꿈 없이 문장부호로만 구분돼 있으면 문장 단위로 나눈다", () => {
+    const [a, b] = splitDirectiveInHalf(
+      "민준은 서연에게 고백한다. 서연은 당황해서 도망친다. 민준이 쫓아가서 붙잡는다. 서연도 결국 마음을 받아들인다."
+    );
+    expect(a).toBe("민준은 서연에게 고백한다. 서연은 당황해서 도망친다.");
+    expect(b).toBe("민준이 쫓아가서 붙잡는다. 서연도 결국 마음을 받아들인다.");
+  });
+
+  it("문장부호 없이 단어가 충분히 많으면 단어 단위로 나눈다", () => {
+    const [a, b] = splitDirectiveInHalf("가 나 다 라 마 바");
+    expect(a).toBe("가 나 다");
+    expect(b).toBe("라 마 바");
+  });
+
+  it("나눌 단위가 없는 짧은 한 덩어리는 통째로 양쪽에 준다", () => {
+    const [a, b] = splitDirectiveInHalf("고백한다");
+    expect(a).toBe("고백한다");
+    expect(b).toBe("고백한다");
+  });
+
+  it("빈 지시문은 양쪽 다 빈 문자열", () => {
+    expect(splitDirectiveInHalf("  ")).toEqual(["", ""]);
+  });
+
+  it("홀수 개는 앞쪽에 한 개 더 준다", () => {
+    const [a, b] = splitDirectiveInHalf("하나. 둘. 셋.");
+    expect(a).toBe("하나. 둘.");
+    expect(b).toBe("셋.");
   });
 });
