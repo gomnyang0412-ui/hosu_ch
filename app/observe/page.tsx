@@ -101,17 +101,32 @@ const EPISODE_RETRY_DELAY_MS = 3000;
 // 여러 화로 나눠 쓰기는 매번 lib/gemini.ts의 모델·키 목록 맨 앞
 // (모델 0번, 키 0번)부터 다시 시도하므로, 성공하는 요청은 보통 특정
 // 화 하나가 아니라 이 조합이 매 화마다 반복해서 받는다 — 즉 화 사이
-// 간격이 이 조합의 분당 요청 한도(RPM=5/분)를 그대로 결정한다. 2화만
-// 나눠 쓸 때는 8초로 충분했지만(2026-09-01 진단), 최대 10화까지
-// 나눠 쓸 수 있게 되면서 같은 8초 간격으로는 짧게는 몇 분 안에 여러
-// 요청이 몰려 RPM을 넘기기 쉬워졌다. 15초로 늘리면 실제 생성 시간이
-// 거의 0에 가까운 최악의 경우에도 분당 최대 4회로 RPM 한도 아래에
-// 안전하게 머문다 — 화 개수(2화든 10화든)와 무관하게, "연속 요청
-// 사이 간격"만 지키면 어느 60초 구간을 봐도 이 한도를 넘지 않는다.
-const SPLIT_PART_GAP_MS = 15000;
-// select에 나열할 최대 화 개수. 화 사이 간격(SPLIT_PART_GAP_MS)이
-// 있어서 개수가 늘수록 전체 대기 시간도 그만큼 길어지니, 끝없이
-// 늘리기보다 한 세션에서 감당할 만한 상한을 둔다.
+// 간격이 이 조합의 분당 요청 한도(RPM_LIMIT=5/분)를 그대로 결정한다.
+//
+// 나누는 화 개수가 RPM_LIMIT 이하면 걱정할 필요가 없다 — 그 조합에
+// 보낼 요청 자체가 이 흐름 전체에서 최대 그 개수뿐이라, 아무리 빨리
+// 연달아 보내도 "60초 안에 5개 초과"가 애초에 성립할 수 없다(전체
+// 요청 수가 한도 이하이기 때문). 이 경우엔 2026-09-01에 이미
+// 검증된 값(4초는 부족, 8초는 충분)을 그대로 쓴다.
+//
+// RPM_LIMIT을 넘는 개수(6~10화)로 나눌 때는 얘기가 다르다. 요청을
+// 간격 g로 순차 발사한다고 하면(실제 생성 시간이 0에 가까운 최악의
+// 경우를 가정), 연속된 RPM_LIMIT개 요청이 60초보다 더 벌어져 있어야
+// 한도를 넘지 않는다 — 즉 g > 60000 / (RPM_LIMIT - 1)이 필요하다
+// (RPM_LIMIT=5일 때 15000ms). 개수가 6이든 10이든 이 값 자체는
+// 똑같다 — "연속 요청 사이 간격"만 지키면 어느 60초 구간을 봐도
+// 한도를 넘지 않는, 개수와 무관한 안전선이기 때문이다.
+const RPM_LIMIT = 5;
+const SPLIT_PART_SAFE_GAP_MS = 8000;
+const SPLIT_PART_HIGH_COUNT_GAP_MS = 15000;
+
+function splitPartGapMs(totalParts: number): number {
+  return totalParts > RPM_LIMIT ? SPLIT_PART_HIGH_COUNT_GAP_MS : SPLIT_PART_SAFE_GAP_MS;
+}
+
+// select에 나열할 최대 화 개수. 화 사이 간격이 있어서 개수가 늘수록
+// 전체 대기 시간도 그만큼 길어지니, 끝없이 늘리기보다 한 세션에서
+// 감당할 만한 상한을 둔다.
 const MAX_SPLIT_PARTS = 10;
 
 // "쓰는 중…" 진행 바가 서서히 차오르는 속도의 기준값. 정확한 %가 아니라
@@ -727,7 +742,7 @@ function ObservePageInner() {
           // 분당 요청 한도에 몰릴 수 있어, 다음 화를 시작하기 전에 짧게 쉰다.
           setLoading(true);
           try {
-            await sleep(SPLIT_PART_GAP_MS, controller.signal);
+            await sleep(splitPartGapMs(totalParts), controller.signal);
           } catch {
             setGeneratingPart(null);
             setLoading(false);
