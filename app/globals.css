@@ -89,9 +89,12 @@
   --color-accent: var(--accent);
   --color-accent-strong: var(--accent-strong);
   --color-accent-foreground: var(--accent-foreground);
-  --font-sans: "Pretendard Variable", Pretendard, -apple-system,
-    BlinkMacSystemFont, "Segoe UI", system-ui, Roboto, "Apple SD Gothic Neo",
-    "Noto Sans KR", "Malgun Gothic", sans-serif;
+  /* --font-ridibatang은 app/layout.tsx의 next/font/local이 만들어주는
+     변수 — 리디바탕을 1순위로 쓰고, 리디바탕에 없는 글리프(이모지 등)만
+     Pretendard·시스템 폰트로 자연스럽게 넘어가게 폴백 체인을 그대로 둔다. */
+  --font-sans: var(--font-ridibatang), "Pretendard Variable", Pretendard,
+    -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, Roboto,
+    "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif;
   /* "과한 둥근 모서리 없음" — Tailwind v4는 rounded-xl/2xl/3xl이 전부
      아래 테마 변수를 그대로 쓰기 때문에, 여기서 낮춰두면 컴포넌트
      파일의 클래스는 하나도 안 바꿔도 앱 전체 카드 모서리가 한 번에
