@@ -20,7 +20,7 @@ export default function Sidebar() {
             href={tab.href}
             className={`flex items-center gap-2 rounded-full px-3 py-2 text-sm transition-colors transition-transform hover:scale-[1.02] active:scale-[0.98] ${
               active
-                ? "gradient-primary font-semibold text-primary-foreground shadow-[0_4px_12px_-4px_var(--primary-strong)]"
+                ? "gradient-primary font-semibold text-primary-foreground"
                 : "text-muted hover:bg-background"
             }`}
           >
@@ -35,7 +35,7 @@ export default function Sidebar() {
         href="/settings"
         className={`mt-auto flex items-center gap-2 rounded-full px-3 py-2 text-sm transition-colors transition-transform hover:scale-[1.02] active:scale-[0.98] ${
           pathname === "/settings"
-            ? "gradient-primary font-semibold text-primary-foreground shadow-[0_4px_12px_-4px_var(--primary-strong)]"
+            ? "gradient-primary font-semibold text-primary-foreground"
             : "text-muted hover:bg-background"
         }`}
       >
