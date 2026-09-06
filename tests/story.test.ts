@@ -5,7 +5,7 @@ import {
   RECENT_FULL_COUNT,
   mergeStateDelta,
   nextArcRange,
-  splitDirectiveInHalf,
+  splitDirectiveIntoParts,
 } from "@/lib/story";
 
 describe("관찰 모드 구간 요약 범위", () => {
@@ -79,40 +79,69 @@ describe("관찰 모드 현재 상태 델타 병합", () => {
   });
 });
 
-describe("관찰 모드 2화 나눠쓰기 지시문 분할", () => {
-  it("줄바꿈으로 구분돼 있으면 줄 단위로 절반씩 나눈다", () => {
-    const [a, b] = splitDirectiveInHalf("첫째 줄\n둘째 줄\n셋째 줄\n넷째 줄");
+describe("관찰 모드 여러 화 나눠쓰기 지시문 분할", () => {
+  it("줄바꿈으로 구분돼 있으면 줄 단위로 절반씩 나눈다(2등분)", () => {
+    const [a, b] = splitDirectiveIntoParts("첫째 줄\n둘째 줄\n셋째 줄\n넷째 줄", 2);
     expect(a).toBe("첫째 줄\n둘째 줄");
     expect(b).toBe("셋째 줄\n넷째 줄");
   });
 
-  it("줄바꿈 없이 문장부호로만 구분돼 있으면 문장 단위로 나눈다", () => {
-    const [a, b] = splitDirectiveInHalf(
-      "민준은 서연에게 고백한다. 서연은 당황해서 도망친다. 민준이 쫓아가서 붙잡는다. 서연도 결국 마음을 받아들인다."
+  it("줄바꿈 없이 문장부호로만 구분돼 있으면 문장 단위로 나눈다(2등분)", () => {
+    const [a, b] = splitDirectiveIntoParts(
+      "민준은 서연에게 고백한다. 서연은 당황해서 도망친다. 민준이 쫓아가서 붙잡는다. 서연도 결국 마음을 받아들인다.",
+      2
     );
     expect(a).toBe("민준은 서연에게 고백한다. 서연은 당황해서 도망친다.");
     expect(b).toBe("민준이 쫓아가서 붙잡는다. 서연도 결국 마음을 받아들인다.");
   });
 
-  it("문장부호 없이 단어가 충분히 많으면 단어 단위로 나눈다", () => {
-    const [a, b] = splitDirectiveInHalf("가 나 다 라 마 바");
+  it("문장부호 없이 단어가 충분히 많으면 단어 단위로 나눈다(2등분)", () => {
+    const [a, b] = splitDirectiveIntoParts("가 나 다 라 마 바", 2);
     expect(a).toBe("가 나 다");
     expect(b).toBe("라 마 바");
   });
 
-  it("나눌 단위가 없는 짧은 한 덩어리는 통째로 양쪽에 준다", () => {
-    const [a, b] = splitDirectiveInHalf("고백한다");
-    expect(a).toBe("고백한다");
-    expect(b).toBe("고백한다");
+  it("나눌 단위가 없는 짧은 한 덩어리는 통째로 모든 부분에 준다", () => {
+    const parts = splitDirectiveIntoParts("고백한다", 3);
+    expect(parts).toEqual(["고백한다", "고백한다", "고백한다"]);
   });
 
-  it("빈 지시문은 양쪽 다 빈 문자열", () => {
-    expect(splitDirectiveInHalf("  ")).toEqual(["", ""]);
+  it("빈 지시문은 partCount개의 빈 문자열", () => {
+    expect(splitDirectiveIntoParts("  ", 3)).toEqual(["", "", ""]);
   });
 
-  it("홀수 개는 앞쪽에 한 개 더 준다", () => {
-    const [a, b] = splitDirectiveInHalf("하나. 둘. 셋.");
+  it("2등분에서 홀수 개는 앞쪽에 한 개 더 준다", () => {
+    const [a, b] = splitDirectiveIntoParts("하나. 둘. 셋.", 2);
     expect(a).toBe("하나. 둘.");
     expect(b).toBe("셋.");
+  });
+
+  it("문장이 partCount로 나누어떨어지면 3등분도 고르게 나눈다", () => {
+    const parts = splitDirectiveIntoParts("하나. 둘. 셋. 넷. 다섯. 여섯.", 3);
+    expect(parts).toEqual(["하나. 둘.", "셋. 넷.", "다섯. 여섯."]);
+  });
+
+  it("나누어떨어지지 않으면 나머지를 앞쪽 부분부터 하나씩 더 준다", () => {
+    // 문장 10개를 3등분 → 4/3/3
+    const directive = Array.from({ length: 10 }, (_, i) => `${i + 1}번째.`).join(" ");
+    const parts = splitDirectiveIntoParts(directive, 3);
+    expect(parts[0]).toBe("1번째. 2번째. 3번째. 4번째.");
+    expect(parts[1]).toBe("5번째. 6번째. 7번째.");
+    expect(parts[2]).toBe("8번째. 9번째. 10번째.");
+  });
+
+  it("문장 개수가 partCount보다 적으면 단어 단위로 더 잘게 나눈다", () => {
+    // 문장 2개뿐이라 3등분엔 부족(sentences.length < partCount) →
+    // 단어 단위 분할로 넘어간다
+    const parts = splitDirectiveIntoParts("민준이 서연을 오랫동안 만난다. 그리고 같이 걷는다.", 3);
+    expect(parts).toHaveLength(3);
+    expect(parts[0]).not.toBe(parts[1]);
+    expect(parts.join(" ").replace(/\s+/g, " ")).toBe(
+      "민준이 서연을 오랫동안 만난다. 그리고 같이 걷는다."
+    );
+  });
+
+  it("partCount가 1이면 원문을 그대로 배열 하나로 돌려준다", () => {
+    expect(splitDirectiveIntoParts("그대로", 1)).toEqual(["그대로"]);
   });
 });

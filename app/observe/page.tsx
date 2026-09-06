@@ -36,7 +36,7 @@ import {
   saveRoom,
   storageErrorMessage,
 } from "@/lib/storage";
-import { formatElapsedDays, nextArcRange, splitDirectiveInHalf } from "@/lib/story";
+import { formatElapsedDays, nextArcRange, splitDirectiveIntoParts } from "@/lib/story";
 import { resolveUniverseTemplate } from "@/lib/template";
 import {
   ORG_UNIVERSE_ID,
@@ -98,14 +98,21 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 const EPISODE_MAX_ATTEMPTS = 2;
 const EPISODE_RETRY_DELAY_MS = 3000;
 
-// "2화로 나눠 쓰기"는 같은 API 키에 화 두 개 분량의 요청을 몇 초 간격으로
-// 연달아 보낸다. 분당 요청 한도(RPM)에 몰리면 두 번째 화가 더 자주
-// 실패하는 경향이 있어서, 화 사이에 짧은 텀을 둬 그 부담을 완화한다.
-// 1화 생성 자체가 quota 초과로 여러 모델×키를 빠르게 훑으면(각각
-// lib/gemini.ts의 retryDelayMs로 400ms씩 쉬긴 하지만) 그것만으로도 이번
-// 분의 RPM을 상당히 써버릴 수 있어서, 4초로는 부족한 경우가 있었다
-// (2026-09-01 진단). 8초로 늘려 다음 분으로 넘어갈 여유를 더 준다.
-const TWO_PART_GAP_MS = 8000;
+// 여러 화로 나눠 쓰기는 매번 lib/gemini.ts의 모델·키 목록 맨 앞
+// (모델 0번, 키 0번)부터 다시 시도하므로, 성공하는 요청은 보통 특정
+// 화 하나가 아니라 이 조합이 매 화마다 반복해서 받는다 — 즉 화 사이
+// 간격이 이 조합의 분당 요청 한도(RPM=5/분)를 그대로 결정한다. 2화만
+// 나눠 쓸 때는 8초로 충분했지만(2026-09-01 진단), 최대 10화까지
+// 나눠 쓸 수 있게 되면서 같은 8초 간격으로는 짧게는 몇 분 안에 여러
+// 요청이 몰려 RPM을 넘기기 쉬워졌다. 15초로 늘리면 실제 생성 시간이
+// 거의 0에 가까운 최악의 경우에도 분당 최대 4회로 RPM 한도 아래에
+// 안전하게 머문다 — 화 개수(2화든 10화든)와 무관하게, "연속 요청
+// 사이 간격"만 지키면 어느 60초 구간을 봐도 이 한도를 넘지 않는다.
+const SPLIT_PART_GAP_MS = 15000;
+// select에 나열할 최대 화 개수. 화 사이 간격(SPLIT_PART_GAP_MS)이
+// 있어서 개수가 늘수록 전체 대기 시간도 그만큼 길어지니, 끝없이
+// 늘리기보다 한 세션에서 감당할 만한 상한을 둔다.
+const MAX_SPLIT_PARTS = 10;
 
 // "쓰는 중…" 진행 바가 서서히 차오르는 속도의 기준값. 정확한 %가 아니라
 // 추정치라(위 requestEpisode 주석 참고) 화 하나가 보통 이 정도 걸린다는
@@ -151,10 +158,12 @@ function ObservePageInner() {
   const [coverImageLoading, setCoverImageLoading] = useState(false);
   const [shelfPage, setShelfPage] = useState(0);
   const [directive, setDirective] = useState("");
-  const [twoPartMode, setTwoPartMode] = useState(false);
+  // 1이면 나눠쓰기 off. 2 이상이면 그 개수만큼 화로 나눠 쓴다(체크박스로
+  // 켜고 끄되, 켜져 있을 때만 몇 화로 나눌지 고르는 select가 나온다).
+  const [splitPartCount, setSplitPartCount] = useState(1);
   const [timeSkipAmount, setTimeSkipAmount] = useState("");
   const [timeSkipUnit, setTimeSkipUnit] = useState<"day" | "month" | "year">("month");
-  const [generatingPart, setGeneratingPart] = useState<1 | 2 | null>(null);
+  const [generatingPart, setGeneratingPart] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [genProgress, setGenProgress] = useState(0);
   const [error, setError] = useState<SceneErrorState | null>(null);
@@ -202,7 +211,7 @@ function ObservePageInner() {
     setCoverImage(undefined);
     setShelfPage(0);
     setDirective("");
-    setTwoPartMode(false);
+    setSplitPartCount(1);
     setTimeSkipAmount("");
     setError(null);
     setCarryOverSummary(null);
@@ -414,7 +423,7 @@ function ObservePageInner() {
     coverImage?: string;
     directive?: string;
     addElapsedDays?: number;
-    twoPart?: "first" | "second";
+    directiveSplit?: "first" | "middle" | "last";
   }): Promise<{ story: ObservationSession } | null> {
     if (!universe) return null;
     setLoading(true);
@@ -451,7 +460,7 @@ function ObservePageInner() {
               coverImage: params.coverImage,
               directive: params.directive,
               addElapsedDays: params.addElapsedDays,
-              twoPart: params.twoPart,
+              directiveSplit: params.directiveSplit,
             }),
             signal,
           });
@@ -645,19 +654,30 @@ function ObservePageInner() {
   }
 
   /**
-   * "2화로 나눠 쓰기" 체크 시 자동으로 덧붙는 지시. 사용자가 직접 "2편"
-   * 같은 키워드를 입력하게 하는 대신, 체크박스로 명시적으로 켠 경우에만
-   * 코드에서 붙인다 — 지문에 우연히 비슷한 단어가 들어가도 오작동하지
-   * 않는다.
+   * "여러 화로 나눠 쓰기" 체크 시 자동으로 덧붙는 지시. 사용자가 직접
+   * "2편" 같은 키워드를 입력하게 하는 대신, 체크박스로 명시적으로 켠
+   * 경우에만 코드에서 붙인다 — 지문에 우연히 비슷한 단어가 들어가도
+   * 오작동하지 않는다.
    *
-   * 지시문 원문은 splitDirectiveInHalf로 미리 반씩 잘라서 각 화 요청엔
-   * 그 절반만 보낸다(1화 요청엔 뒷부분 내용 자체가 아예 안 보임) — 이
-   * 안내문은 그 절반이 전체 사건 중 어느 쪽인지만 알려준다.
+   * 지시문 원문은 splitDirectiveIntoParts로 미리 partCount등분해서 각 화
+   * 요청엔 그중 하나만 보낸다(다른 화들 몫의 내용 자체가 아예 안 보임) —
+   * 이 안내문은 그 부분이 전체 사건 중 몇 번째(처음/중간/마지막)인지만
+   * 알려준다.
    */
-  const TWO_PART_NOTES: Record<1 | 2, string> = {
-    1: "위 지시문은 이번 화와 다음 화, 두 화에 걸쳐 진행될 사건 중 앞부분 내용만 담고 있다(뒷부분은 다음 화 몫이라 여기 안 보인다). 이 내용만 서두르지 말고 밀도 있게 그리고, 사건을 끝까지 다루려 하지 않는다.",
-    2: "위 지시문은 직전 화(1화)에서 이미 진행된 사건에 곧바로 이어지는 뒷부분 내용이다. 1화에서 벌어진 상황·대사·행동을 다시 서술하거나 되풀이하지 말고, 그 장면이 멈춘 바로 다음 순간부터 위 내용을 자연스럽게 이어서 쓴다.",
-  };
+  function buildSplitPartNote(partIndex: number, totalParts: number): string {
+    if (partIndex === 1) {
+      return `위 지시문은 이번 화부터 총 ${totalParts}화에 걸쳐 진행될 사건 중 첫 부분 내용만 담고 있다(나머지는 이후 화들 몫이라 여기 안 보인다). 이 내용만 서두르지 말고 밀도 있게 그리고, 사건을 끝까지 다루려 하지 않는다.`;
+    }
+    const positionNote =
+      partIndex === totalParts
+        ? `총 ${totalParts}화 중 마지막 부분`
+        : `총 ${totalParts}화 중 ${partIndex}번째 부분`;
+    const endingNote =
+      partIndex === totalParts
+        ? "위 내용을 자연스럽게 이어서 써서 이번 화에서 마저 완결한다."
+        : "위 내용을 자연스럽게 이어서 쓰고, 이번 화에서도 사건을 끝까지 다루려 하지 않는다.";
+    return `위 지시문은 ${positionNote} 내용이다. 앞선 화들에서 이미 진행된 사건에 곧바로 이어지는 내용이니, 앞선 화들에서 벌어진 상황·대사·행동을 다시 서술하거나 되풀이하지 말고, 그 장면이 멈춘 바로 다음 순간부터 ${endingNote}`;
+  }
 
   async function handleContinue() {
     if (!session || !universe) return;
@@ -671,14 +691,16 @@ function ObservePageInner() {
       if (compacted !== session) await persistStoryUpdate(compacted);
 
       const userDirective = directive.trim();
-      const parts: (1 | 2)[] = twoPartMode ? [1, 2] : [1];
-      // 지시문을 미리 반으로 잘라 각 화 요청엔 그 절반만 보낸다 —
+      const totalParts = splitPartCount > 1 ? splitPartCount : 1;
+      const parts: number[] = Array.from({ length: totalParts }, (_, i) => i + 1);
+      // 지시문을 미리 등분해서 각 화 요청엔 그 한 부분만 보낸다 —
       // "이번 화엔 앞부분만 다뤄라" 같은 프롬프트 지시만으로는 지시문이
-      // 길고 구체적일수록 AI가 결국 1화 안에 전부 욱여넣는 경향이
-      // 강했다(2026-09-03 사용자 리포트, splitDirectiveInHalf 주석 참고).
-      const [directiveFirstHalf, directiveSecondHalf] = twoPartMode
-        ? splitDirectiveInHalf(userDirective)
-        : [userDirective, userDirective];
+      // 길고 구체적일수록 AI가 결국 앞쪽 화에 전부 욱여넣는 경향이
+      // 강했다(2026-09-03 사용자 리포트, splitDirectiveIntoParts 주석 참고).
+      const directiveParts =
+        totalParts > 1
+          ? splitDirectiveIntoParts(userDirective, totalParts)
+          : [userDirective];
 
       // "+ 시간 경과" 입력을 일 단위로 환산한 값. 서버가 저장된 이야기의
       // elapsedDays에 직접 더해서 저장하므로(2026-09-02), 여기선 텍스트로
@@ -701,11 +723,11 @@ function ObservePageInner() {
       for (let i = 0; i < parts.length; i++) {
         const part = parts[i];
         if (i > 0) {
-          // 같은 API 키에 화 두 개 분량 요청이 바로 붙어서 나가면 분당
-          // 요청 한도에 몰릴 수 있어, 다음 화를 시작하기 전에 짧게 쉰다.
+          // 같은 API 키에 화 여러 개 분량의 요청이 바로 붙어서 나가면
+          // 분당 요청 한도에 몰릴 수 있어, 다음 화를 시작하기 전에 짧게 쉰다.
           setLoading(true);
           try {
-            await sleep(TWO_PART_GAP_MS, controller.signal);
+            await sleep(SPLIT_PART_GAP_MS, controller.signal);
           } catch {
             setGeneratingPart(null);
             setLoading(false);
@@ -713,22 +735,25 @@ function ObservePageInner() {
             return;
           }
         }
-        setGeneratingPart(twoPartMode ? part : null);
-        const combinedDirective = twoPartMode
-          ? [
-              part === 1 ? directiveFirstHalf : directiveSecondHalf,
-              part === 1 ? skipNote : "",
-              TWO_PART_NOTES[part],
-            ]
-              .filter(Boolean)
-              .join(" ")
-          : [userDirective, skipNote].filter(Boolean).join(" ");
+        setGeneratingPart(totalParts > 1 ? part : null);
+        const directiveSplit: "first" | "middle" | "last" | undefined =
+          totalParts > 1 ? (part === 1 ? "first" : part === totalParts ? "last" : "middle") : undefined;
+        const combinedDirective =
+          totalParts > 1
+            ? [
+                directiveParts[part - 1],
+                part === 1 ? skipNote : "",
+                buildSplitPartNote(part, totalParts),
+              ]
+                .filter(Boolean)
+                .join(" ")
+            : [userDirective, skipNote].filter(Boolean).join(" ");
         const result = await requestEpisode({
           characters: sceneCharacters,
           storyId: compacted.id,
           directive: combinedDirective || undefined,
           addElapsedDays: part === 1 && skipDays > 0 ? skipDays : undefined,
-          twoPart: twoPartMode ? (part === 1 ? "first" : "second") : undefined,
+          directiveSplit,
         });
         if (!result) {
           setGeneratingPart(null);
@@ -1644,7 +1669,7 @@ function ObservePageInner() {
               <div className="flex flex-col gap-2">
                 <div className="flex items-center justify-center gap-3">
                   <p className="text-sm text-muted">
-                    {generatingPart ? `${generatingPart}/2화 쓰는 중… ${genProgress}%` : `다음 화를 쓰는 중… ${genProgress}%`}
+                    {generatingPart ? `${generatingPart}/${splitPartCount}화 쓰는 중… ${genProgress}%` : `다음 화를 쓰는 중… ${genProgress}%`}
                   </p>
                   <button
                     type="button"
@@ -1690,15 +1715,42 @@ function ObservePageInner() {
                     className="resize-none rounded-xl border border-border bg-card p-2.5 text-sm outline-none focus:border-primary/50"
                   />
                 </label>
-                <label className="flex items-center gap-2 text-xs text-muted">
-                  <input
-                    type="checkbox"
-                    checked={twoPartMode}
-                    onChange={(e) => setTwoPartMode(e.target.checked)}
-                    className="h-4 w-4"
-                  />
-                  이 사건, 2화로 나눠 쓰기
-                </label>
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex items-center gap-2 text-xs text-muted">
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={splitPartCount > 1}
+                        onChange={(e) => setSplitPartCount(e.target.checked ? 2 : 1)}
+                        className="h-4 w-4"
+                      />
+                      이 사건, 여러 화로 나눠 쓰기
+                    </label>
+                    {splitPartCount > 1 && (
+                      <select
+                        value={splitPartCount}
+                        onChange={(e) => setSplitPartCount(Number(e.target.value))}
+                        className="rounded-lg border border-border bg-card px-2 py-1 text-xs outline-none focus:border-primary/50"
+                      >
+                        {Array.from(
+                          { length: MAX_SPLIT_PARTS - 1 },
+                          (_, i) => i + 2
+                        ).map((n) => (
+                          <option key={n} value={n}>
+                            {n}화로
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                  {splitPartCount > 1 && (
+                    <p className="text-[11px] text-muted">
+                      나눌 화 수가 많을수록 지시문도 그만큼 길고 구체적이어야
+                      자연스러워요. 화 사이 간격을 두고 순차 생성돼서 시간이
+                      꽤 걸려요.
+                    </p>
+                  )}
+                </div>
                 <div className="flex items-center gap-1.5 text-xs text-muted">
                   <span>시간 경과 (선택, 직전 화로부터)</span>
                   <input
@@ -1726,8 +1778,8 @@ function ObservePageInner() {
                   onClick={handleContinue}
                   className="group flex items-center justify-center gap-2 rounded-xl bg-accent py-3 pr-3 pl-5 text-sm font-semibold text-accent-foreground transition-transform hover:scale-[1.01] active:scale-[0.98]"
                 >
-                  {twoPartMode
-                    ? `${session.episodes.length + 1}~${session.episodes.length + 2}화 이어쓰기`
+                  {splitPartCount > 1
+                    ? `${session.episodes.length + 1}~${session.episodes.length + splitPartCount}화 이어쓰기`
                     : `${session.episodes.length + 1}화 이어쓰기`}
                   <span className="flex h-7 w-7 items-center justify-center rounded-full bg-accent-foreground/20 transition-transform group-hover:translate-x-0.5">
                     <ChevronRightIcon />
