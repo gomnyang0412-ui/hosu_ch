@@ -382,7 +382,30 @@ export async function POST(request: Request) {
     // 돌려주기 전에 여기서 바로 저장까지 마친다 — 클라이언트가 응답을
     // 받아서 따로 저장을 호출해줄 필요가 없다(2026-09-02).
     await saveStory(updated);
-    return NextResponse.json({ story: updated });
+    // Redis엔 이야기 전체(episodes 전부)를 저장하지만, 응답엔 새로 쓴
+    // 화 하나와 나머지 메타데이터만 돌려준다 — episodes를 통째로 빼고
+    // 보내는 이유는, 예전엔 이야기가 길어질수록(30화면 250KB+, 60화면
+    // 500KB+) 매 화 요청마다 지금까지 쓴 화 전부를 다시 클라이언트로
+    // 내려보내고 있었기 때문이다. 데스크탑 와이파이에선 체감이 안 됐지만
+    // 모바일 5G가 약하거나 혼잡한 시간대(특히 밤)엔 이 큰 응답을 받다가
+    // 느려지거나 끊겨서 "네트워크 오류"로 보이는 문제가 있었다
+    // (2026-09-06 사용자 리포트). 클라이언트는 이미 앞선 화들을 전부
+    // 들고 있으니, 새 화 하나만 그 위에 이어붙이면 된다 — 응답 크기가
+    // 이야기 길이와 무관하게 항상 화 한 편 분량으로 고정된다.
+    const sessionMeta: Omit<ObservationSession, "episodes"> = {
+      id: updated.id,
+      universeId: updated.universeId,
+      characterIds: updated.characterIds,
+      topic: updated.topic,
+      characterContext: updated.characterContext,
+      arcSummaries: updated.arcSummaries,
+      coverImage: updated.coverImage,
+      elapsedDays: updated.elapsedDays,
+      currentState: updated.currentState,
+      createdAt: updated.createdAt,
+      updatedAt: updated.updatedAt,
+    };
+    return NextResponse.json({ episode, session: sessionMeta });
   } catch (err) {
     return geminiErrorResponse(err);
   }

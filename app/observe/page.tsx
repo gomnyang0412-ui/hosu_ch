@@ -46,6 +46,7 @@ import {
   type Character,
   type ObservationSession,
   type Room,
+  type StoryEpisode,
   type Universe,
 } from "@/lib/types";
 
@@ -439,7 +440,7 @@ function ObservePageInner() {
     directive?: string;
     addElapsedDays?: number;
     directiveSplit?: "first" | "middle" | "last";
-  }): Promise<{ story: ObservationSession } | null> {
+  }): Promise<{ episode: StoryEpisode; sessionMeta: Omit<ObservationSession, "episodes"> } | null> {
     if (!universe) return null;
     setLoading(true);
     setError(null);
@@ -482,7 +483,10 @@ function ObservePageInner() {
           const data = await res.json();
           if (res.ok) {
             setLoading(false);
-            return { story: data.story as ObservationSession };
+            return {
+              episode: data.episode as StoryEpisode,
+              sessionMeta: data.session as Omit<ObservationSession, "episodes">,
+            };
           }
           failure = {
             message: data.error ?? "이번 화를 만들지 못했어요.",
@@ -614,9 +618,13 @@ function ObservePageInner() {
       });
       abortRef.current = null;
       if (!result) return;
+      const newStory: ObservationSession = {
+        ...result.sessionMeta,
+        episodes: [result.episode],
+      };
       setCarryOverSummary(null);
-      setStories((prev) => [...(prev ?? []), result.story]);
-      router.push(`/observe?universe=${universeId}&story=${result.story.id}`);
+      setStories((prev) => [...(prev ?? []), newStory]);
+      router.push(`/observe?universe=${universeId}&story=${newStory.id}`);
     } finally {
       isGeneratingRef.current = false;
     }
@@ -735,6 +743,12 @@ function ObservePageInner() {
       const controller = new AbortController();
       abortRef.current = controller;
 
+      // 여러 화로 나눠 쓸 때 각 화 요청이 이어붙일 "지금까지의 이야기"를
+      // 로컬에서 계속 갱신해간다 — 서버 응답은 새 화 하나만 담고 있어서
+      // (episodes 전체를 매번 안 돌려받음), 클라이언트가 이미 들고 있는
+      // 이야기에 그 화를 직접 이어붙여야 한다.
+      let currentStory: ObservationSession = compacted;
+
       for (let i = 0; i < parts.length; i++) {
         const part = parts[i];
         if (i > 0) {
@@ -775,11 +789,16 @@ function ObservePageInner() {
           abortRef.current = null;
           return;
         }
-        // 서버가 화 생성과 동시에 저장까지 이미 끝냈다 — 여기선 방금
-        // 받은 최신 이야기를 화면에 반영하기만 하면 된다(네트워크
-        // 저장 호출을 또 할 필요 없음).
+        // 서버가 화 생성과 동시에 저장까지 이미 끝냈다 — 여기선 새로
+        // 받은 화를 지금까지의 이야기에 이어붙여 화면에 반영하기만
+        // 하면 된다(네트워크 저장 호출을 또 할 필요 없음).
+        currentStory = {
+          ...currentStory,
+          ...result.sessionMeta,
+          episodes: [...currentStory.episodes, result.episode],
+        };
         setStories((prev) =>
-          (prev ?? []).map((s) => (s.id === result.story.id ? result.story : s))
+          (prev ?? []).map((s) => (s.id === currentStory.id ? currentStory : s))
         );
         const isLastPart = part === parts[parts.length - 1];
         if (isLastPart) {
