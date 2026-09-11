@@ -5,6 +5,7 @@ import {
   GoogleGenAI,
   HarmBlockThreshold,
   HarmCategory,
+  ThinkingLevel,
   Type,
   type Content,
   type SafetySetting,
@@ -340,13 +341,15 @@ async function generate(params: {
   /**
    * quota/overloaded로 다음 모델·키로 넘어가기 전에 잠깐 쉬는 시간(ms).
    * 기본은 0(안 쉼) — quota 초과는 보통 0.3~0.5초 안에 빠르게 실패해서,
-   * 모델×키 조합이 많으면(관찰모드는 4모델×N키) 짧은 시간에 요청이
+   * 모델×키 조합이 많으면(관찰모드는 여러 모델×N키) 짧은 시간에 요청이
    * 몰려서 나가버려 분당 요청 한도(RPM)를 오히려 넘기기 쉽다(2026-09-01,
    * 관찰모드 2화 이어쓰기에서 확인된 문제). 관찰모드처럼 애초에 여유
    * 시간이 넉넉한 호출에서만 켠다 — 1:1/멀티 대화처럼 예산이 빠듯한
    * 호출에서 켜면 그만큼 시도 횟수가 줄어들 수 있어 기본값은 그대로 둔다.
    */
   retryDelayMs?: number;
+  /** 모델별 추론 수준. 지정하지 않은 모델은 각 모델의 기본값을 그대로 쓴다. */
+  thinkingLevels?: Partial<Record<string, ThinkingLevel>>;
 }): Promise<{ text: string; model: string; keyIndex: number }> {
   const clients = getClients();
   let lastError: GeminiRequestError | null = null;
@@ -383,6 +386,13 @@ async function generate(params: {
             abortSignal: AbortSignal.timeout(params.timeoutMs ?? CALL_TIMEOUT_MS),
             systemInstruction: params.systemInstruction,
             safetySettings: SAFETY_SETTINGS,
+            ...(params.thinkingLevels?.[model]
+              ? {
+                  thinkingConfig: {
+                    thinkingLevel: params.thinkingLevels[model],
+                  },
+                }
+              : {}),
             ...(params.json
               ? {
                   responseMimeType: "application/json",
@@ -566,6 +576,10 @@ export async function generateStoryEpisode(params: {
     timeoutMs: 50_000,
     retryOnTimeout: true,
     overallDeadlineMs: 170_000,
+    // 3.8 Flash는 기본 추론 수준(medium)에서 장문 창작 응답이 느려질 수
+    // 있으므로 관찰 모드에서만 low로 낮춘다. 뒤의 폴백 모델들과 대화·
+    // 프로필 등 다른 호출은 각 모델의 기본값을 그대로 유지한다.
+    thinkingLevels: { "gemini-3.8-flash": ThinkingLevel.LOW },
     // quota 초과가 보통 0.3~0.5초 안에 빠르게 실패해서, 여러 모델 × 키
     // 여러 개를 거의 동시에 두드리면 분당 요청 한도(RPM)를 오히려
     // 넘겨버릴 수 있다 — 특히 2화 이어쓰기처럼 짧은 간격으로 이 함수를
