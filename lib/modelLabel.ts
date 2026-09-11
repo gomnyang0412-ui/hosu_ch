@@ -2,12 +2,15 @@
 // 서버(lib/gemini.ts)와 클라이언트(채팅 화면) 양쪽에서 쓰므로
 // "@google/genai"를 import하지 않는 순수 유틸로 분리한다.
 const MODEL_LABELS: Record<string, string> = {
-  "gemini-3.6-flash": "Gemini 3.6 Flash",
+  "gemini-3.8-flash": "Gemini 3.8 Flash",
   "gemini-3.7-flash": "Gemini 3.7 Flash",
+  "gemini-3.6-flash": "Gemini 3.6 Flash",
   "gemini-2.5-flash": "Gemini 2.5 Flash",
-  "gemini-3-flash-preview": "Gemini 3 Flash Preview",
   "gemini-3.5-flash": "Gemini 3.5 Flash",
+  "gemini-3-flash-preview": "Gemini 3 Flash",
   "gemini-3.5-flash-lite": "Gemini 3.5 Flash Lite",
+  "gemini-3.1-flash-lite": "Gemini 3.1 Flash Lite",
+  "gemini-2.5-flash-lite": "Gemini 2.5 Flash Lite",
 };
 
 export function modelLabel(id?: string): string | null {

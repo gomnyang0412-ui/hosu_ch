@@ -51,25 +51,25 @@ const BLOCKED_FINISH_REASONS = new Set<string>([
 // 대사 생성(1:1/관찰/멀티방)은 캐릭터 일관성·자연스러움이 중요해서
 // Flash 계열을 우선 시도한다. 한 Flash 모델의 하루 요청 한도(RPD)가
 // 다 떨어지면(전체 키에서 전부 quota 에러) 다음 Flash 모델로 넘어가고,
-// Flash를 전부 소진하면 마지막으로 Flash-Lite까지 내려가 대화가 완전히
-// 끊기지는 않게 한다.
-// gemini-2.5-flash는 2026-08-31 기준 이 계정에서 더 이상 응답하지
-// 않는다(404로 조용히 건너뛰어짐 — AI Studio 사용량 그래프에서도 8월
-// 중순 이후로 요청이 0으로 끊긴 게 확인됨). 대신 gemini-3.7-flash를
-// 새 백업으로 추가했다 — 다만 이 모델도 무료 하루 한도(RPD)가 20으로
-// 낮아서(AI Studio Rate Limit 페이지 확인, 2026-08-31), 만능 해결책은
-// 아니고 "한 바구니 더" 정도의 추가 여유다. gemini-3.6-flash가 이미
-// 실적이 검증된 1순위라 순서는 그대로 두고 2순위 자리에 넣었다.
+// Flash를 전부 소진하면 Flash-Lite 계열까지 차례로 내려가 대화가 완전히
+// 끊기지는 않게 한다. 구체적인 모델 이름에 고정하되, 새 모델부터 먼저
+// 사용하고 이전 세대 모델을 순서대로 폴백으로 남긴다.
 const DIALOGUE_MODELS = [
-  "gemini-3.6-flash",
+  "gemini-3.8-flash",
   "gemini-3.7-flash",
-  "gemini-3-flash-preview",
+  "gemini-3.6-flash",
   "gemini-3.5-flash",
+  "gemini-3-flash-preview",
 ];
 // 요약(기억 정리)은 뉘앙스보다 사실 정리가 중요해 처음부터 가볍고 RPD가
 // 넉넉한 Lite만 쓴다 — Flash 한도를 대사 생성 쪽에 아껴두는 목적도 있다.
 const LITE_MODEL = "gemini-3.5-flash-lite";
-const DIALOGUE_MODEL_CHAIN = [...DIALOGUE_MODELS, LITE_MODEL];
+const DIALOGUE_LITE_MODELS = [
+  LITE_MODEL,
+  "gemini-3.1-flash-lite",
+  "gemini-2.5-flash-lite",
+];
+const DIALOGUE_MODEL_CHAIN = [...DIALOGUE_MODELS, ...DIALOGUE_LITE_MODELS];
 
 export type GeminiErrorKind = "quota" | "network" | "overloaded" | "unknown";
 
@@ -496,12 +496,12 @@ export async function generateChatReply(params: {
       overallDeadlineMs: CHAT_REPLY_FLASH_DEADLINE_MS,
     });
   } catch {
-    // Flash 계열이 전부 실패해도 lite는 별도로 떼어둔 예산으로 반드시
-    // 한 번 시도해본다.
+    // Flash 계열이 전부 실패해도 Lite 계열은 별도로 떼어둔 예산 안에서
+    // 최신 모델부터 차례로 시도한다.
     return generate({
       ...params,
       json: true,
-      models: [LITE_MODEL],
+      models: DIALOGUE_LITE_MODELS,
       timeoutMs: CHAT_REPLY_LITE_TIMEOUT_MS,
       overallDeadlineMs: CHAT_REPLY_LITE_TIMEOUT_MS,
     });
@@ -531,7 +531,7 @@ export async function generateSummaryText(params: {
 /**
  * 관찰 모드 단편소설 한 화 (평문, JSON 아님). Lite로는 캐릭터가 무너지는
  * 문제가 있어, 다른 롤플레이 생성과 똑같이 Flash 체인을 우선 쓰고 전부
- * 소진됐을 때만 Lite로 내려간다.
+ * 소진됐을 때만 Lite 계열로 차례로 내려간다.
  *
  * "AbortError: This operation was aborted"는 호스팅 플랫폼이 함수를
  * 강제 종료해서가 아니라, 우리 스스로 건 timeoutMs가 너무 짧아서(한때
@@ -566,7 +566,7 @@ export async function generateStoryEpisode(params: {
     timeoutMs: 50_000,
     retryOnTimeout: true,
     overallDeadlineMs: 170_000,
-    // quota 초과가 보통 0.3~0.5초 안에 빠르게 실패해서, 4개 모델 × 키
+    // quota 초과가 보통 0.3~0.5초 안에 빠르게 실패해서, 여러 모델 × 키
     // 여러 개를 거의 동시에 두드리면 분당 요청 한도(RPM)를 오히려
     // 넘겨버릴 수 있다 — 특히 2화 이어쓰기처럼 짧은 간격으로 이 함수를
     // 두 번 부르는 경우 확인됨(2026-09-01). 400ms씩 쉬어가며 넘어가서
@@ -633,7 +633,7 @@ export async function generateObservationRecap(params: {
     const { text } = await generate({
       ...params,
       json: false,
-      models: [LITE_MODEL],
+      models: DIALOGUE_LITE_MODELS,
       timeoutMs: OBSERVATION_RECAP_LITE_TIMEOUT_MS,
       overallDeadlineMs: OBSERVATION_RECAP_LITE_TIMEOUT_MS,
     });
