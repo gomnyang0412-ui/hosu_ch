@@ -25,6 +25,8 @@ import {
 import { buildStoryEpub, buildStoryTxt, downloadBlob, exportStoryFilename } from "@/lib/exportStory";
 import { resizeImageFile } from "@/lib/image";
 import { sourceLabel } from "@/lib/modelLabel";
+import { generationProgressLabel, readSceneResponse, SceneResponseError } from "@/lib/sceneProgress";
+import GenerationStatus from "@/components/GenerationStatus";
 import {
   getCharacters,
   getChatHistory,
@@ -176,6 +178,8 @@ function ObservePageInner() {
   const [generatingPart, setGeneratingPart] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [genProgress, setGenProgress] = useState(0);
+  const [generationMessage, setGenerationMessage] = useState("");
+  const [lastTransition, setLastTransition] = useState("");
   const [error, setError] = useState<SceneErrorState | null>(null);
   // 화 생성 중(재시도 대기, 2화 사이 텀 포함)에 사용자가 취소할 수 있게
   // 하는 컨트롤러. handleStart·handleContinue가 시작할 때 새로 만들어
@@ -439,9 +443,10 @@ function ObservePageInner() {
     setLoading(true);
     setError(null);
     setGenProgress(0);
-    // 진짜 진행률이 아니라 "그럴듯한" 추정치다 — Gemini 호출이 완전히
-    // 끝나야 응답이 오는 방식(스트리밍 아님)이라 서버도 지금 몇 %인지
-    // 전혀 모른다. 그래서 보통 걸리는 시간을 기준으로 서서히 차오르다가
+    setGenerationMessage("작성 준비 중…");
+    setLastTransition("");
+    // 키·모델 상태는 서버에서 실시간으로 받지만 생성 퍼센트는 알 수 없다.
+    // 그래서 보통 걸리는 시간을 기준으로 서서히 차오르다가
     // 92%에서 멈춰 기다리고, 실제로 응답이 오면 그 즉시 로딩 화면
     // 자체가 사라진다(2026-09-02).
     const genStartedAt = Date.now();
@@ -458,7 +463,7 @@ function ObservePageInner() {
       try {
         const res = await fetch("/api/scene", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", Accept: "application/x-ndjson" },
           body: JSON.stringify({
             characters: params.characters.map(toCharacterProfile),
             universe: resolvedUniverse,
@@ -473,17 +478,16 @@ function ObservePageInner() {
           }),
           signal,
         });
-        const data = await res.json();
-        if (res.ok) {
-          setLoading(false);
-          return {
-            episode: data.episode as StoryEpisode,
-            sessionMeta: data.session as Omit<ObservationSession, "episodes">,
-          };
-        }
-        failure = {
-          message: data.error ?? "이번 화를 만들지 못했어요.",
-          kind: data.kind ?? "unknown",
+        const data = await readSceneResponse(res, (progress) => {
+          if (signal?.aborted) return;
+          const label = generationProgressLabel(progress);
+          if (progress.phase === "retry") setLastTransition(label);
+          setGenerationMessage(progress.phase === "retry" ? "다음 시도 준비 중…" : label);
+        });
+        setLoading(false);
+        return {
+          episode: data.episode,
+          sessionMeta: data.session,
         };
       } catch (err) {
         // 사용자가 취소 버튼을 눌러 abort된 경우 — 실패가 아니라 의도한
@@ -492,7 +496,7 @@ function ObservePageInner() {
           setLoading(false);
           return null;
         }
-        failure = {
+        failure = err instanceof SceneResponseError ? { message: err.message, kind: err.kind } : {
           message: "응답을 받지 못했어요. 다시 생성하기 전에 새로고침해서 저장된 화를 확인해 주세요.",
           kind: "network",
         };
@@ -566,6 +570,9 @@ function ObservePageInner() {
     try {
       const characters = allCharacters.filter((c) => selectedIds.includes(c.id));
       setLoading(true);
+      setGenerationMessage(importIds.length > 0 ? "이전 대화 요약 중…" : "작성 준비 중…");
+      setLastTransition("");
+      setGenProgress(0);
       const importedContext =
         importIds.length > 0
           ? await buildCharacterContext(
@@ -731,6 +738,10 @@ function ObservePageInner() {
           // 같은 API 키에 화 여러 개 분량의 요청이 바로 붙어서 나가면
           // 분당 요청 한도에 몰릴 수 있어, 다음 화를 시작하기 전에 짧게 쉰다.
           setLoading(true);
+          setGenerationMessage(`${part}화 작성 전 잠시 쉬는 중…`);
+          setLastTransition("");
+          setGeneratingPart(part);
+          setGenProgress(0);
           try {
             await sleep(splitPartGapMs(totalParts), controller.signal);
           } catch {
@@ -1289,7 +1300,7 @@ function ObservePageInner() {
                     className="group flex flex-1 items-center justify-center gap-2 rounded-xl bg-primary py-3 pr-3 pl-5 text-sm font-semibold text-primary-foreground transition-transform hover:scale-[1.01] active:scale-[0.98] disabled:opacity-40 disabled:hover:scale-100"
                   >
                     {loading
-                      ? importIds.length > 0
+                      ? generationMessage === "이전 대화 요약 중…"
                         ? "이전 대화 요약하는 중…"
                         : `1화를 쓰는 중… ${genProgress}%`
                       : (
@@ -1311,6 +1322,7 @@ function ObservePageInner() {
                     </button>
                   )}
                 </div>
+                {loading && <GenerationStatus message={generationMessage} previous={lastTransition} />}
                 {loading && (
                   <div className="h-1.5 w-full overflow-hidden rounded-full bg-border">
                     <div
@@ -1689,6 +1701,7 @@ function ObservePageInner() {
                     취소
                   </button>
                 </div>
+                <GenerationStatus message={generationMessage} previous={lastTransition} />
                 <div className="h-1.5 w-full overflow-hidden rounded-full bg-border">
                   <div
                     className="h-full rounded-full bg-accent transition-[width] duration-200"

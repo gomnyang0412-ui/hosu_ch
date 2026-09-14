@@ -33,10 +33,14 @@ afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllEnvs(); 
 describe("Gemini retry routing", () => {
   it("429 tries another project key on the same model", async () => {
     mocks.call.mockRejectedValueOnce(quota()).mockResolvedValue(success);
-    const pending = generateStoryEpisode(input);
+    const progress = vi.fn();
+    const pending = generateStoryEpisode({ ...input, onProgress: progress });
     await vi.runAllTimersAsync();
     expect((await pending).keyIndex).toBe(2);
     expect(calls()).toEqual([["test1", "gemini-3.8-flash"], ["test2", "gemini-3.8-flash"]]);
+    expect(progress.mock.calls.map(([p]) => [p.phase, p.keyIndex, p.reason])).toEqual([
+      ["attempt", 1, undefined], ["retry", 1, "quota"], ["attempt", 2, undefined], ["generated", 2, undefined],
+    ]);
   });
   it("a full chat timeout tries the next Flash within the remaining budget", async () => {
     mocks.call.mockImplementationOnce(() => { vi.setSystemTime(15001); throw timeout(); }).mockResolvedValue(success);

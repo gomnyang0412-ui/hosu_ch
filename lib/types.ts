@@ -393,6 +393,25 @@ export interface ApiUsageEntry {
   quota: number;
 }
 
+/** 생성 중에만 전송하는 임시 상태. Redis·백업에는 저장하지 않는다. */
+export interface GenerationProgress {
+  phase: "attempt" | "retry" | "generated" | "saving";
+  model: string;
+  keyIndex: number;
+  reason?: "quota" | "timeout" | "network" | "overloaded" | "unavailable";
+}
+
+export interface SceneResult {
+  episode: StoryEpisode;
+  session: Omit<ObservationSession, "episodes">;
+}
+
+export type SceneStreamEvent =
+  | { type: "progress"; progress: GenerationProgress }
+  | { type: "result"; result: SceneResult }
+  | { type: "error"; error: string; kind: "quota" | "network" | "overloaded" | "unknown" }
+  | { type: "ping" };
+
 /**
  * 전체 데이터 내보내기용 스냅샷. 캐릭터/세계관 전부와, 그 조합마다 있는
  * 모든 대화 기록·기억·설정을 담는다.

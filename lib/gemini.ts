@@ -13,7 +13,7 @@ import {
 import { NextResponse } from "next/server";
 import { recordApiUsage } from "./db";
 import { todayPacific } from "./memory";
-import type { CharacterProfile, Universe } from "./types";
+import type { CharacterProfile, GenerationProgress, Universe } from "./types";
 
 // 캐릭터 롤플레이는 갈등·위협·권력관계 같은 긴장된 상황을 다루는 경우가
 // 많은데, 기본 안전 설정은 그런 장면에서 실제 폭력·성적 콘텐츠가 전혀
@@ -359,12 +359,17 @@ async function generate(params: {
   retryDelayMs?: number;
   /** 모델별 추론 수준. 지정하지 않은 모델은 각 모델의 기본값을 그대로 쓴다. */
   thinkingLevels?: Partial<Record<string, ThinkingLevel>>;
+  /** 상태 전달 실패는 생성·저장 흐름을 중단시키면 안 된다. */
+  onProgress?: (progress: GenerationProgress) => void;
 }): Promise<{ text: string; model: string; keyIndex: number }> {
   const clients = getClients();
   let lastError: GeminiRequestError | null = null;
   const startedAt = Date.now();
   const requestId = crypto.randomUUID();
   let attempt = 0;
+  const report = (progress: GenerationProgress) => {
+    try { params.onProgress?.(progress); } catch { /* 화면 연결이 끊겨도 생성은 계속한다. */ }
+  };
 
   for (const model of params.models) {
     for (let i = 0; i < clients.length; i++) {
@@ -390,6 +395,7 @@ async function generate(params: {
       const signal = AbortSignal.timeout(nextCallBudget);
       attempt++;
       const logPrefix = `[gemini] ${requestId} attempt=${attempt} model=${model} key#${i + 1}`;
+      report({ phase: "attempt", model, keyIndex: i + 1 });
       try {
         const response = await ai.models.generateContent({
           model,
@@ -432,6 +438,7 @@ async function generate(params: {
         console.log(
           `${logPrefix} success elapsedMs=${Date.now() - attemptStartedAt}`
         );
+        report({ phase: "generated", model, keyIndex: i + 1 });
         // 서버리스 환경에서는 응답을 반환한 뒤 실행이 곧바로 얼어붙을 수
         // 있어서, fire-and-forget이 아니라 기록이 끝나길 기다린 뒤 반환한다
         // (recordApiUsage 자체는 내부에서 실패를 삼켜 절대 던지지 않는다).
@@ -439,6 +446,7 @@ async function generate(params: {
         return { text, model, keyIndex: i + 1 };
       } catch (err) {
         if (isModelUnavailable(err)) {
+          report({ phase: "retry", model, keyIndex: i + 1, reason: "unavailable" });
           console.warn(`${logPrefix} unavailable status=404 elapsedMs=${Date.now() - attemptStartedAt}`);
           lastError = new GeminiRequestError("사용 가능한 AI 모델을 찾지 못했어요.", "overloaded");
           break;
@@ -466,6 +474,8 @@ async function generate(params: {
           (mapped.kind === "network" && params.retryOnTimeout);
         if (!retryable) throw mapped;
         lastError = mapped;
+        report({ phase: "retry", model, keyIndex: i + 1,
+          reason: timedOut ? "timeout" : mapped.kind as "quota" | "overloaded" | "network" });
         // 서로 다른 프로젝트의 429는 다음 키로. 느린 생성은 같은 모델의
         // 다른 키에서 다시 오래 기다리지 않고 다음 모델부터 시도한다.
         if (timedOut) break;
@@ -565,6 +575,7 @@ export async function generateSummaryText(params: {
 export async function generateStoryEpisode(params: {
   systemInstruction: string;
   contents: Content[];
+  onProgress?: (progress: GenerationProgress) => void;
 }): Promise<{ text: string; model: string; keyIndex: number }> {
   return generate({
     ...params,

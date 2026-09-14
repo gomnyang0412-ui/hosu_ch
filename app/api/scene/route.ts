@@ -1,6 +1,7 @@
 import type { Content } from "@google/genai";
 import { NextResponse } from "next/server";
 import { getStory, saveStory } from "@/lib/db";
+import { sceneStreamResponse } from "@/lib/sceneStream";
 import {
   characterLines,
   generateStoryEpisode,
@@ -17,7 +18,9 @@ import {
 import type {
   ArcSummary,
   CharacterProfile,
+  GenerationProgress,
   ObservationSession,
+  SceneResult,
   StoryEpisode,
   Universe,
 } from "@/lib/types";
@@ -338,7 +341,7 @@ export async function POST(request: Request) {
   );
   const contents: Content[] = [{ role: "user", parts: [{ text: userText }] }];
 
-  try {
+  async function generateAndSave(onProgress?: (progress: GenerationProgress) => void): Promise<SceneResult> {
     const { text, model, keyIndex } = await generateStoryEpisode({
       systemInstruction: buildSystemInstruction(
         body.characters,
@@ -347,6 +350,7 @@ export async function POST(request: Request) {
         body.directiveSplit
       ),
       contents,
+      onProgress,
     });
     const trimmed = text.trim();
     // AI가 본문 뒤에 붙인 "이번 화에서 달라진 항목" 델타를 분리해낸다.
@@ -381,6 +385,7 @@ export async function POST(request: Request) {
     // 화면이 꺼지거나 탭이 닫혀도 이 화는 안전하게 저장돼야 하니, 응답을
     // 돌려주기 전에 여기서 바로 저장까지 마친다 — 클라이언트가 응답을
     // 받아서 따로 저장을 호출해줄 필요가 없다(2026-09-02).
+    onProgress?.({ phase: "saving", model, keyIndex });
     await saveStory(updated);
     // Redis엔 이야기 전체(episodes 전부)를 저장하지만, 응답엔 새로 쓴
     // 화 하나와 나머지 메타데이터만 돌려준다 — episodes를 통째로 빼고
@@ -405,7 +410,15 @@ export async function POST(request: Request) {
       createdAt: updated.createdAt,
       updatedAt: updated.updatedAt,
     };
-    return NextResponse.json({ episode, session: sessionMeta });
+    return { episode, session: sessionMeta };
+  }
+
+  // 기존에 열려 있던 화면은 JSON 응답을 계속 받을 수 있다.
+  if (request.headers.get("accept")?.includes("application/x-ndjson")) {
+    return sceneStreamResponse(generateAndSave);
+  }
+  try {
+    return NextResponse.json(await generateAndSave());
   } catch (err) {
     return geminiErrorResponse(err);
   }
