@@ -13,10 +13,9 @@ import { serializeThreadItems } from "@/lib/thread";
 import type { CharacterProfile, ThreadItem, Universe } from "@/lib/types";
 
 export const runtime = "nodejs";
-// 개별 시도 타임아웃(CALL_TIMEOUT_MS, 35초)이 재시도 1회까지 갈 수
-// 있으니(최대 70초) 여유를 둔다. 각 시도는 자체 타임아웃으로 더 일찍
-// 끊긴다.
-export const maxDuration = 80;
+// Flash 28초 + Lite 8초에 각 단계의 사용량 기록 지연(최대 3초)이
+// 더해질 수 있다. 대사 검증으로 두 번 생성하는 경우까지 여유를 둔다.
+export const maxDuration = 100;
 
 /**
  * 1:1 채팅과 멀티 대화방의 AI 호출을 하나로 합친 라우트. 지정된 한

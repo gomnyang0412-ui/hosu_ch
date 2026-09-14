@@ -93,12 +93,6 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
-// 화 하나를 만들다 일시적인 오류(타임아웃·서버 혼잡)가 나면 사용자에게
-// 바로 실패를 보여주는 대신 짧게 쉬었다가 한 번 더 시도한다. quota(오늘
-// 사용량 소진)는 재시도해도 똑같이 실패할 뿐이라 재시도 대상에서 뺐다.
-const EPISODE_MAX_ATTEMPTS = 2;
-const EPISODE_RETRY_DELAY_MS = 3000;
-
 // 여러 화로 나눠 쓰기는 매번 lib/gemini.ts의 모델·키 목록 맨 앞
 // (모델 0번, 키 0번)부터 다시 시도하므로, 성공하는 요청은 보통 특정
 // 화 하나가 아니라 이 조합이 매 화마다 반복해서 받는다 — 즉 화 사이
@@ -460,69 +454,51 @@ function ObservePageInner() {
     try {
       const resolvedUniverse = resolveUniverseTemplate(universe, allCharacters);
       const signal = abortRef.current?.signal;
-      for (let attempt = 1; attempt <= EPISODE_MAX_ATTEMPTS; attempt++) {
-        let failure: SceneErrorState;
-        try {
-          const res = await fetch("/api/scene", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              characters: params.characters.map(toCharacterProfile),
-              universe: resolvedUniverse,
-              storyId: params.storyId,
-              topic: params.topic,
-              characterIds: params.characterIds,
-              characterContext: params.characterContext,
-              coverImage: params.coverImage,
-              directive: params.directive,
-              addElapsedDays: params.addElapsedDays,
-              directiveSplit: params.directiveSplit,
-            }),
-            signal,
-          });
-          const data = await res.json();
-          if (res.ok) {
-            setLoading(false);
-            return {
-              episode: data.episode as StoryEpisode,
-              sessionMeta: data.session as Omit<ObservationSession, "episodes">,
-            };
-          }
-          failure = {
-            message: data.error ?? "이번 화를 만들지 못했어요.",
-            kind: data.kind ?? "unknown",
-          };
-        } catch (err) {
-          // 사용자가 취소 버튼을 눌러 abort된 경우 — 실패가 아니라 의도한
-          // 중단이니 에러 메시지 없이 조용히 빠져나간다.
-          if (err instanceof DOMException && err.name === "AbortError") {
-            setLoading(false);
-            return null;
-          }
-          failure = {
-            message: "네트워크 문제로 이번 화를 만들지 못했어요.",
-            kind: "network",
+      let failure: SceneErrorState;
+      try {
+        const res = await fetch("/api/scene", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            characters: params.characters.map(toCharacterProfile),
+            universe: resolvedUniverse,
+            storyId: params.storyId,
+            topic: params.topic,
+            characterIds: params.characterIds,
+            characterContext: params.characterContext,
+            coverImage: params.coverImage,
+            directive: params.directive,
+            addElapsedDays: params.addElapsedDays,
+            directiveSplit: params.directiveSplit,
+          }),
+          signal,
+        });
+        const data = await res.json();
+        if (res.ok) {
+          setLoading(false);
+          return {
+            episode: data.episode as StoryEpisode,
+            sessionMeta: data.session as Omit<ObservationSession, "episodes">,
           };
         }
-        // 타임아웃·서버 혼잡(overloaded)처럼 잠깐 후 다시 시도하면 풀릴 수
-        // 있는 오류만 재시도한다. quota는 오늘 한도가 다 찬 것이라 바로
-        // 또 불러도 똑같이 실패할 뿐이고, unknown(안전 정책 차단 등)도
-        // 재시도로 나아질 가능성이 낮다.
-        const canRetry =
-          attempt < EPISODE_MAX_ATTEMPTS &&
-          (failure.kind === "network" || failure.kind === "overloaded");
-        if (!canRetry) {
-          setError(failure);
+        failure = {
+          message: data.error ?? "이번 화를 만들지 못했어요.",
+          kind: data.kind ?? "unknown",
+        };
+      } catch (err) {
+        // 사용자가 취소 버튼을 눌러 abort된 경우 — 실패가 아니라 의도한
+        // 중단이니 에러 메시지 없이 조용히 빠져나간다.
+        if (err instanceof DOMException && err.name === "AbortError") {
           setLoading(false);
           return null;
         }
-        try {
-          await sleep(EPISODE_RETRY_DELAY_MS, signal);
-        } catch {
-          setLoading(false);
-          return null;
-        }
+        failure = {
+          message: "응답을 받지 못했어요. 다시 생성하기 전에 새로고침해서 저장된 화를 확인해 주세요.",
+          kind: "network",
+        };
       }
+      // 서버에서 이미 재시도하므로 전체 POST를 다시 보내지 않는다.
+      setError(failure);
       setLoading(false);
       return null;
     } finally {
@@ -530,7 +506,7 @@ function ObservePageInner() {
     }
   }
 
-  /** 화 생성(재시도 대기·2화 사이 텀 포함)을 취소한다. */
+  /** 화 생성(화 사이 대기 포함)을 취소한다. */
   function cancelGeneration() {
     abortRef.current?.abort();
   }

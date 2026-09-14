@@ -136,12 +136,21 @@ function isModelUnavailable(err: unknown): boolean {
   return err instanceof ApiError && err.status === 404;
 }
 
+// 오류 원문에는 요청 정보가 섞일 수 있어 기록하지 않는다. Google이
+// 제공하는 quotaId의 알려진 차원만 추출하고 불명확하면 unknown으로 둔다.
+function quotaDimensions(err: unknown): string {
+  if (!(err instanceof ApiError) || err.status !== 429) return "none";
+  const dimensions = ["RequestsPerDay", "RequestsPerMinute", "TokensPerMinute"]
+    .filter((dimension) => err.message.toLowerCase().includes(dimension.toLowerCase()));
+  return dimensions.join(",") || "unknown";
+}
+
 function toGeminiError(err: unknown): GeminiRequestError {
   if (err instanceof GeminiRequestError) return err;
   if (err instanceof ApiError) {
     if (err.status === 429) {
       return new GeminiRequestError(
-        "오늘 사용량을 다 썼어요. 잠시 후 다시 시도해 주세요.",
+        "AI 요청 한도에 걸렸어요. 잠시 후 다시 시도해 주세요.",
         "quota"
       );
     }
@@ -354,20 +363,20 @@ async function generate(params: {
   const clients = getClients();
   let lastError: GeminiRequestError | null = null;
   const startedAt = Date.now();
+  const requestId = crypto.randomUUID();
+  let attempt = 0;
 
   for (const model of params.models) {
     for (let i = 0; i < clients.length; i++) {
-      // 이미 지난 시간만 보면 안 된다 — 지금 막 시작하는 시도가 자기
-      // timeoutMs를 다 채우고 나면 그때 가서야 예산을 넘긴 걸 알게 되고,
-      // 그 사이 route의 maxDuration을 플랫폼이 먼저 강제 종료해서 우리
-      // 코드가 에러 응답을 만들 기회조차 없이 연결이 끊겨버린다(클라이언트엔
-      // 원인불명의 "네트워크 문제"로 보임). 그래서 이번 시도가 최악의 경우
-      // timeoutMs만큼 다 써도 남은 예산 안에 들어올 때만 시작한다.
-      const nextCallBudget = params.timeoutMs ?? CALL_TIMEOUT_MS;
-      if (
-        params.overallDeadlineMs &&
-        Date.now() - startedAt + nextCallBudget > params.overallDeadlineMs
-      ) {
+      // 2026-09: 온전한 timeoutMs가 남아야만 시작하던 검사는 채팅에서
+      // 15초 실패 후 남은 13초와 Lite의 후속 키를 전부 버렸다.
+      // 남은 예산으로 시도 시간을 줄이되 1초도 없으면 새 호출을 시작하지 않는다.
+      const remainingMs = params.overallDeadlineMs === undefined
+        ? Infinity
+        : params.overallDeadlineMs - (Date.now() - startedAt);
+      const nextCallBudget = Math.min(params.timeoutMs ?? CALL_TIMEOUT_MS, remainingMs);
+      if (nextCallBudget < 1000) {
+        console.warn(`[gemini] ${requestId} stop=deadline elapsedMs=${Date.now() - startedAt} attempts=${attempt}`);
         throw (
           lastError ??
           new GeminiRequestError(
@@ -378,12 +387,15 @@ async function generate(params: {
       }
       const ai = clients[i];
       const attemptStartedAt = Date.now();
+      const signal = AbortSignal.timeout(nextCallBudget);
+      attempt++;
+      const logPrefix = `[gemini] ${requestId} attempt=${attempt} model=${model} key#${i + 1}`;
       try {
         const response = await ai.models.generateContent({
           model,
           contents: params.contents,
           config: {
-            abortSignal: AbortSignal.timeout(params.timeoutMs ?? CALL_TIMEOUT_MS),
+            abortSignal: signal,
             systemInstruction: params.systemInstruction,
             safetySettings: SAFETY_SETTINGS,
             ...(params.thinkingLevels?.[model]
@@ -418,7 +430,7 @@ async function generate(params: {
         // 타임아웃 값을 다음에 데이터 기반으로 조정할 수 있게, 실제 걸린
         // 시간을 서버 콘솔에 남긴다(Redis 스키마 변경 없이 로그로만).
         console.log(
-          `[gemini] ${model} key#${i + 1} 성공, ${Date.now() - attemptStartedAt}ms`
+          `${logPrefix} success elapsedMs=${Date.now() - attemptStartedAt}`
         );
         // 서버리스 환경에서는 응답을 반환한 뒤 실행이 곧바로 얼어붙을 수
         // 있어서, fire-and-forget이 아니라 기록이 끝나길 기다린 뒤 반환한다
@@ -426,16 +438,24 @@ async function generate(params: {
         await recordApiUsage(todayPacific(), i + 1, model, "success");
         return { text, model, keyIndex: i + 1 };
       } catch (err) {
-        if (isModelUnavailable(err)) break; // 이 모델 자체가 없음 → 바로 다음 모델로
-        const mapped = toGeminiError(err);
+        if (isModelUnavailable(err)) {
+          console.warn(`${logPrefix} unavailable status=404 elapsedMs=${Date.now() - attemptStartedAt}`);
+          lastError = new GeminiRequestError("사용 가능한 AI 모델을 찾지 못했어요.", "overloaded");
+          break;
+        }
+        const timedOut = signal.aborted || (err instanceof Error &&
+          (err.name === "TimeoutError" || err.name === "AbortError"));
+        const mapped = timedOut
+          ? new GeminiRequestError("AI 응답이 너무 오래 걸려서 중단했어요. 다시 시도해 주세요.", "network")
+          : toGeminiError(err);
         console.warn(
-          `[gemini] ${model} key#${i + 1} 실패(${mapped.kind}), ${Date.now() - attemptStartedAt}ms`
+          `${logPrefix} failure=${timedOut ? "timeout" : mapped.kind} status=${err instanceof ApiError ? err.status : "none"} quota=${quotaDimensions(err)} elapsedMs=${Date.now() - attemptStartedAt}`
         );
         // 사용량 초과(quota)나 서버 혼잡(overloaded)이 아닌 오류는 다른
         // 키/모델로 시도해도 똑같이 실패할 가능성이 높으니 바로 실패
         // 처리한다. 이 둘일 때만, 그리고 retryOnTimeout이 켜져 있으면
         // network(타임아웃 포함 — toGeminiError는 타임아웃과 순수
-        // 연결 오류를 똑같이 "network"로 분류한다)일 때도 다음 키로,
+        // 연결 오류를 똑같이 "network"로 분류한다)일 때도 재시도한다.
         // 그것도 다 떨어지면 다음 모델로 넘어간다.
         if (mapped.kind === "quota") {
           await recordApiUsage(todayPacific(), i + 1, model, "quota");
@@ -446,6 +466,9 @@ async function generate(params: {
           (mapped.kind === "network" && params.retryOnTimeout);
         if (!retryable) throw mapped;
         lastError = mapped;
+        // 서로 다른 프로젝트의 429는 다음 키로. 느린 생성은 같은 모델의
+        // 다른 키에서 다시 오래 기다리지 않고 다음 모델부터 시도한다.
+        if (timedOut) break;
         if (params.retryDelayMs) {
           await new Promise((resolve) => setTimeout(resolve, params.retryDelayMs));
         }
@@ -453,40 +476,21 @@ async function generate(params: {
     }
   }
 
+  console.warn(`[gemini] ${requestId} stop=exhausted elapsedMs=${Date.now() - startedAt} attempts=${attempt}`);
   throw (
     lastError ??
     new GeminiRequestError(
-      "오늘 사용량을 다 썼어요. 잠시 후 다시 시도해 주세요.",
+      "AI 요청 한도에 걸렸어요. 잠시 후 다시 시도해 주세요.",
       "quota"
     )
   );
 }
 
-// room-chat 라우트(maxDuration 80초)는 검증 실패 시 이 함수를 최대 2번
-// 순차 호출할 수 있어서(app/api/room-chat/route.ts의 attemptTarget()),
-// 한 번의 호출이 예산 없이 5개 모델 × 키 개수를 전부 재시도하면 두
-// 번째 호출을 시작하기도 전에 route의 maxDuration을 플랫폼이 먼저
-// 끊어버릴 수 있다(generateStoryEpisode에서 이미 겪은 것과 같은
-// 클래스의 버그). 총예산을 36초로 두면 두 번을 합쳐도 72초로 80초 안에
-// 여유 있게 들어온다 — 아래 두 단계로 나눠 쓰지만 합쳐서 36초는 넘지
-// 않는다.
-//
-// timeoutMs를 반드시 명시해야 한다 — 비워두면 generate()의 예산 검사가
-// "다음 시도도 최악의 경우 기본값(35초) 걸릴 것"으로 가정해버려서
-// 슬랙이 거의 안 남는다(2026-08-31 진단). timeoutMs를 15초로 명시하면
-// 빠르게 실패하는 시도(quota 초과 등)는 사실상 전체 체인을 다 훑어볼
-// 수 있고, 느린 시도도 15초면 포기하고 다음으로 넘어간다.
-//
-// 그런데도 Flash 계열 앞쪽 모델 중 하나가 quota가 아니라 진짜 느리게
-// 응답 없이 15초를 다 채우면, 그 한 번의 시도가 예산을 크게 갉아먹어서
-// 체인의 마지막인 lite까지 예산이 안 남아 시도조차 못 해보고 전체가
-// 실패하는 경우가 있었다 — Flash 단계와 lite 단계의 예산을 공용 풀로
-// 같이 쓰다 보니, lite가 앞쪽 모델들에게 예산을 다 뺏길 수 있었던 것.
-// 그래서 아래처럼 예산을 아예 분리한다: Flash 계열(28초)이 전부
-// 실패해도, lite에게는 항상 별도로 떼어둔 8초가 보장된다 — 앞쪽에서
-// 무슨 일이 있었든 lite는 최소 한 번은 시도해본다. (관찰모드는 lite로
-// 캐릭터가 무너지는 문제가 있어 이 안전망을 안 쓴다 — generateStoryEpisode
-// 참고.)
+// 채팅은 Flash 28초와 Lite 8초를 분리한다. 예전에는 매 시도에 온전한
+// 15초/8초가 남아야 시작해서, 첫 타임아웃 후 Flash 재시도와 Lite 키
+// 전환이 막혔다. 지금은 남은 시간으로 개별 타임아웃을 줄인다.
+// API 이후 사용량 기록은 최대 3초씩 추가될 수 있고, 대사 검증 재생성도
+// 있으므로 room-chat의 maxDuration은 100초로 여유를 둔다.
 const CHAT_REPLY_TIMEOUT_MS = 15_000;
 const CHAT_REPLY_FLASH_DEADLINE_MS = 28_000;
 const CHAT_REPLY_LITE_TIMEOUT_MS = 8_000;
@@ -505,7 +509,8 @@ export async function generateChatReply(params: {
       retryOnTimeout: true,
       overallDeadlineMs: CHAT_REPLY_FLASH_DEADLINE_MS,
     });
-  } catch {
+  } catch (err) {
+    if (!(err instanceof GeminiRequestError) || err.kind === "unknown") throw err;
     // Flash 계열이 전부 실패해도 Lite 계열은 별도로 떼어둔 예산 안에서
     // 최신 모델부터 차례로 시도한다.
     return generate({
@@ -540,8 +545,8 @@ export async function generateSummaryText(params: {
 
 /**
  * 관찰 모드 단편소설 한 화 (평문, JSON 아님). Lite로는 캐릭터가 무너지는
- * 문제가 있어, 다른 롤플레이 생성과 똑같이 Flash 체인을 우선 쓰고 전부
- * 소진됐을 때만 Lite 계열로 차례로 내려간다.
+ * 문제가 있어, 사용자 선택에 따라 Flash 체인만 사용한다. Flash가 모두
+ * 실패하면 오류를 돌려주고 Lite로 자동 전환하지 않는다.
  *
  * "AbortError: This operation was aborted"는 호스팅 플랫폼이 함수를
  * 강제 종료해서가 아니라, 우리 스스로 건 timeoutMs가 너무 짧아서(한때
@@ -552,18 +557,10 @@ export async function generateSummaryText(params: {
  * 생성 시간에 맞게 넉넉히 주고 총 재시도 시간과 라우트의 maxDuration도
  * 그에 맞춰 늘렸다.
  *
- * generate()의 예산 검사는 "이번 시도가 최악의 경우 timeoutMs를 다
- * 써도 남은 예산 안에 들어오는지"로 재시도 여부를 미리 판단한다 —
- * 즉 두 번째 시도가 실제로 걸리는 게 아니라 overallDeadlineMs -
- * timeoutMs 이하가 이미 지나 있어야만 재시도를 "시작"한다. 이전엔
- * overallDeadlineMs를 timeoutMs의 정확히 2배(100초)로 잡았는데, 이건
- * "넉넉한 여유"가 아니라 정확히 그 경계값이었다 — AU처럼 첫 시도
- * 자체가 50초에 가깝게 걸리는 경우(흔하다), 우리 코드·네트워크의
- * 아주 작은 오버헤드만 더해져도 곧바로 그 경계를 넘어 재시도를 아예
- * 시작도 못 해보고 실패했다. overallDeadlineMs를 timeoutMs의 2배보다
- * 확실히 크게(3배 이상 여유) 잡아서, 첫 시도가 온전히 50초를 다 써도
- * 두 번째·세 번째 시도가 시작될 여지를 실제로 남긴다 — route의
- * maxDuration(scene/route.ts)도 이 예산보다 넉넉히 크게 맞춰야 한다.
+ * 예전에는 timeoutMs 전체가 남아야 재시도가 가능해 100초 예산에서도
+ * 50초 시도를 두 번 못 하는 문제가 있었다. 170초 예산을 유지하면서,
+ * 현재는 남은 예산으로 마지막 시도의 제한을 줄인다. 타임아웃이 나면
+ * 같은 모델의 다른 키가 아니라 다음 Flash 모델로 이동한다.
  */
 export async function generateStoryEpisode(params: {
   systemInstruction: string;
@@ -572,7 +569,7 @@ export async function generateStoryEpisode(params: {
   return generate({
     ...params,
     json: false,
-    models: DIALOGUE_MODEL_CHAIN,
+    models: DIALOGUE_MODELS,
     timeoutMs: 50_000,
     retryOnTimeout: true,
     overallDeadlineMs: 170_000,
@@ -643,7 +640,8 @@ export async function generateObservationRecap(params: {
       overallDeadlineMs: OBSERVATION_RECAP_FLASH_DEADLINE_MS,
     });
     return text;
-  } catch {
+  } catch (err) {
+    if (!(err instanceof GeminiRequestError) || err.kind === "unknown") throw err;
     const { text } = await generate({
       ...params,
       json: false,
