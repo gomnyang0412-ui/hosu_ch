@@ -21,13 +21,13 @@
    npm install
    ```
 
-2. `.env.example`을 복사해 `.env.local`을 만들고 Groq와 Gemini API 키를 넣습니다. (`.env.local`은 `.gitignore`에 포함되어 있어 저장소에 올라가지 않습니다.)
+2. `.env.example`을 복사해 `.env.local`을 만들고 Gemini API 키를 넣습니다. (`.env.local`은 `.gitignore`에 포함되어 있어 저장소에 올라가지 않습니다.)
 
    ```bash
    cp .env.example .env.local
    ```
 
-   `.env.local` 안의 `GROQ_API_KEY=` 뒤에는 [GroqCloud API Keys](https://console.groq.com/keys)에서 발급받은 키를, `GEMINI_API_KEY=` 뒤에는 [Google AI Studio](https://aistudio.google.com/apikey)에서 발급받은 키를 붙여넣으세요. Groq 키가 없으면 기존 Gemini 체인만 사용합니다.
+   `.env.local` 안의 `GEMINI_API_KEY=` 뒤에 [Google AI Studio](https://aistudio.google.com/apikey)에서 발급받은 키를 붙여넣으세요.
 
 3. 개발 서버 실행
 
@@ -41,7 +41,7 @@
 
 이 저장소를 GitHub에 push하면 Vercel이 자동으로 빌드/배포합니다.
 
-1. Vercel 프로젝트의 **Settings → Environment Variables**에서 `GROQ_API_KEY`와 `GEMINI_API_KEY`를 등록합니다. (`NEXT_PUBLIC_` 접두사를 붙이지 않아야 브라우저에 노출되지 않습니다.)
+1. Vercel 프로젝트의 **Settings → Environment Variables**에서 `GEMINI_API_KEY`를 등록합니다. (`NEXT_PUBLIC_` 접두사를 붙이지 않아야 브라우저에 노출되지 않습니다.)
 2. **Storage** 탭에서 Upstash Redis를 하나 만들어 이 프로젝트에 연결합니다. 연결하면 `KV_REST_API_URL`, `KV_REST_API_TOKEN` 환경 변수가 자동으로 등록되어 별도 설정이 필요 없습니다.
 
 데이터베이스가 아직 연결되지 않은 상태에서는 화면에 "서버에 데이터베이스가 연결되어 있지 않아요" 같은 안내가 표시됩니다.
@@ -60,20 +60,18 @@
   - `app/character/new`, `app/character/[id]/edit` — 캐릭터 추가/편집
   - `app/character/[id]/chat` — 1:1 대화 (`?universe=` 쿼리로 AU 지정 가능)
   - `app/thread/[threadId]` — 멀티 대화방
-  - `app/api/room-chat/route.ts` — 1:1/멀티 대화방 공용 AI 호출 (서버 전용)
-  - `app/api/scene/route.ts` — 관찰 모드 장면 생성용 AI 호출 (서버 전용)
+  - `app/api/room-chat/route.ts` — 1:1/멀티 대화방 공용 Gemini 호출 (서버 전용)
+  - `app/api/scene/route.ts` — 관찰 모드 장면 생성용 Gemini 호출 (서버 전용)
   - `app/api/data/*` — 캐릭터/세계관(유니버스)/대화방/관찰세션 CRUD (서버 전용, Redis 사용)
 - `lib/db.ts` — Redis 읽기/쓰기 (서버 전용)
 - `lib/storage.ts` — 브라우저에서 `app/api/data/*`를 호출하는 클라이언트
 - `lib/migrate.ts` — 예전 버전(localStorage 저장 방식)의 데이터를 서버가 비어있을 때 한 번 옮기는 마이그레이션
-- `lib/` — 그 외 데이터 모델과 Groq → Gemini AI 호출 로직
+- `lib/` — 그 외 데이터 모델, 이미지 처리, Gemini 호출 로직
 - `components/` — 공용 UI 컴포넌트
 
 ## API 키 관련 안내
 
-Groq와 Gemini API 키는 브라우저 코드에 절대 포함되지 않습니다. `app/api/room-chat`의 1:1/멀티 채팅 답변만 서버에서 `process.env.GROQ_API_KEY`를 사용하고, 관찰 모드·요약·기억·프로필을 포함한 나머지 AI 기능은 기존처럼 서버에서 `process.env.GEMINI_API_KEY`만 사용합니다. 브라우저는 이 서버 라우트들만 호출합니다.
-
-1:1/멀티 채팅 답변은 `qwen/qwen3.8-27b` → `openai/gpt-oss-120b` 순서로 Groq를 먼저 시도하고, 두 모델이 실패하면 기존 Gemini Flash/Lite 체인이 이어받습니다. 관찰 모드 화 생성과 관찰 전체 요약은 Groq를 호출하지 않고 기존 Gemini 체인만 사용합니다. `GROQ_API_KEY`를 설정하지 않은 환경도 기존 Gemini 전용 동작을 유지합니다.
+Gemini API 키는 브라우저 코드에 절대 포함되지 않습니다. `app/api/room-chat`, `app/api/scene`을 비롯한 `app/api/*` 라우트 핸들러가 서버에서만 `process.env.GEMINI_API_KEY`를 읽어 Gemini를 호출하고, 브라우저는 이 라우트들만 호출합니다.
 
 ### 하루 사용량을 다 썼을 때 (여러 계정 키 함께 쓰기)
 

@@ -180,9 +180,9 @@ export interface DialogueItem {
   who: string;
   act?: string;
   say: string;
-  /** 이 대사를 생성한 실제 AI 모델 ID (하이브리드 폴백 중 어떤 모델이 응답했는지 표시용) */
+  /** 이 대사를 생성한 실제 Gemini 모델 ID (하이브리드 폴백 중 어떤 모델이 응답했는지 표시용) */
   model?: string;
-  /** 실제 응답 공급자의 환경변수에 등록된 몇 번째 키(1부터)로 호출했는지 */
+  /** GEMINI_API_KEY에 등록된 몇 번째 키(1부터)로 호출했는지 */
   keyIndex?: number;
 }
 
@@ -199,9 +199,9 @@ export interface StoryEpisode {
   directive?: string;
   /** 나중에 다시 찾아보기 쉽게 사용자가 표시해두는 북마크 */
   bookmarked?: boolean;
-  /** 이 화를 생성한 실제 AI 모델 ID (하이브리드 폴백 중 어떤 모델이 응답했는지 표시용) */
+  /** 이 화를 생성한 실제 Gemini 모델 ID (하이브리드 폴백 중 어떤 모델이 응답했는지 표시용) */
   model?: string;
-  /** 실제 응답 공급자의 환경변수에 등록된 몇 번째 키(1부터)로 호출했는지 */
+  /** GEMINI_API_KEY에 등록된 몇 번째 키(1부터)로 호출했는지 */
   keyIndex?: number;
 }
 
@@ -382,7 +382,7 @@ export interface AppSettings {
 /**
  * 하루 동안 API 키(1/2/3...)·모델 조합별로 실제 호출이 몇 번 성공했고
  * 몇 번 사용량 초과(quota)로 막혔는지. 구글이 API 키 기준으로는 남은
- * 할당량을 한 형식으로 조회할 방법이 없어, 앱이 스스로 호출 결과를 세어
+ * 할당량을 조회할 방법을 안 줘서, 앱이 스스로 호출 결과를 세어
  * "오늘 이 키·모델을 몇 번 썼는지"를 보여주는 용도 — 실제 남은 한도가
  * 아니라 우리가 직접 관측한 사용 횟수다.
  */

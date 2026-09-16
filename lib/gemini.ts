@@ -72,34 +72,6 @@ const DIALOGUE_LITE_MODELS = [
 ];
 const DIALOGUE_MODEL_CHAIN = [...DIALOGUE_MODELS, ...DIALOGUE_LITE_MODELS];
 
-// Groq는 1:1/멀티 채팅의 실제 캐릭터 답변에만 사용한다. 관찰 모드와
-// 요약·기억·프로필은 입력이 길어 무료 TPM 한도에 자주 걸리므로 기존
-// Gemini 전용 경로를 유지한다. Qwen이 일시적으로 실패하면 GPT-OSS,
-// 그 뒤에는 기존 Gemini 대화 체인으로 내려간다.
-const GROQ_MODELS = ["qwen/qwen3.8-27b", "openai/gpt-oss-120b"];
-const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
-
-interface GroqApiErrorBody {
-  error?: { message?: string; type?: string };
-}
-
-interface GroqChatResponse {
-  choices?: Array<{
-    finish_reason?: string | null;
-    message?: { content?: string | null };
-  }>;
-}
-
-class GroqApiError extends Error {
-  status: number;
-
-  constructor(status: number) {
-    super(`Groq API request failed (${status})`);
-    this.name = "GroqApiError";
-    this.status = status;
-  }
-}
-
 export type GeminiErrorKind = "quota" | "network" | "overloaded" | "unknown";
 
 export class GeminiRequestError extends Error {
@@ -153,17 +125,6 @@ function getClients(): GoogleGenAI[] {
     clients = keys.map((apiKey) => new GoogleGenAI({ apiKey }));
   }
   return clients;
-}
-
-// GROQ_API_KEY도 Gemini와 같은 방식으로 쉼표 구분 다중 키를 허용한다.
-// 문서에는 단일 키만 안내하지만, 키를 하나만 넣으면 평범하게 key#1로
-// 동작하고 나중에 계정을 늘려도 코드 변경 없이 같은 모델의 다음 키를
-// 먼저 시도할 수 있다.
-function getGroqKeys(): string[] {
-  return (process.env.GROQ_API_KEY ?? "")
-    .split(",")
-    .map((key) => key.trim())
-    .filter(Boolean);
 }
 
 // 모델 이름 자체가 이 계정/리전에서 아직 제공되지 않을 때 API가 돌려주는
@@ -242,75 +203,6 @@ function toGeminiError(err: unknown): GeminiRequestError {
     `네트워크 문제로 AI를 호출하지 못했어요. (${detail}) 다시 시도해 주세요.`,
     "network"
   );
-}
-
-function toGroqError(err: unknown): GeminiRequestError {
-  if (err instanceof GeminiRequestError) return err;
-  if (err instanceof GroqApiError) {
-    if (err.status === 413) {
-      return new GeminiRequestError(
-        "요청 내용이 Groq 처리 한도를 넘어 Gemini로 전환해요.",
-        "overloaded"
-      );
-    }
-    if (err.status === 429) {
-      return new GeminiRequestError(
-        "AI 요청 한도에 걸렸어요. 잠시 후 다시 시도해 주세요.",
-        "quota"
-      );
-    }
-    // 422는 Groq 문서상 모델이 요청을 처리하지 못한 일시적 생성 실패,
-    // 498은 가용 처리 용량 부족이다. 둘 다 다음 모델/공급자로 넘긴다.
-    if (err.status === 422 || err.status === 498 || err.status >= 500) {
-      return new GeminiRequestError(
-        "AI 서버가 지금 일시적으로 혼잡해요. 잠시 후 다시 시도해 주세요.",
-        "overloaded"
-      );
-    }
-    if (err.status === 408) {
-      return new GeminiRequestError(
-        "AI 응답이 너무 오래 걸려서 중단했어요. 다시 시도해 주세요.",
-        "network"
-      );
-    }
-    return new GeminiRequestError(
-      `AI 호출 중 문제가 생겼어요. (${err.status})`,
-      "unknown"
-    );
-  }
-  return toGeminiError(err);
-}
-
-/** @google/genai의 Type 값(OBJECT/STRING 등)을 표준 JSON Schema 값으로 바꾼다. */
-function toStandardJsonSchema(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(toStandardJsonSchema);
-  if (!value || typeof value !== "object") return value;
-
-  return Object.fromEntries(
-    Object.entries(value).map(([key, child]) => {
-      if (key === "type" && typeof child === "string") {
-        return [key, child.toLowerCase()];
-      }
-      return [key, toStandardJsonSchema(child)];
-    })
-  );
-}
-
-function groqMessages(systemInstruction: string, contents: Content[]) {
-  const messages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
-    { role: "system", content: systemInstruction },
-  ];
-  for (const content of contents) {
-    const text = (content.parts ?? [])
-      .map((part) => ("text" in part && typeof part.text === "string" ? part.text : ""))
-      .join("");
-    if (!text) continue;
-    messages.push({
-      role: content.role === "model" ? "assistant" : "user",
-      content: text,
-    });
-  }
-  return messages;
 }
 
 /**
@@ -423,7 +315,7 @@ const CHARACTER_PROFILE_SCHEMA = {
   },
 };
 
-interface GenerateParams {
+async function generate(params: {
   systemInstruction: string;
   contents: Content[];
   json?: boolean;
@@ -434,8 +326,6 @@ interface GenerateParams {
   models: string[];
   /** 기본 CALL_TIMEOUT_MS보다 더 오래 걸리는 호출(예: 5000자짜리 소설 한 화)을 위한 개별 타임아웃 */
   timeoutMs?: number;
-  /** Groq가 응답에 예약할 최대 토큰. Gemini 호출에는 전달하지 않는다. */
-  maxCompletionTokens?: number;
   /**
    * 타임아웃뿐 아니라 순수 연결 오류(toGeminiError가 둘 다 "network"로
    * 분류한다)도 quota/overloaded처럼 다음 키·모델로 넘어가게 할지.
@@ -469,189 +359,7 @@ interface GenerateParams {
   thinkingLevels?: Partial<Record<string, ThinkingLevel>>;
   /** 상태 전달 실패는 생성·저장 흐름을 중단시키면 안 된다. */
   onProgress?: (progress: GenerationProgress) => void;
-}
-
-type GenerateResult = { text: string; model: string; keyIndex: number };
-
-/**
- * Groq의 OpenAI 호환 Chat Completions 호출. 기존 Gemini generate()와 같은
- * 모델 → 키 순회, 시간 예산, 오류 분류, 진행 상태, 사용량 기록 규칙을 쓴다.
- * GROQ_API_KEY가 없으면 null을 반환해 기존 Gemini만 쓰던 배포도 깨지지 않는다.
- */
-async function generateGroq(params: GenerateParams): Promise<GenerateResult | null> {
-  const keys = getGroqKeys();
-  if (keys.length === 0) return null;
-
-  let lastError: GeminiRequestError | null = null;
-  const startedAt = Date.now();
-  const requestId = crypto.randomUUID();
-  let attempt = 0;
-  const report = (progress: GenerationProgress) => {
-    try { params.onProgress?.(progress); } catch { /* 화면 연결이 끊겨도 생성은 계속한다. */ }
-  };
-
-  for (const model of params.models) {
-    for (let i = 0; i < keys.length; i++) {
-      const remainingMs = params.overallDeadlineMs === undefined
-        ? Infinity
-        : params.overallDeadlineMs - (Date.now() - startedAt);
-      const nextCallBudget = Math.min(params.timeoutMs ?? CALL_TIMEOUT_MS, remainingMs);
-      if (nextCallBudget < 1000) {
-        console.warn(`[groq] ${requestId} stop=deadline elapsedMs=${Date.now() - startedAt} attempts=${attempt}`);
-        throw (
-          lastError ??
-          new GeminiRequestError(
-            "AI 응답이 너무 오래 걸려서 중단했어요. 다시 시도해 주세요.",
-            "network"
-          )
-        );
-      }
-
-      const attemptStartedAt = Date.now();
-      const signal = AbortSignal.timeout(nextCallBudget);
-      attempt++;
-      const logPrefix = `[groq] ${requestId} attempt=${attempt} model=${model} key#${i + 1}`;
-      report({ phase: "attempt", model, keyIndex: i + 1 });
-
-      try {
-        const response = await fetch(GROQ_API_URL, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${keys[i]}`,
-            "Content-Type": "application/json",
-          },
-          signal,
-          body: JSON.stringify({
-            model,
-            messages: groqMessages(params.systemInstruction, params.contents),
-            // 추론 과정이 평문/JSON 본문에 섞이지 않게 최종 답만 받는다.
-            reasoning_format: "hidden",
-            ...(params.maxCompletionTokens
-              ? { max_completion_tokens: params.maxCompletionTokens }
-              : {}),
-            ...(params.json
-              ? {
-                  response_format: {
-                    type: "json_schema",
-                    json_schema: {
-                      name: "hiatus_response",
-                      strict: false,
-                      schema: toStandardJsonSchema(
-                        params.responseSchema ?? SINGLE_REPLY_SCHEMA
-                      ),
-                    },
-                  },
-                }
-              : {}),
-          }),
-        });
-
-        if (!response.ok) {
-          // 본문에는 요청 세부 정보가 포함될 수 있어 상태코드만 분류·기록한다.
-          // body를 소비해 연결은 정리하되 메시지는 로그나 사용자 응답에 넣지 않는다.
-          await response.json().catch(() => null) as GroqApiErrorBody | null;
-          throw new GroqApiError(response.status);
-        }
-
-        const data = await response.json() as GroqChatResponse;
-        const choice = data.choices?.[0];
-        if (choice?.finish_reason === "content_filter") {
-          throw new GeminiRequestError(
-            "AI 안전 정책에 걸려 이 내용을 만들지 못했어요. 표현을 조금 바꿔서 다시 시도해 주세요.",
-            "unknown"
-          );
-        }
-        const text = choice?.message?.content;
-        if (!text) {
-          throw new GeminiRequestError(
-            "AI가 빈 응답을 보냈어요. 다시 시도해 주세요.",
-            "unknown"
-          );
-        }
-
-        console.log(`${logPrefix} success elapsedMs=${Date.now() - attemptStartedAt}`);
-        report({ phase: "generated", model, keyIndex: i + 1 });
-        await recordApiUsage(todayPacific(), i + 1, model, "success");
-        return { text, model, keyIndex: i + 1 };
-      } catch (err) {
-        if (err instanceof GroqApiError && err.status === 404) {
-          report({ phase: "retry", model, keyIndex: i + 1, reason: "unavailable" });
-          console.warn(`${logPrefix} unavailable status=404 elapsedMs=${Date.now() - attemptStartedAt}`);
-          lastError = new GeminiRequestError("사용 가능한 AI 모델을 찾지 못했어요.", "overloaded");
-          if (params.retryDelayMs) {
-            await new Promise((resolve) => setTimeout(resolve, params.retryDelayMs));
-          }
-          continue;
-        }
-
-        const timedOut = signal.aborted || (err instanceof Error &&
-          (err.name === "TimeoutError" || err.name === "AbortError"));
-        const mapped = timedOut
-          ? new GeminiRequestError(
-              "AI 응답이 너무 오래 걸려서 중단했어요. 다시 시도해 주세요.",
-              "network"
-            )
-          : toGroqError(err);
-        console.warn(
-          `${logPrefix} failure=${timedOut ? "timeout" : mapped.kind} status=${err instanceof GroqApiError ? err.status : "none"} elapsedMs=${Date.now() - attemptStartedAt}`
-        );
-        if (mapped.kind === "quota") {
-          await recordApiUsage(todayPacific(), i + 1, model, "quota");
-        }
-        // Qwen과 GPT-OSS는 무료 플랜의 TPM 한도가 같아서, 같은 본문을
-        // 다음 Groq 모델·키로 다시 보내도 413이 반복된다. 불필요한 호출을
-        // 건너뛰고 tryGroq()가 기존 Gemini 체인으로 즉시 넘기게 한다.
-        if (err instanceof GroqApiError && err.status === 413) {
-          report({
-            phase: "retry",
-            model,
-            keyIndex: i + 1,
-            reason: "overloaded",
-          });
-          throw mapped;
-        }
-        const retryable =
-          mapped.kind === "quota" ||
-          mapped.kind === "overloaded" ||
-          (mapped.kind === "network" && params.retryOnTimeout);
-        if (!retryable) throw mapped;
-        lastError = mapped;
-        report({
-          phase: "retry",
-          model,
-          keyIndex: i + 1,
-          reason: timedOut
-            ? "timeout"
-            : mapped.kind as "quota" | "overloaded" | "network",
-        });
-        if (params.retryDelayMs) {
-          await new Promise((resolve) => setTimeout(resolve, params.retryDelayMs));
-        }
-      }
-    }
-  }
-
-  console.warn(`[groq] ${requestId} stop=exhausted elapsedMs=${Date.now() - startedAt} attempts=${attempt}`);
-  throw (
-    lastError ??
-    new GeminiRequestError(
-      "AI 요청 한도에 걸렸어요. 잠시 후 다시 시도해 주세요.",
-      "quota"
-    )
-  );
-}
-
-/** Groq의 일시적 실패는 삼켜 기존 Gemini 체인이 이어받게 한다. */
-async function tryGroq(params: Omit<GenerateParams, "models">): Promise<GenerateResult | null> {
-  try {
-    return await generateGroq({ ...params, models: GROQ_MODELS });
-  } catch (err) {
-    if (!(err instanceof GeminiRequestError) || err.kind === "unknown") throw err;
-    return null;
-  }
-}
-
-async function generate(params: GenerateParams): Promise<GenerateResult> {
+}): Promise<{ text: string; model: string; keyIndex: number }> {
   const clients = getClients();
   let lastError: GeminiRequestError | null = null;
   const startedAt = Date.now();
@@ -789,16 +497,11 @@ async function generate(params: GenerateParams): Promise<GenerateResult> {
   );
 }
 
-// Groq는 속도가 빠른 두 모델에 12초씩, 오버헤드를 포함해 총 28초를
-// 별도 배정한다. 이 예산이 끝난 뒤에도 기존 Gemini 예산은 온전히 남는다.
-const GROQ_CHAT_TIMEOUT_MS = 12_000;
-const GROQ_CHAT_DEADLINE_MS = 28_000;
-
-// Gemini 채팅은 Flash 28초와 Lite 8초를 분리한다. 예전에는 매 시도에 온전한
+// 채팅은 Flash 28초와 Lite 8초를 분리한다. 예전에는 매 시도에 온전한
 // 15초/8초가 남아야 시작해서, 첫 타임아웃 후 Flash 재시도와 Lite 키
 // 전환이 막혔다. 지금은 남은 시간으로 개별 타임아웃을 줄인다.
 // API 이후 사용량 기록은 최대 3초씩 추가될 수 있고, 대사 검증 재생성도
-// 있으므로 room-chat의 maxDuration은 Groq 예산까지 합쳐 여유를 둔다.
+// 있으므로 room-chat의 maxDuration은 100초로 여유를 둔다.
 const CHAT_REPLY_TIMEOUT_MS = 15_000;
 const CHAT_REPLY_FLASH_DEADLINE_MS = 28_000;
 const CHAT_REPLY_LITE_TIMEOUT_MS = 8_000;
@@ -808,16 +511,6 @@ export async function generateChatReply(params: {
   systemInstruction: string;
   contents: Content[];
 }): Promise<{ text: string; model: string; keyIndex: number }> {
-  const groq = await tryGroq({
-    ...params,
-    json: true,
-    maxCompletionTokens: 1_024,
-    timeoutMs: GROQ_CHAT_TIMEOUT_MS,
-    retryOnTimeout: true,
-    overallDeadlineMs: GROQ_CHAT_DEADLINE_MS,
-  });
-  if (groq) return groq;
-
   try {
     return await generate({
       ...params,
