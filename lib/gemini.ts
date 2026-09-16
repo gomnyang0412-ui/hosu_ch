@@ -247,6 +247,12 @@ function toGeminiError(err: unknown): GeminiRequestError {
 function toGroqError(err: unknown): GeminiRequestError {
   if (err instanceof GeminiRequestError) return err;
   if (err instanceof GroqApiError) {
+    if (err.status === 413) {
+      return new GeminiRequestError(
+        "요청 내용이 Groq 처리 한도를 넘어 Gemini로 전환해요.",
+        "overloaded"
+      );
+    }
     if (err.status === 429) {
       return new GeminiRequestError(
         "AI 요청 한도에 걸렸어요. 잠시 후 다시 시도해 주세요.",
@@ -428,6 +434,8 @@ interface GenerateParams {
   models: string[];
   /** 기본 CALL_TIMEOUT_MS보다 더 오래 걸리는 호출(예: 5000자짜리 소설 한 화)을 위한 개별 타임아웃 */
   timeoutMs?: number;
+  /** Groq가 응답에 예약할 최대 토큰. Gemini 호출에는 전달하지 않는다. */
+  maxCompletionTokens?: number;
   /**
    * 타임아웃뿐 아니라 순수 연결 오류(toGeminiError가 둘 다 "network"로
    * 분류한다)도 quota/overloaded처럼 다음 키·모델로 넘어가게 할지.
@@ -518,6 +526,9 @@ async function generateGroq(params: GenerateParams): Promise<GenerateResult | nu
             messages: groqMessages(params.systemInstruction, params.contents),
             // 추론 과정이 평문/JSON 본문에 섞이지 않게 최종 답만 받는다.
             reasoning_format: "hidden",
+            ...(params.maxCompletionTokens
+              ? { max_completion_tokens: params.maxCompletionTokens }
+              : {}),
             ...(params.json
               ? {
                   response_format: {
@@ -586,6 +597,18 @@ async function generateGroq(params: GenerateParams): Promise<GenerateResult | nu
         );
         if (mapped.kind === "quota") {
           await recordApiUsage(todayPacific(), i + 1, model, "quota");
+        }
+        // Qwen과 GPT-OSS는 무료 플랜의 TPM 한도가 같아서, 같은 본문을
+        // 다음 Groq 모델·키로 다시 보내도 413이 반복된다. 불필요한 호출을
+        // 건너뛰고 tryGroq()가 기존 Gemini 체인으로 즉시 넘기게 한다.
+        if (err instanceof GroqApiError && err.status === 413) {
+          report({
+            phase: "retry",
+            model,
+            keyIndex: i + 1,
+            reason: "overloaded",
+          });
+          throw mapped;
         }
         const retryable =
           mapped.kind === "quota" ||
@@ -788,6 +811,7 @@ export async function generateChatReply(params: {
   const groq = await tryGroq({
     ...params,
     json: true,
+    maxCompletionTokens: 1_024,
     timeoutMs: GROQ_CHAT_TIMEOUT_MS,
     retryOnTimeout: true,
     overallDeadlineMs: GROQ_CHAT_DEADLINE_MS,
@@ -831,6 +855,7 @@ export async function generateSummaryText(params: {
   const groq = await tryGroq({
     ...params,
     json: false,
+    maxCompletionTokens: 1_024,
     timeoutMs: GROQ_CHAT_TIMEOUT_MS,
     retryOnTimeout: true,
     overallDeadlineMs: GROQ_CHAT_DEADLINE_MS,
@@ -874,6 +899,7 @@ export async function generateStoryEpisode(params: {
   const groq = await tryGroq({
     ...params,
     json: false,
+    maxCompletionTokens: 4_096,
     timeoutMs: 30_000,
     retryOnTimeout: true,
     overallDeadlineMs: 65_000,
@@ -920,6 +946,7 @@ export async function generateCharacterProfile(params: {
     ...params,
     json: true,
     responseSchema: CHARACTER_PROFILE_SCHEMA,
+    maxCompletionTokens: 3_072,
     timeoutMs: CHARACTER_PROFILE_TIMEOUT_MS,
     retryOnTimeout: true,
     overallDeadlineMs: 35_000,
@@ -958,6 +985,7 @@ export async function generateObservationRecap(params: {
   const groq = await tryGroq({
     ...params,
     json: false,
+    maxCompletionTokens: 2_048,
     timeoutMs: 20_000,
     retryOnTimeout: true,
     overallDeadlineMs: 45_000,

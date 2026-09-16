@@ -51,6 +51,7 @@ describe("Groq preferred routing", () => {
     const request = JSON.parse(fetchMock.mock.calls[0][1]?.body as string);
     expect(request.model).toBe("qwen/qwen3.8-27b");
     expect(request.reasoning_format).toBe("hidden");
+    expect(request.max_completion_tokens).toBe(1024);
     expect(request.response_format).toMatchObject({
       type: "json_schema",
       json_schema: {
@@ -85,6 +86,19 @@ describe("Groq preferred routing", () => {
       model: "gemini-3.8-flash",
       keyIndex: 1,
     });
+    expect(calls()).toEqual([["test1", "gemini-3.8-flash"]]);
+  });
+
+  it("skips the equally limited second Groq model and uses Gemini on 413", async () => {
+    vi.stubEnv("GROQ_API_KEY", "groq1");
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(groqError(413));
+    mocks.call.mockResolvedValue(success);
+
+    expect(await generateChatReply(input)).toMatchObject({
+      model: "gemini-3.8-flash",
+      keyIndex: 1,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(calls()).toEqual([["test1", "gemini-3.8-flash"]]);
   });
 
