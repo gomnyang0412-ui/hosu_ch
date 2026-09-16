@@ -12,7 +12,12 @@ vi.mock("@google/genai", async (importOriginal) => {
     }
   } };
 });
-import { generateChatReply, generateStoryEpisode, generateObservationRecap } from "@/lib/gemini";
+import {
+  generateChatReply,
+  generateObservationRecap,
+  generateStoryEpisode,
+  generateSummaryText,
+} from "@/lib/gemini";
 const input = { systemInstruction: "test", contents: [] };
 const quota = () => new ApiError({ status: 429, message: "RequestsPerMinute" });
 const unavailable = () => new ApiError({ status: 404, message: "missing" });
@@ -108,6 +113,25 @@ describe("Groq preferred routing", () => {
 
     await expect(generateChatReply(input)).rejects.toMatchObject({ kind: "unknown" });
     expect(mocks.call).not.toHaveBeenCalled();
+  });
+});
+
+describe("Gemini-only non-chat routing", () => {
+  it("does not call Groq for summaries or observation episodes", async () => {
+    vi.stubEnv("GROQ_API_KEY", "groq1");
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    mocks.call.mockResolvedValue(success);
+
+    expect(await generateSummaryText(input)).toBe("ok");
+    expect(await generateStoryEpisode(input)).toMatchObject({
+      model: "gemini-3.8-flash",
+      keyIndex: 1,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(calls()).toEqual([
+      ["test1", "gemini-3.5-flash-lite"],
+      ["test1", "gemini-3.8-flash"],
+    ]);
   });
 });
 

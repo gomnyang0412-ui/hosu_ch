@@ -4,9 +4,9 @@ import { syncCharacterMemory } from "@/lib/memoryService";
 import type { Room } from "@/lib/types";
 
 export const runtime = "nodejs";
-// 한 번의 요약이 Groq 28초 뒤 Gemini 48초까지 폴백할 수 있다. 캐릭터 ×
-// 유니버스 반복 자체는 아래 20초 소프트 데드라인에서 다음 요청으로 넘긴다.
-export const maxDuration = 90;
+// 캐릭터 × 유니버스 조합마다 밀린 날짜만큼 Gemini 요약 호출이 이어질
+// 수 있어 여유를 둔다.
+export const maxDuration = 60;
 
 // 유니버스가 여러 개면 캐릭터 × 유니버스 조합 수만큼 동기화가 곱으로
 // 늘어난다. 플랫폼이 함수를 강제 종료하기 전에 먼저 멈추는 것뿐 아니라,

@@ -9,8 +9,7 @@ import {
 import type { CharacterProfile, StoryEpisode, Universe } from "@/lib/types";
 
 export const runtime = "nodejs";
-// Groq 28초 뒤 기존 Gemini 48초 예산과 사용량 기록 시간을 보장한다.
-export const maxDuration = 90;
+export const maxDuration = 60;
 
 interface SummarizeStoryRequestBody {
   characters: CharacterProfile[];

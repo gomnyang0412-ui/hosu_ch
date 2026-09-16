@@ -22,7 +22,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 - **Next.js 16.3.0 (App Router) + TypeScript + Tailwind v4**, Vercel 배포
 - **Upstash Redis**가 유일한 영구 저장소 (`lib/db.ts`, 서버 전용)
-- **Groq API가 1차 AI 백엔드**, Google Gemini API (`@google/genai`)가 기존 최종 fallback이다. Groq에서는 `qwen/qwen3.8-27b` → `openai/gpt-oss-120b` 순서로 시도한 뒤, 용도별 기존 Gemini 체인으로 내려간다. Groq 키가 없는 환경은 Gemini만 사용한다.
+- **Groq API는 1:1/멀티 채팅 답변에만 쓰는 1차 백엔드**, Google Gemini API (`@google/genai`)는 그 최종 fallback이자 관찰·요약·기억·프로필의 유일한 백엔드다. 채팅에서는 `qwen/qwen3.8-27b` → `openai/gpt-oss-120b` → 기존 Gemini 체인 순서다. Groq 키가 없는 환경은 모든 기능에서 Gemini만 사용한다.
 - 사용자(나)와 개발자(Claude/이제는 이 문서를 읽는 너)가 세션 여러 번에 걸쳐
   대화하면서 기능을 하나씩 얹어온 프로젝트다. 커밋 로그와 코드 주석에 "왜
   이렇게 짰는지"가 한국어로 꽤 자세히 남아 있다 — 지우지 말고 참고할 것.
@@ -113,15 +113,16 @@ ChatMessage/MultiThread를 새로 쓰지 마라.**
 
 ## AI 연동 — 알아야 할 패턴
 
-- **공급자 우선순위**: 모든 AI 용도에서 `GROQ_API_KEY`로 Groq의
-  `qwen/qwen3.8-27b` → `openai/gpt-oss-120b`를 먼저 시도한다. 두 모델이
-  일시적으로 실패한 경우에만 용도별 기존 Gemini 체인이 이어받는다.
-  Groq 단계와 Gemini 단계는 전체 시간 예산을 따로 가져, Groq 타임아웃이
-  Gemini fallback 기회를 먹어버리지 않게 되어 있다.
+- **공급자 우선순위**: 1:1/멀티 채팅의 실제 캐릭터 답변만
+  `GROQ_API_KEY`로 Groq의 `qwen/qwen3.8-27b` → `openai/gpt-oss-120b`를
+  먼저 시도하고, 두 모델이 실패하면 기존 Gemini 대화 체인이 이어받는다.
+  관찰 모드·요약·장기기억·캐릭터 프로필은 Groq를 호출하지 않고 기존
+  Gemini 경로만 사용한다. 이 경계를 넓히려면 Groq 무료 TPM 한도로 장문
+  요청이 실패할 수 있음을 먼저 사용자에게 설명할 것.
 - **Groq 키도 서버 전용**: `GROQ_API_KEY` 환경변수로만 관리하며 코드나
   `NEXT_PUBLIC_` 변수에 넣지 않는다. 쉼표로 여러 키를 넣으면 같은 모델의
   다음 키를 먼저 시도한 뒤 다음 모델로 이동한다.
-- **Groq 413은 즉시 Gemini로 전환**: 두 Groq 모델은 무료 플랜의 TPM
+- **채팅 중 Groq 413은 즉시 Gemini로 전환**: 두 Groq 모델은 무료 플랜의 TPM
   한도가 같아, 요청 본문이 너무 큰 413에서 다음 Groq 모델·키를 다시
   시도해도 같은 실패가 반복된다. 따라서 413은 곧바로 기존 Gemini 체인에
   넘긴다. Groq 호출에는 용도별 `max_completion_tokens`도 지정해 출력 토큰을

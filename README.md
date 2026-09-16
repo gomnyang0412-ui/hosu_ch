@@ -71,9 +71,9 @@
 
 ## API 키 관련 안내
 
-Groq와 Gemini API 키는 브라우저 코드에 절대 포함되지 않습니다. `app/api/room-chat`, `app/api/scene`을 비롯한 `app/api/*` 라우트 핸들러가 서버에서만 `process.env.GROQ_API_KEY`와 `process.env.GEMINI_API_KEY`를 읽고, 브라우저는 이 라우트들만 호출합니다.
+Groq와 Gemini API 키는 브라우저 코드에 절대 포함되지 않습니다. `app/api/room-chat`의 1:1/멀티 채팅 답변만 서버에서 `process.env.GROQ_API_KEY`를 사용하고, 관찰 모드·요약·기억·프로필을 포함한 나머지 AI 기능은 기존처럼 서버에서 `process.env.GEMINI_API_KEY`만 사용합니다. 브라우저는 이 서버 라우트들만 호출합니다.
 
-모든 AI 용도는 `qwen/qwen3.8-27b` → `openai/gpt-oss-120b` 순서로 Groq를 먼저 시도합니다. 두 모델이 사용량 초과·혼잡·타임아웃·미지원으로 모두 실패하면, 각 용도에 원래 설정되어 있던 Gemini Flash/Lite 모델 체인이 그대로 이어받습니다. `GROQ_API_KEY`를 설정하지 않은 환경도 기존 Gemini 전용 동작을 유지합니다.
+1:1/멀티 채팅 답변은 `qwen/qwen3.8-27b` → `openai/gpt-oss-120b` 순서로 Groq를 먼저 시도하고, 두 모델이 실패하면 기존 Gemini Flash/Lite 체인이 이어받습니다. 관찰 모드 화 생성과 관찰 전체 요약은 Groq를 호출하지 않고 기존 Gemini 체인만 사용합니다. `GROQ_API_KEY`를 설정하지 않은 환경도 기존 Gemini 전용 동작을 유지합니다.
 
 ### 하루 사용량을 다 썼을 때 (여러 계정 키 함께 쓰기)
 

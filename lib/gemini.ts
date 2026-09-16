@@ -72,10 +72,10 @@ const DIALOGUE_LITE_MODELS = [
 ];
 const DIALOGUE_MODEL_CHAIN = [...DIALOGUE_MODELS, ...DIALOGUE_LITE_MODELS];
 
-// 모든 AI 용도에서 Groq를 먼저 시도하고, 두 모델이 모두 일시적으로
-// 실패했을 때만 아래의 기존 Gemini 체인으로 내려간다. Qwen은 Preview
-// 모델이라 제공이 중단되거나 계정에서 아직 열리지 않은 경우(404)에도
-// GPT-OSS와 Gemini가 그대로 이어받을 수 있어야 한다.
+// Groq는 1:1/멀티 채팅의 실제 캐릭터 답변에만 사용한다. 관찰 모드와
+// 요약·기억·프로필은 입력이 길어 무료 TPM 한도에 자주 걸리므로 기존
+// Gemini 전용 경로를 유지한다. Qwen이 일시적으로 실패하면 GPT-OSS,
+// 그 뒤에는 기존 Gemini 대화 체인으로 내려간다.
 const GROQ_MODELS = ["qwen/qwen3.8-27b", "openai/gpt-oss-120b"];
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
 
@@ -852,16 +852,6 @@ export async function generateSummaryText(params: {
   systemInstruction: string;
   contents: Content[];
 }): Promise<string> {
-  const groq = await tryGroq({
-    ...params,
-    json: false,
-    maxCompletionTokens: 1_024,
-    timeoutMs: GROQ_CHAT_TIMEOUT_MS,
-    retryOnTimeout: true,
-    overallDeadlineMs: GROQ_CHAT_DEADLINE_MS,
-  });
-  if (groq) return groq.text;
-
   const { text } = await generate({
     ...params,
     json: false,
@@ -896,17 +886,6 @@ export async function generateStoryEpisode(params: {
   contents: Content[];
   onProgress?: (progress: GenerationProgress) => void;
 }): Promise<{ text: string; model: string; keyIndex: number }> {
-  const groq = await tryGroq({
-    ...params,
-    json: false,
-    maxCompletionTokens: 4_096,
-    timeoutMs: 30_000,
-    retryOnTimeout: true,
-    overallDeadlineMs: 65_000,
-    retryDelayMs: 400,
-  });
-  if (groq) return groq;
-
   return generate({
     ...params,
     json: false,
@@ -942,17 +921,6 @@ export async function generateCharacterProfile(params: {
   systemInstruction: string;
   contents: Content[];
 }): Promise<{ text: string; model: string; keyIndex: number }> {
-  const groq = await tryGroq({
-    ...params,
-    json: true,
-    responseSchema: CHARACTER_PROFILE_SCHEMA,
-    maxCompletionTokens: 3_072,
-    timeoutMs: CHARACTER_PROFILE_TIMEOUT_MS,
-    retryOnTimeout: true,
-    overallDeadlineMs: 35_000,
-  });
-  if (groq) return groq;
-
   return generate({
     ...params,
     json: true,
@@ -982,16 +950,6 @@ export async function generateObservationRecap(params: {
   systemInstruction: string;
   contents: Content[];
 }): Promise<string> {
-  const groq = await tryGroq({
-    ...params,
-    json: false,
-    maxCompletionTokens: 2_048,
-    timeoutMs: 20_000,
-    retryOnTimeout: true,
-    overallDeadlineMs: 45_000,
-  });
-  if (groq) return groq.text;
-
   try {
     const { text } = await generate({
       ...params,
