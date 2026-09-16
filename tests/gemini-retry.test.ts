@@ -42,18 +42,31 @@ describe("Gemini retry routing", () => {
       ["attempt", 1, undefined], ["retry", 1, "quota"], ["attempt", 2, undefined], ["generated", 2, undefined],
     ]);
   });
-  it("a full chat timeout tries the next Flash within the remaining budget", async () => {
+  it("a full chat timeout tries the next key on the same Flash", async () => {
     mocks.call.mockImplementationOnce(() => { vi.setSystemTime(15001); throw timeout(); }).mockResolvedValue(success);
     const signalSpy = vi.spyOn(AbortSignal, "timeout");
-    expect((await generateChatReply(input)).model).toBe("gemini-3.7-flash");
-    expect(calls()).toEqual([["test1", "gemini-3.8-flash"], ["test1", "gemini-3.7-flash"]]);
+    expect(await generateChatReply(input)).toMatchObject({ model: "gemini-3.8-flash", keyIndex: 2 });
+    expect(calls()).toEqual([["test1", "gemini-3.8-flash"], ["test2", "gemini-3.8-flash"]]);
     expect(signalSpy.mock.calls.map(([ms]) => ms)).toEqual([15000, 12999]);
   });
-  it("observation timeouts never fall back to Lite", async () => {
+  it("observation timeouts exhaust each Flash's keys before the next model", async () => {
     mocks.call.mockRejectedValue(timeout());
-    await expect(generateStoryEpisode(input)).rejects.toMatchObject({ kind: "network" });
-    expect(calls()).toHaveLength(5);
-    expect(calls().every(([key, model]) => key === "test1" && !model.includes("lite"))).toBe(true);
+    const pending = generateStoryEpisode(input);
+    const rejection = expect(pending).rejects.toMatchObject({ kind: "network" });
+    await vi.runAllTimersAsync();
+    await rejection;
+    expect(calls().slice(0, 8)).toEqual([
+      ["test1", "gemini-3.8-flash"], ["test2", "gemini-3.8-flash"],
+      ["test3", "gemini-3.8-flash"], ["test4", "gemini-3.8-flash"],
+      ["test1", "gemini-3.7-flash"], ["test2", "gemini-3.7-flash"],
+      ["test3", "gemini-3.7-flash"], ["test4", "gemini-3.7-flash"],
+    ]);
+    expect(calls().every(([, model]) => !model.includes("lite"))).toBe(true);
+  });
+  it("404 tries another project key before falling back to an older model", async () => {
+    mocks.call.mockRejectedValueOnce(unavailable()).mockResolvedValue(success);
+    expect(await generateChatReply(input)).toMatchObject({ model: "gemini-3.8-flash", keyIndex: 2 });
+    expect(calls()).toEqual([["test1", "gemini-3.8-flash"], ["test2", "gemini-3.8-flash"]]);
   });
   it("Lite gets another key after a quick quota error", async () => {
     mocks.call.mockImplementation((key, { model }) => {

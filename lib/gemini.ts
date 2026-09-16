@@ -128,10 +128,8 @@ function getClients(): GoogleGenAI[] {
 }
 
 // 모델 이름 자체가 이 계정/리전에서 아직 제공되지 않을 때 API가 돌려주는
-// 상태코드. quota 초과와는 다른 이유지만, 마찬가지로 "이 모델은 포기하고
-// 다음 모델로 넘어가면 되는" 상황이라 quota와 똑같이 취급한다 — 그래야
-// 존재하지 않는 모델 이름 하나 때문에 체인 전체(결국 항상 되는 Lite까지)가
-// 끊기지 않는다.
+// 상태코드. 프로젝트(키)별로 모델 제공 여부가 다를 수도 있으므로 현재
+// 모델의 나머지 키를 먼저 확인하고, 모든 키에서 404일 때 다음 모델로 간다.
 function isModelUnavailable(err: unknown): boolean {
   return err instanceof ApiError && err.status === 404;
 }
@@ -449,7 +447,10 @@ async function generate(params: {
           report({ phase: "retry", model, keyIndex: i + 1, reason: "unavailable" });
           console.warn(`${logPrefix} unavailable status=404 elapsedMs=${Date.now() - attemptStartedAt}`);
           lastError = new GeminiRequestError("사용 가능한 AI 모델을 찾지 못했어요.", "overloaded");
-          break;
+          if (params.retryDelayMs) {
+            await new Promise((resolve) => setTimeout(resolve, params.retryDelayMs));
+          }
+          continue;
         }
         const timedOut = signal.aborted || (err instanceof Error &&
           (err.name === "TimeoutError" || err.name === "AbortError"));
@@ -476,9 +477,9 @@ async function generate(params: {
         lastError = mapped;
         report({ phase: "retry", model, keyIndex: i + 1,
           reason: timedOut ? "timeout" : mapped.kind as "quota" | "overloaded" | "network" });
-        // 서로 다른 프로젝트의 429는 다음 키로. 느린 생성은 같은 모델의
-        // 다른 키에서 다시 오래 기다리지 않고 다음 모델부터 시도한다.
-        if (timedOut) break;
+        // 오류 종류와 무관하게 현재 모델의 다음 프로젝트 키를 먼저 쓴다.
+        // 모든 키가 실패한 뒤에만 다음 모델로 내려가야 최신 모델의 사용
+        // 가능량을 남겨둔 다른 키가 있어도 구형 모델로 조기 폴백하지 않는다.
         if (params.retryDelayMs) {
           await new Promise((resolve) => setTimeout(resolve, params.retryDelayMs));
         }
@@ -569,8 +570,9 @@ export async function generateSummaryText(params: {
  *
  * 예전에는 timeoutMs 전체가 남아야 재시도가 가능해 100초 예산에서도
  * 50초 시도를 두 번 못 하는 문제가 있었다. 170초 예산을 유지하면서,
- * 현재는 남은 예산으로 마지막 시도의 제한을 줄인다. 타임아웃이 나면
- * 같은 모델의 다른 키가 아니라 다음 Flash 모델로 이동한다.
+ * 현재는 남은 예산으로 마지막 시도의 제한을 줄인다. 타임아웃이 나도
+ * 같은 모델의 다른 키를 먼저 시도하고, 모든 키가 실패해야 다음 Flash
+ * 모델로 이동한다.
  */
 export async function generateStoryEpisode(params: {
   systemInstruction: string;
