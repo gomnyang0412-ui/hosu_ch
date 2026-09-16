@@ -19,16 +19,83 @@ const unavailable = () => new ApiError({ status: 404, message: "missing" });
 const timeout = () => new DOMException("timeout", "TimeoutError");
 const success = { text: "ok" };
 const calls = () => mocks.call.mock.calls.map(([key, p]) => [key, p.model]);
+const groqResponse = (model = "qwen/qwen3.8-27b") => new Response(JSON.stringify({
+  choices: [{ message: { content: "ok" }, finish_reason: "stop", model }],
+}), { status: 200, headers: { "Content-Type": "application/json" } });
+const groqError = (status: number) => new Response(JSON.stringify({
+  error: { message: "test error", type: "test" },
+}), { status, headers: { "Content-Type": "application/json" } });
 
 beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(0);
+  vi.stubEnv("GROQ_API_KEY", "");
   vi.stubEnv("GEMINI_API_KEY", "test1,test2,test3,test4");
   mocks.call.mockReset(); mocks.usage.mockReset(); mocks.usage.mockResolvedValue(undefined);
   vi.spyOn(console, "log").mockImplementation(() => {});
   vi.spyOn(console, "warn").mockImplementation(() => {});
 });
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllEnvs(); });
+
+describe("Groq preferred routing", () => {
+  it("uses Qwen first without calling Gemini", async () => {
+    vi.stubEnv("GROQ_API_KEY", "groq1");
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(groqResponse());
+
+    expect(await generateChatReply(input)).toMatchObject({
+      text: "ok",
+      model: "qwen/qwen3.8-27b",
+      keyIndex: 1,
+    });
+    expect(mocks.call).not.toHaveBeenCalled();
+    const request = JSON.parse(fetchMock.mock.calls[0][1]?.body as string);
+    expect(request.model).toBe("qwen/qwen3.8-27b");
+    expect(request.reasoning_format).toBe("hidden");
+    expect(request.response_format).toMatchObject({
+      type: "json_schema",
+      json_schema: {
+        strict: false,
+        schema: { type: "object", properties: { say: { type: "string" } } },
+      },
+    });
+  });
+
+  it("falls back from Qwen quota to GPT-OSS", async () => {
+    vi.stubEnv("GROQ_API_KEY", "groq1");
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(groqError(429))
+      .mockResolvedValueOnce(groqResponse("openai/gpt-oss-120b"));
+
+    expect(await generateChatReply(input)).toMatchObject({
+      model: "openai/gpt-oss-120b",
+      keyIndex: 1,
+    });
+    expect(fetchMock.mock.calls.map(([, init]) =>
+      JSON.parse(init?.body as string).model
+    )).toEqual(["qwen/qwen3.8-27b", "openai/gpt-oss-120b"]);
+    expect(mocks.call).not.toHaveBeenCalled();
+  });
+
+  it("keeps the existing Gemini chain after both Groq models fail", async () => {
+    vi.stubEnv("GROQ_API_KEY", "groq1");
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(groqError(429));
+    mocks.call.mockResolvedValue(success);
+
+    expect(await generateChatReply(input)).toMatchObject({
+      model: "gemini-3.8-flash",
+      keyIndex: 1,
+    });
+    expect(calls()).toEqual([["test1", "gemini-3.8-flash"]]);
+  });
+
+  it("does not hide a non-retryable Groq configuration error", async () => {
+    vi.stubEnv("GROQ_API_KEY", "bad-key");
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(groqError(401));
+
+    await expect(generateChatReply(input)).rejects.toMatchObject({ kind: "unknown" });
+    expect(mocks.call).not.toHaveBeenCalled();
+  });
+});
 
 describe("Gemini retry routing", () => {
   it("429 tries another project key on the same model", async () => {

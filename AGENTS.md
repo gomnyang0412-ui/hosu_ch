@@ -22,7 +22,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 - **Next.js 16.3.0 (App Router) + TypeScript + Tailwind v4**, Vercel 배포
 - **Upstash Redis**가 유일한 영구 저장소 (`lib/db.ts`, 서버 전용)
-- **Google Gemini API** (`@google/genai`)가 유일한 AI 백엔드 — 다른 제공사(OpenAI/Claude/Grok 등)는 안 쓴다
+- **Groq API가 1차 AI 백엔드**, Google Gemini API (`@google/genai`)가 기존 최종 fallback이다. Groq에서는 `qwen/qwen3.8-27b` → `openai/gpt-oss-120b` 순서로 시도한 뒤, 용도별 기존 Gemini 체인으로 내려간다. Groq 키가 없는 환경은 Gemini만 사용한다.
 - 사용자(나)와 개발자(Claude/이제는 이 문서를 읽는 너)가 세션 여러 번에 걸쳐
   대화하면서 기능을 하나씩 얹어온 프로젝트다. 커밋 로그와 코드 주석에 "왜
   이렇게 짰는지"가 한국어로 꽤 자세히 남아 있다 — 지우지 말고 참고할 것.
@@ -76,7 +76,7 @@ ChatMessage/MultiThread를 새로 쓰지 마라.**
   - `app/api/data/*` — Redis CRUD (서버 전용, 클라이언트는 절대 직접 안 부르고 `lib/storage.ts`를 거친다)
 - `lib/db.ts` — Redis 읽기/쓰기 전부 (서버 전용, "use client" 파일에서 import 금지)
 - `lib/storage.ts` — 브라우저에서 `app/api/data/*`를 호출하는 fetch 클라이언트
-- `lib/gemini.ts` — Gemini 호출 전부가 거쳐가는 `generate()` 공용 함수 + 용도별 래퍼(`generateChatReply`, `generateStoryEpisode` 등)
+- `lib/gemini.ts` — Groq 우선 호출과 Gemini 최종 fallback, 용도별 래퍼(`generateChatReply`, `generateStoryEpisode` 등). 역사적인 파일명은 호출부 변경을 줄이기 위해 유지한다.
 - `lib/memory.ts`(순수 유틸) / `lib/memoryService.ts`(Redis+Gemini 호출, 서버 전용) — 캐릭터 기억
 - `lib/story.ts` — 관찰 모드 컨텍스트 윈도우 상수(최근 몇 화 전문을 다시 보낼지 등)
 - `lib/types.ts` — 전체 데이터 타입의 원천. 새 필드 추가 시 여기부터
@@ -111,7 +111,16 @@ ChatMessage/MultiThread를 새로 쓰지 마라.**
 5. `git push --force`, `git reset --hard` 같은 파괴적 명령은 사용자가 명시적으로
    요청하지 않는 한 쓰지 않는다.
 
-## Gemini 연동 — 알아야 할 패턴
+## AI 연동 — 알아야 할 패턴
+
+- **공급자 우선순위**: 모든 AI 용도에서 `GROQ_API_KEY`로 Groq의
+  `qwen/qwen3.8-27b` → `openai/gpt-oss-120b`를 먼저 시도한다. 두 모델이
+  일시적으로 실패한 경우에만 용도별 기존 Gemini 체인이 이어받는다.
+  Groq 단계와 Gemini 단계는 전체 시간 예산을 따로 가져, Groq 타임아웃이
+  Gemini fallback 기회를 먹어버리지 않게 되어 있다.
+- **Groq 키도 서버 전용**: `GROQ_API_KEY` 환경변수로만 관리하며 코드나
+  `NEXT_PUBLIC_` 변수에 넣지 않는다. 쉼표로 여러 키를 넣으면 같은 모델의
+  다음 키를 먼저 시도한 뒤 다음 모델로 이동한다.
 
 - **다중 API 키 로테이션**: `GEMINI_API_KEY` 환경변수에 쉼표로 여러 개(서로
   다른 구글 계정)를 이어붙일 수 있다. 한 키의 하루 무료 한도(quota)가
@@ -119,10 +128,11 @@ ChatMessage/MultiThread를 새로 쓰지 마라.**
   (`DIALOGUE_MODEL_CHAIN` = gemini-3.6-flash → gemini-2.5-flash →
   gemini-3-flash-preview → gemini-3.5-flash → gemini-3.5-flash-lite).
   이 앱은 **유료 결제 없이 무료 티어만으로 굴러가는 걸 전제로 설계**돼 있다.
-- **모든 Gemini 호출은 `lib/gemini.ts`의 `generate()`를 거친다.** 이 함수가
-  키 로테이션, 모델 폴백, 개별 타임아웃(`timeoutMs`), 전체 재시도 예산
-  (`overallDeadlineMs`)을 전부 관리한다. 새 기능에서 Gemini를 직접 부르지
-  말고 반드시 `generate()`를 감싸는 새 래퍼 함수를 추가하는 식으로 확장할 것.
+- **모든 AI 호출은 `lib/gemini.ts`의 용도별 래퍼를 거친다.** Groq는
+  `generateGroq()`, Gemini는 기존 `generate()`가 키 로테이션, 모델 폴백,
+  개별 타임아웃(`timeoutMs`), 전체 재시도 예산(`overallDeadlineMs`)을
+  관리한다. 새 기능에서 어느 공급자도 직접 부르지 말고 용도별 래퍼를
+  추가하는 식으로 확장할 것.
 - **`overallDeadlineMs`는 반드시 `timeoutMs`의 2배보다 충분히 크게 잡을 것**
   — 이 프로젝트에서 같은 클래스의 버그가 최소 두 번 발생했다: `overallDeadlineMs`를
   "`timeoutMs` 정확히 2배"로 잡으면 첫 시도가 온전히 시간을 다 쓸 때 아주
@@ -174,10 +184,10 @@ ChatMessage/MultiThread를 새로 쓰지 마라.**
    ("나는 이 중 한 명이다")였다면 그 방에서 자동으로 안 빠진다.** 의도적으로
    기존 동작을 보존한 것이다(Room/RoomItem 통합 때 "고치지 않고 그대로
    유지"하기로 결정됨).
-8. **Gemini 응답 자체가 확률적으로 느리거나 실패할 수 있다는 건 근본적
+8. **외부 AI 응답 자체가 확률적으로 느리거나 실패할 수 있다는 건 근본적
    한계다.** 재시도 예산을 넉넉히 주는 식으로 완화는 계속해왔지만
    ("AI 응답이 너무 오래 걸려서 중단했어요" 메시지가 아예 0%가 되는 걸
-   목표로 삼지 말 것 — Gemini 쪽 응답 시간 변동성은 이 코드베이스가
+   목표로 삼지 말 것 — 외부 공급자 응답 시간 변동성은 이 코드베이스가
    통제할 수 있는 영역 밖이다), 완전히 없앨 수는 없다.
 
 ## 아직 사용자 승인을 기다리는 작업

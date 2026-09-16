@@ -4,7 +4,8 @@ import { generateCharacterProfile, geminiErrorResponse } from "@/lib/gemini";
 import type { ChatMessage } from "@/lib/types";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+// Groq 35초 뒤 기존 Gemini 50초 예산과 사용량 기록 시간을 보장한다.
+export const maxDuration = 100;
 
 interface CharacterInput {
   name: string;

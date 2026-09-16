@@ -13,9 +13,10 @@ import { serializeThreadItems } from "@/lib/thread";
 import type { CharacterProfile, ThreadItem, Universe } from "@/lib/types";
 
 export const runtime = "nodejs";
-// Flash 28초 + Lite 8초에 각 단계의 사용량 기록 지연(최대 3초)이
-// 더해질 수 있다. 대사 검증으로 두 번 생성하는 경우까지 여유를 둔다.
-export const maxDuration = 100;
+// Groq 28초 + Gemini Flash 28초 + Lite 8초에 각 단계의 사용량 기록
+// 지연(최대 3초)이 더해질 수 있다. 대사 검증으로 두 번 생성하는
+// 경우까지 여유를 둔다.
+export const maxDuration = 160;
 
 /**
  * 1:1 채팅과 멀티 대화방의 AI 호출을 하나로 합친 라우트. 지정된 한

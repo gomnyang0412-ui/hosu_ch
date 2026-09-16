@@ -11,11 +11,11 @@ import { RECENT_FULL_COUNT, formatElapsedDays } from "@/lib/story";
 import type { CharacterProfile, ObservationSession, Universe } from "@/lib/types";
 
 export const runtime = "nodejs";
-// generateObservationRecap 안의 예산(Flash 90초 + Lite 폴백 20초 = 최대
-// 110초)이 실제 안전판이다. 여기 숫자는 그보다 여유를 둔 값 — 안 그러면
+// generateObservationRecap 안의 예산(Groq 45초 + Flash 90초 + Lite 폴백
+// 20초 = 최대 155초)이 실제 안전판이다. 여기 숫자는 그보다 여유를 둔 값 — 안 그러면
 // 우리 코드가 에러 응답을 만들기도 전에 플랫폼이 먼저 함수를 끊어버린다
 // (scene/route.ts와 같은 이유).
-export const maxDuration = 140;
+export const maxDuration = 180;
 
 /** 원문을 그대로 보내면 화가 많은 이야기일수록 통째로 다 보낼 수 없어,
  *  최근 몇 화만 전문으로 주고 그 이전(아직 구간 요약이 안 된) 화들은

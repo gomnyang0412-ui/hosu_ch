@@ -11,7 +11,8 @@ import { memoryOneLiners } from "@/lib/memory";
 import type { ChatMessage, CharacterProfile, Universe } from "@/lib/types";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+// Groq 28초 뒤 기존 Gemini 48초 예산과 사용량 기록 시간을 보장한다.
+export const maxDuration = 90;
 
 interface SummarizeRequestBody {
   character: CharacterProfile;
