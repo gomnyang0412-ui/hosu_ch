@@ -16,6 +16,7 @@ import { generateChatReply, generateStoryEpisode, generateObservationRecap } fro
 const input = { systemInstruction: "test", contents: [] };
 const quota = () => new ApiError({ status: 429, message: "RequestsPerMinute" });
 const unavailable = () => new ApiError({ status: 404, message: "missing" });
+const overloaded = () => new ApiError({ status: 503, message: "overloaded" });
 const timeout = () => new DOMException("timeout", "TimeoutError");
 const success = { text: "ok" };
 const calls = () => mocks.call.mock.calls.map(([key, p]) => [key, p.model]);
@@ -49,19 +50,33 @@ describe("Gemini retry routing", () => {
     expect(calls()).toEqual([["test1", "gemini-3.8-flash"], ["test2", "gemini-3.8-flash"]]);
     expect(signalSpy.mock.calls.map(([ms]) => ms)).toEqual([15000, 12999]);
   });
-  it("observation timeouts exhaust each Flash's keys before the next model", async () => {
+  it("observation timeouts advance models without repeating keys", async () => {
     mocks.call.mockRejectedValue(timeout());
+    const signalSpy = vi.spyOn(AbortSignal, "timeout");
     const pending = generateStoryEpisode(input);
     const rejection = expect(pending).rejects.toMatchObject({ kind: "network" });
     await vi.runAllTimersAsync();
     await rejection;
-    expect(calls().slice(0, 8)).toEqual([
-      ["test1", "gemini-3.8-flash"], ["test2", "gemini-3.8-flash"],
-      ["test3", "gemini-3.8-flash"], ["test4", "gemini-3.8-flash"],
-      ["test1", "gemini-3.7-flash"], ["test2", "gemini-3.7-flash"],
-      ["test3", "gemini-3.7-flash"], ["test4", "gemini-3.7-flash"],
+    expect(calls()).toEqual([
+      ["test1", "gemini-3.8-flash"],
+      ["test1", "gemini-3.7-flash"],
+      ["test1", "gemini-3.6-flash"],
+      ["test1", "gemini-3.5-flash"],
+      ["test1", "gemini-3-flash-preview"],
     ]);
+    expect(signalSpy.mock.calls[0]?.[0]).toBe(40_000);
     expect(calls().every(([, model]) => !model.includes("lite"))).toBe(true);
+  });
+  it("observation overload advances to the next model immediately", async () => {
+    mocks.call.mockRejectedValueOnce(overloaded()).mockResolvedValue(success);
+    expect(await generateStoryEpisode(input)).toMatchObject({
+      model: "gemini-3.7-flash",
+      keyIndex: 1,
+    });
+    expect(calls()).toEqual([
+      ["test1", "gemini-3.8-flash"],
+      ["test1", "gemini-3.7-flash"],
+    ]);
   });
   it("404 tries another project key before falling back to an older model", async () => {
     mocks.call.mockRejectedValueOnce(unavailable()).mockResolvedValue(success);

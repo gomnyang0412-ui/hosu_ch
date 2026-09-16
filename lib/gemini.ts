@@ -326,6 +326,8 @@ async function generate(params: {
   models: string[];
   /** 기본 CALL_TIMEOUT_MS보다 더 오래 걸리는 호출(예: 5000자짜리 소설 한 화)을 위한 개별 타임아웃 */
   timeoutMs?: number;
+  /** 특정 모델만 기본 개별 타임아웃과 다르게 제한할 때 사용한다. */
+  timeoutMsByModel?: Partial<Record<string, number>>;
   /**
    * 타임아웃뿐 아니라 순수 연결 오류(toGeminiError가 둘 다 "network"로
    * 분류한다)도 quota/overloaded처럼 다음 키·모델로 넘어가게 할지.
@@ -337,6 +339,10 @@ async function generate(params: {
    * overallDeadlineMs로 총 시간은 여전히 제한해야 한다).
    */
   retryOnTimeout?: boolean;
+  /** 타임아웃은 같은 모델의 다른 키를 반복하지 않고 다음 모델로 넘긴다. */
+  advanceModelOnTimeout?: boolean;
+  /** 500/503 혼잡은 같은 모델의 다른 키를 반복하지 않고 다음 모델로 넘긴다. */
+  advanceModelOnOverloaded?: boolean;
   /**
    * 모델·키를 넘나드는 재시도 전체에 거는 총 시간 제한. 호스팅 플랫폼의
    * 실제 함수 실행 제한은 코드의 maxDuration 설정과 별개로 더 짧을 수
@@ -377,7 +383,9 @@ async function generate(params: {
       const remainingMs = params.overallDeadlineMs === undefined
         ? Infinity
         : params.overallDeadlineMs - (Date.now() - startedAt);
-      const nextCallBudget = Math.min(params.timeoutMs ?? CALL_TIMEOUT_MS, remainingMs);
+      const modelTimeoutMs =
+        params.timeoutMsByModel?.[model] ?? params.timeoutMs ?? CALL_TIMEOUT_MS;
+      const nextCallBudget = Math.min(modelTimeoutMs, remainingMs);
       if (nextCallBudget < 1000) {
         console.warn(`[gemini] ${requestId} stop=deadline elapsedMs=${Date.now() - startedAt} attempts=${attempt}`);
         throw (
@@ -477,9 +485,18 @@ async function generate(params: {
         lastError = mapped;
         report({ phase: "retry", model, keyIndex: i + 1,
           reason: timedOut ? "timeout" : mapped.kind as "quota" | "overloaded" | "network" });
-        // 오류 종류와 무관하게 현재 모델의 다음 프로젝트 키를 먼저 쓴다.
-        // 모든 키가 실패한 뒤에만 다음 모델로 내려가야 최신 모델의 사용
-        // 가능량을 남겨둔 다른 키가 있어도 구형 모델로 조기 폴백하지 않는다.
+        // 키를 바꿔 해결될 가능성이 높은 quota는 기존처럼 같은 모델의
+        // 다음 키를 쓴다. 반면 모델 서버 혼잡과 장시간 무응답은 관찰
+        // 모드에서 키만 바꿔 같은 모델을 반복하면 전체 예산을 소진하므로,
+        // 호출부가 요청한 경우 즉시 다음 모델로 내려간다.
+        if (
+          (timedOut && params.advanceModelOnTimeout) ||
+          (mapped.kind === "overloaded" && params.advanceModelOnOverloaded)
+        ) {
+          break;
+        }
+        // 위에서 모델을 넘기지 않은 재시도 오류는 현재 모델의 다음
+        // 프로젝트 키를 먼저 쓴다. 모든 키가 실패한 뒤에 다음 모델로 간다.
         if (params.retryDelayMs) {
           await new Promise((resolve) => setTimeout(resolve, params.retryDelayMs));
         }
@@ -570,9 +587,10 @@ export async function generateSummaryText(params: {
  *
  * 예전에는 timeoutMs 전체가 남아야 재시도가 가능해 100초 예산에서도
  * 50초 시도를 두 번 못 하는 문제가 있었다. 170초 예산을 유지하면서,
- * 현재는 남은 예산으로 마지막 시도의 제한을 줄인다. 타임아웃이 나도
- * 같은 모델의 다른 키를 먼저 시도하고, 모든 키가 실패해야 다음 Flash
- * 모델로 이동한다.
+ * 현재는 남은 예산으로 마지막 시도의 제한을 줄인다. 관찰 모드에서는
+ * 3.8이 느리거나 혼잡할 때 다른 키로 3.8을 반복하지 않고 다음 Flash로
+ * 이동한다. quota/모델 미지원처럼 프로젝트 키에 따라 결과가 달라질 수
+ * 있는 오류만 같은 모델의 다음 키를 확인한다.
  */
 export async function generateStoryEpisode(params: {
   systemInstruction: string;
@@ -584,7 +602,10 @@ export async function generateStoryEpisode(params: {
     json: false,
     models: DIALOGUE_MODELS,
     timeoutMs: 50_000,
+    timeoutMsByModel: { "gemini-3.8-flash": 40_000 },
     retryOnTimeout: true,
+    advanceModelOnTimeout: true,
+    advanceModelOnOverloaded: true,
     overallDeadlineMs: 170_000,
     // 3.8 Flash는 기본 추론 수준(medium)에서 장문 창작 응답이 느려질 수
     // 있으므로 관찰 모드에서만 low로 낮춘다. 뒤의 폴백 모델들과 대화·
