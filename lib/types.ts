@@ -391,6 +391,8 @@ export interface ApiUsageEntry {
   model: string;
   success: number;
   quota: number;
+  /** RequestsPerDay 한도가 소진됐다고 API가 명시한 횟수 */
+  dailyQuota: number;
 }
 
 /** 생성 중에만 전송하는 임시 상태. Redis·백업에는 저장하지 않는다. */

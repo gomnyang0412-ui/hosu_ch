@@ -567,7 +567,9 @@ function usageKey(date: string): string {
   return `${KEYS.usagePrefix}${date}`;
 }
 
-function usageField(keyIndex: number, model: string, outcome: "success" | "quota"): string {
+type ApiUsageOutcome = "success" | "quota" | "dailyQuota";
+
+function usageField(keyIndex: number, model: string, outcome: ApiUsageOutcome): string {
   return `${keyIndex}:${model}:${outcome}`;
 }
 
@@ -586,7 +588,7 @@ export async function recordApiUsage(
   date: string,
   keyIndex: number,
   model: string,
-  outcome: "success" | "quota"
+  outcome: ApiUsageOutcome
 ): Promise<void> {
   const key = usageKey(date);
   // 시간 제한에 걸려 이 함수가 먼저 반환된 뒤에도 아래 작업 자체는
@@ -616,11 +618,20 @@ export async function getApiUsage(date: string): Promise<ApiUsageEntry[]> {
   for (const [field, count] of Object.entries(raw)) {
     const [keyIndexStr, model, outcome] = field.split(":");
     const keyIndex = Number(keyIndexStr);
-    if (!Number.isFinite(keyIndex) || (outcome !== "success" && outcome !== "quota")) {
+    if (
+      !Number.isFinite(keyIndex) ||
+      (outcome !== "success" && outcome !== "quota" && outcome !== "dailyQuota")
+    ) {
       continue;
     }
     const mapKey = `${keyIndex}:${model}`;
-    const entry = entries.get(mapKey) ?? { keyIndex, model, success: 0, quota: 0 };
+    const entry = entries.get(mapKey) ?? {
+      keyIndex,
+      model,
+      success: 0,
+      quota: 0,
+      dailyQuota: 0,
+    };
     entry[outcome] = count;
     entries.set(mapKey, entry);
   }

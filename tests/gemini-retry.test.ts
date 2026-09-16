@@ -1,8 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@google/genai";
 
-const mocks = vi.hoisted(() => ({ call: vi.fn(), usage: vi.fn() }));
-vi.mock("@/lib/db", () => ({ recordApiUsage: mocks.usage }));
+const mocks = vi.hoisted(() => ({
+  call: vi.fn(),
+  usage: vi.fn(),
+  usageRead: vi.fn(),
+}));
+vi.mock("@/lib/db", () => ({
+  getApiUsage: mocks.usageRead,
+  recordApiUsage: mocks.usage,
+}));
 vi.mock("@google/genai", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@google/genai")>();
   return { ...actual, GoogleGenAI: class {
@@ -15,6 +22,7 @@ vi.mock("@google/genai", async (importOriginal) => {
 import { generateChatReply, generateStoryEpisode, generateObservationRecap } from "@/lib/gemini";
 const input = { systemInstruction: "test", contents: [] };
 const quota = () => new ApiError({ status: 429, message: "RequestsPerMinute" });
+const dailyQuota = () => new ApiError({ status: 429, message: "RequestsPerDay" });
 const unavailable = () => new ApiError({ status: 404, message: "missing" });
 const overloaded = () => new ApiError({ status: 503, message: "overloaded" });
 const timeout = () => new DOMException("timeout", "TimeoutError");
@@ -26,6 +34,7 @@ beforeEach(() => {
   vi.setSystemTime(0);
   vi.stubEnv("GEMINI_API_KEY", "test1,test2,test3,test4");
   mocks.call.mockReset(); mocks.usage.mockReset(); mocks.usage.mockResolvedValue(undefined);
+  mocks.usageRead.mockReset(); mocks.usageRead.mockResolvedValue([]);
   vi.spyOn(console, "log").mockImplementation(() => {});
   vi.spyOn(console, "warn").mockImplementation(() => {});
 });
@@ -66,6 +75,48 @@ describe("Gemini retry routing", () => {
     ]);
     expect(signalSpy.mock.calls[0]?.[0]).toBe(40_000);
     expect(calls().every(([, model]) => !model.includes("lite"))).toBe(true);
+  });
+  it("records RequestsPerDay separately and tries the next project key", async () => {
+    mocks.call.mockRejectedValueOnce(dailyQuota()).mockResolvedValue(success);
+    const pending = generateStoryEpisode(input);
+    await vi.runAllTimersAsync();
+    expect(await pending).toMatchObject({ model: "gemini-3.8-flash", keyIndex: 2 });
+    expect(mocks.usage).toHaveBeenCalledWith(
+      "1969-12-31",
+      1,
+      "gemini-3.8-flash",
+      "dailyQuota"
+    );
+  });
+  it("skips 3.8 keys whose observed daily allowance is exhausted", async () => {
+    mocks.usageRead.mockResolvedValue([
+      { keyIndex: 1, model: "gemini-3.8-flash", success: 5, quota: 0, dailyQuota: 0 },
+      { keyIndex: 2, model: "gemini-3.8-flash", success: 4, quota: 0, dailyQuota: 1 },
+      { keyIndex: 3, model: "gemini-3.8-flash", success: 5, quota: 0, dailyQuota: 0 },
+    ]);
+    mocks.call.mockResolvedValue(success);
+    expect(await generateStoryEpisode(input)).toMatchObject({
+      model: "gemini-3.8-flash",
+      keyIndex: 4,
+    });
+    expect(calls()).toEqual([["test4", "gemini-3.8-flash"]]);
+  });
+  it("starts at 3.7 after every 3.8 project is exhausted", async () => {
+    mocks.usageRead.mockResolvedValue(
+      [1, 2, 3, 4].map((keyIndex) => ({
+        keyIndex,
+        model: "gemini-3.8-flash",
+        success: 5,
+        quota: 0,
+        dailyQuota: 0,
+      }))
+    );
+    mocks.call.mockResolvedValue(success);
+    expect(await generateStoryEpisode(input)).toMatchObject({
+      model: "gemini-3.7-flash",
+      keyIndex: 1,
+    });
+    expect(calls()).toEqual([["test1", "gemini-3.7-flash"]]);
   });
   it("observation overload advances to the next model immediately", async () => {
     mocks.call.mockRejectedValueOnce(overloaded()).mockResolvedValue(success);

@@ -207,6 +207,9 @@ export default function SettingsPage() {
                             {e.quota > 0 && (
                               <span className="text-red-600"> · 한도초과 {e.quota}</span>
                             )}
+                            {e.dailyQuota > 0 && (
+                              <span className="text-red-600"> · 일일한도 {e.dailyQuota}</span>
+                            )}
                           </span>
                         </li>
                       ))}

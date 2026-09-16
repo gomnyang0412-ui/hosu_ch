@@ -11,9 +11,14 @@ import {
   type SafetySetting,
 } from "@google/genai";
 import { NextResponse } from "next/server";
-import { recordApiUsage } from "./db";
+import { getApiUsage, recordApiUsage } from "./db";
 import { todayPacific } from "./memory";
-import type { CharacterProfile, GenerationProgress, Universe } from "./types";
+import type {
+  ApiUsageEntry,
+  CharacterProfile,
+  GenerationProgress,
+  Universe,
+} from "./types";
 
 // 캐릭터 롤플레이는 갈등·위협·권력관계 같은 긴장된 상황을 다루는 경우가
 // 많은데, 기본 안전 설정은 그런 장면에서 실제 폭력·성적 콘텐츠가 전혀
@@ -71,6 +76,15 @@ const DIALOGUE_LITE_MODELS = [
   "gemini-2.5-flash-lite",
 ];
 const DIALOGUE_MODEL_CHAIN = [...DIALOGUE_MODELS, ...DIALOGUE_LITE_MODELS];
+
+// 무료 등급에서 3.8 Flash는 프로젝트당 하루 5회다. 키들이 서로 다른
+// 프로젝트에 속한다는 전제에서, 앱이 이미 관측한 성공 횟수나 명시적인
+// RequestsPerDay 소진 기록을 이용해 끝난 키를 다시 호출하지 않는다.
+// 다른 모델은 한도가 다르거나 바뀔 수 있으므로 확인된 3.8에만 적용한다.
+const DAILY_REQUEST_LIMITS: Partial<Record<string, number>> = {
+  "gemini-3.8-flash": 5,
+};
+const USAGE_READ_TIMEOUT_MS = 1_000;
 
 export type GeminiErrorKind = "quota" | "network" | "overloaded" | "unknown";
 
@@ -141,6 +155,27 @@ function quotaDimensions(err: unknown): string {
   const dimensions = ["RequestsPerDay", "RequestsPerMinute", "TokensPerMinute"]
     .filter((dimension) => err.message.toLowerCase().includes(dimension.toLowerCase()));
   return dimensions.join(",") || "unknown";
+}
+
+function isDailyQuotaError(err: unknown): boolean {
+  return err instanceof ApiError &&
+    err.status === 429 &&
+    err.message.toLowerCase().includes("requestsperday");
+}
+
+async function readDailyUsage(date: string): Promise<ApiUsageEntry[]> {
+  const work = getApiUsage(date).catch(() => []);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<ApiUsageEntry[]>((resolve) => {
+        timer = setTimeout(() => resolve([]), USAGE_READ_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 function toGeminiError(err: unknown): GeminiRequestError {
@@ -371,12 +406,31 @@ async function generate(params: {
   const startedAt = Date.now();
   const requestId = crypto.randomUUID();
   let attempt = 0;
+  const usageDate = todayPacific();
+  const dailyUsage = params.models.some((model) => DAILY_REQUEST_LIMITS[model])
+    ? await readDailyUsage(usageDate)
+    : [];
+  const usageByModelKey = new Map(
+    dailyUsage.map((entry) => [`${entry.model}:${entry.keyIndex}`, entry])
+  );
   const report = (progress: GenerationProgress) => {
     try { params.onProgress?.(progress); } catch { /* 화면 연결이 끊겨도 생성은 계속한다. */ }
   };
 
   for (const model of params.models) {
     for (let i = 0; i < clients.length; i++) {
+      const dailyLimit = DAILY_REQUEST_LIMITS[model];
+      const previousUsage = usageByModelKey.get(`${model}:${i + 1}`);
+      if (
+        dailyLimit !== undefined &&
+        previousUsage &&
+        (previousUsage.success >= dailyLimit || previousUsage.dailyQuota > 0)
+      ) {
+        console.log(
+          `[gemini] ${requestId} skip=daily-quota model=${model} key#${i + 1} success=${previousUsage.success}`
+        );
+        continue;
+      }
       // 2026-09: 온전한 timeoutMs가 남아야만 시작하던 검사는 채팅에서
       // 15초 실패 후 남은 13초와 Lite의 후속 키를 전부 버렸다.
       // 남은 예산으로 시도 시간을 줄이되 1초도 없으면 새 호출을 시작하지 않는다.
@@ -448,7 +502,7 @@ async function generate(params: {
         // 서버리스 환경에서는 응답을 반환한 뒤 실행이 곧바로 얼어붙을 수
         // 있어서, fire-and-forget이 아니라 기록이 끝나길 기다린 뒤 반환한다
         // (recordApiUsage 자체는 내부에서 실패를 삼켜 절대 던지지 않는다).
-        await recordApiUsage(todayPacific(), i + 1, model, "success");
+        await recordApiUsage(usageDate, i + 1, model, "success");
         return { text, model, keyIndex: i + 1 };
       } catch (err) {
         if (isModelUnavailable(err)) {
@@ -475,7 +529,12 @@ async function generate(params: {
         // 연결 오류를 똑같이 "network"로 분류한다)일 때도 재시도한다.
         // 그것도 다 떨어지면 다음 모델로 넘어간다.
         if (mapped.kind === "quota") {
-          await recordApiUsage(todayPacific(), i + 1, model, "quota");
+          await recordApiUsage(
+            usageDate,
+            i + 1,
+            model,
+            isDailyQuotaError(err) ? "dailyQuota" : "quota"
+          );
         }
         const retryable =
           mapped.kind === "quota" ||
