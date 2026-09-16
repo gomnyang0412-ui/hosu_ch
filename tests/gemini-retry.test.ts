@@ -1,13 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ApiError } from "@google/genai";
+import { ApiError, ThinkingLevel } from "@google/genai";
 
 const mocks = vi.hoisted(() => ({
   call: vi.fn(),
   usage: vi.fn(),
   usageRead: vi.fn(),
+  cooldownsRead: vi.fn(),
+  availabilityFailure: vi.fn(),
+  availabilityClear: vi.fn(),
 }));
 vi.mock("@/lib/db", () => ({
+  clearApiModelAvailabilityFailure: mocks.availabilityClear,
+  getApiModelCooldowns: mocks.cooldownsRead,
   getApiUsage: mocks.usageRead,
+  recordApiModelAvailabilityFailure: mocks.availabilityFailure,
   recordApiUsage: mocks.usage,
 }));
 vi.mock("@google/genai", async (importOriginal) => {
@@ -35,6 +41,9 @@ beforeEach(() => {
   vi.stubEnv("GEMINI_API_KEY", "test1,test2,test3,test4");
   mocks.call.mockReset(); mocks.usage.mockReset(); mocks.usage.mockResolvedValue(undefined);
   mocks.usageRead.mockReset(); mocks.usageRead.mockResolvedValue([]);
+  mocks.cooldownsRead.mockReset(); mocks.cooldownsRead.mockResolvedValue({});
+  mocks.availabilityFailure.mockReset(); mocks.availabilityFailure.mockResolvedValue(undefined);
+  mocks.availabilityClear.mockReset(); mocks.availabilityClear.mockResolvedValue(undefined);
   vi.spyOn(console, "log").mockImplementation(() => {});
   vi.spyOn(console, "warn").mockImplementation(() => {});
 });
@@ -75,6 +84,33 @@ describe("Gemini retry routing", () => {
     ]);
     expect(signalSpy.mock.calls[0]?.[0]).toBe(40_000);
     expect(calls().every(([, model]) => !model.includes("lite"))).toBe(true);
+    expect(mocks.usage).toHaveBeenCalledWith(
+      "1969-12-31",
+      1,
+      "gemini-3.8-flash",
+      "timeout"
+    );
+    expect(mocks.availabilityFailure).toHaveBeenCalledWith(
+      "1969-12-31",
+      "observation",
+      "gemini-3.8-flash"
+    );
+  });
+  it("uses compact contents after an observation timeout", async () => {
+    const full = [{ role: "user" as const, parts: [{ text: "full" }] }];
+    const compact = [{ role: "user" as const, parts: [{ text: "compact" }] }];
+    mocks.call.mockRejectedValueOnce(timeout()).mockResolvedValue(success);
+    expect(await generateStoryEpisode({
+      systemInstruction: "test",
+      contents: full,
+      fallbackContents: compact,
+    })).toMatchObject({ model: "gemini-3.7-flash" });
+    expect(mocks.call.mock.calls[0]?.[1].contents).toBe(full);
+    expect(mocks.call.mock.calls[1]?.[1].contents).toBe(compact);
+    expect(mocks.call.mock.calls[0]?.[1].config.thinkingConfig).toEqual({
+      thinkingLevel: ThinkingLevel.LOW,
+    });
+    expect(mocks.call.mock.calls[1]?.[1].config.thinkingConfig).toBeUndefined();
   });
   it("records RequestsPerDay separately and tries the next project key", async () => {
     mocks.call.mockRejectedValueOnce(dailyQuota()).mockResolvedValue(success);
@@ -118,6 +154,15 @@ describe("Gemini retry routing", () => {
     });
     expect(calls()).toEqual([["test1", "gemini-3.7-flash"]]);
   });
+  it("skips an observation model during its persisted cooldown", async () => {
+    mocks.cooldownsRead.mockResolvedValue({ "gemini-3.8-flash": 60_000 });
+    mocks.call.mockResolvedValue(success);
+    expect(await generateStoryEpisode(input)).toMatchObject({
+      model: "gemini-3.7-flash",
+      keyIndex: 1,
+    });
+    expect(calls()).toEqual([["test1", "gemini-3.7-flash"]]);
+  });
   it("observation overload advances to the next model immediately", async () => {
     mocks.call.mockRejectedValueOnce(overloaded()).mockResolvedValue(success);
     expect(await generateStoryEpisode(input)).toMatchObject({
@@ -128,6 +173,12 @@ describe("Gemini retry routing", () => {
       ["test1", "gemini-3.8-flash"],
       ["test1", "gemini-3.7-flash"],
     ]);
+    expect(mocks.usage).toHaveBeenCalledWith(
+      "1969-12-31",
+      1,
+      "gemini-3.8-flash",
+      "overloaded"
+    );
   });
   it("404 tries another project key before falling back to an older model", async () => {
     mocks.call.mockRejectedValueOnce(unavailable()).mockResolvedValue(success);

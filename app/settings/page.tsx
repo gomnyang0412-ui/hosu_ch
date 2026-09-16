@@ -210,6 +210,12 @@ export default function SettingsPage() {
                             {e.dailyQuota > 0 && (
                               <span className="text-red-600"> · 일일한도 {e.dailyQuota}</span>
                             )}
+                            {e.timeout > 0 && (
+                              <span className="text-red-600"> · 시간초과 {e.timeout}</span>
+                            )}
+                            {e.overloaded > 0 && (
+                              <span className="text-red-600"> · 서버혼잡 {e.overloaded}</span>
+                            )}
                           </span>
                         </li>
                       ))}

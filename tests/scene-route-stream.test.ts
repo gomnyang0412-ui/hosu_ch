@@ -1,7 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ generate: vi.fn(), save: vi.fn(), after: vi.fn(), get: vi.fn() }));
 vi.mock("next/server", async (original) => ({ ...await original<typeof import("next/server")>(), after: mocks.after }));
-vi.mock("@/lib/db", () => ({ getStory: mocks.get, saveStory: mocks.save, recordApiUsage: vi.fn() }));
+vi.mock("@/lib/db", () => ({
+  clearApiModelAvailabilityFailure: vi.fn(),
+  getApiModelCooldowns: vi.fn().mockResolvedValue({}),
+  getApiUsage: vi.fn().mockResolvedValue([]),
+  getStory: mocks.get,
+  recordApiModelAvailabilityFailure: vi.fn(),
+  recordApiUsage: vi.fn(),
+  saveStory: mocks.save,
+}));
 vi.mock("@/lib/gemini", async (original) => ({ ...await original<typeof import("@/lib/gemini")>(), generateStoryEpisode: mocks.generate }));
 import { POST } from "@/app/api/scene/route";
 import { GeminiRequestError } from "@/lib/gemini";

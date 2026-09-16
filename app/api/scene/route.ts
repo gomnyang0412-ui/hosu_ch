@@ -31,9 +31,9 @@ export const runtime = "nodejs";
 // 강제 종료"로 오해해서 이 값을 계속 줄였는데, 실제 원인은 우리 스스로
 // 건 timeoutMs가 12초로 너무 짧았던 것이었다 — 자세한 내용은
 // lib/gemini.ts의 generateStoryEpisode 주석 참고.)
-// overallDeadlineMs가 170초로 늘어난 만큼, 그보다 작으면 우리 코드가
+// overallDeadlineMs가 150초인 만큼, 그보다 작으면 우리 코드가
 // 채 에러 응답을 만들기도 전에 플랫폼이 먼저 함수를 끊어버려 클라이언트엔
-// 원인불명의 "네트워크 문제"로만 보인다 — 그래서 이 값도 같이 늘렸다.
+// 원인불명의 "네트워크 문제"로만 보인다 — 40초 여유를 둬 190초로 유지한다.
 // (호스팅 플랫폼이 실제로 이보다 짧게 강제 종료한다면, 지금까지와는
 // 다른 — 이 코드가 직접 만든 것이 아닌 — 에러 메시지가 나타날 것이다.)
 export const maxDuration = 190;
@@ -171,10 +171,12 @@ function buildUserText(
   arcSummaries: ArcSummary[] | undefined,
   directive?: string,
   elapsedDays?: number,
-  currentState?: string
+  currentState?: string,
+  options?: { recapLimit?: number; preserveUncoveredRecaps?: boolean }
 ): string {
   const all = previousEpisodes ?? [];
   const recentFull = all.slice(-RECENT_FULL_COUNT);
+  const recapLimit = options?.recapLimit ?? RECAP_LIMIT;
   // 구간 요약(arcSummaries)은 ARC_CHUNK_SIZE화씩 모여야 한 번 생성되니,
   // 마지막 구간 요약이 끝난 지점(coveredThrough)과 최근 화 전문이
   // 시작되는 지점 사이에 최대 ARC_CHUNK_SIZE-1화만큼 "아직 구간
@@ -187,8 +189,13 @@ function buildUserText(
     arcSummaries && arcSummaries.length > 0
       ? Math.max(...arcSummaries.map((a) => a.toIndex))
       : 0;
-  const normalRecapStart = all.length - RECENT_FULL_COUNT - RECAP_LIMIT;
-  const earlierStart = Math.max(0, Math.min(coveredThrough, normalRecapStart));
+  const normalRecapStart = all.length - RECENT_FULL_COUNT - recapLimit;
+  const earlierStart = Math.max(
+    0,
+    options?.preserveUncoveredRecaps === false
+      ? normalRecapStart
+      : Math.min(coveredThrough, normalRecapStart)
+  );
   const earlier = all.slice(earlierStart, Math.max(0, all.length - RECENT_FULL_COUNT));
   // 1화를 시작할 때만 주제 원문을 보여준다. 화가 하나라도 쌓인 뒤에는
   // 이 원문을 계속 반복해서 보여주지 않는다 — "참고만 하라"는 안내문을
@@ -340,6 +347,22 @@ export async function POST(request: Request) {
     session.currentState
   );
   const contents: Content[] = [{ role: "user", parts: [{ text: userText }] }];
+  // 첫 모델이 시간초과·혼잡일 때는 다음 모델에 최근 3화 전문·현재 상태·
+  // 구간 요약을 그대로 주되, 오래된 80자 줄거리만 30화로 줄여 입력
+  // 처리 시간을 아낀다. 정상 첫 시도의 맥락과 품질은 바꾸지 않는다.
+  const fallbackUserText = buildUserText(
+    session.topic,
+    session.episodes,
+    nextIndex,
+    session.arcSummaries,
+    body.directive,
+    elapsedDays,
+    session.currentState,
+    { recapLimit: 30, preserveUncoveredRecaps: false }
+  );
+  const fallbackContents: Content[] = [
+    { role: "user", parts: [{ text: fallbackUserText }] },
+  ];
 
   async function generateAndSave(onProgress?: (progress: GenerationProgress) => void): Promise<SceneResult> {
     const { text, model, keyIndex } = await generateStoryEpisode({
@@ -350,6 +373,7 @@ export async function POST(request: Request) {
         body.directiveSplit
       ),
       contents,
+      fallbackContents,
       onProgress,
     });
     const trimmed = text.trim();

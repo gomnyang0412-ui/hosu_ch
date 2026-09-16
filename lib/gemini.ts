@@ -11,7 +11,13 @@ import {
   type SafetySetting,
 } from "@google/genai";
 import { NextResponse } from "next/server";
-import { getApiUsage, recordApiUsage } from "./db";
+import {
+  clearApiModelAvailabilityFailure,
+  getApiModelCooldowns,
+  getApiUsage,
+  recordApiModelAvailabilityFailure,
+  recordApiUsage,
+} from "./db";
 import { todayPacific } from "./memory";
 import type {
   ApiUsageEntry,
@@ -163,14 +169,28 @@ function isDailyQuotaError(err: unknown): boolean {
     err.message.toLowerCase().includes("requestsperday");
 }
 
-async function readDailyUsage(date: string): Promise<ApiUsageEntry[]> {
-  const work = getApiUsage(date).catch(() => []);
+async function readRoutingState(
+  date: string,
+  needsDailyUsage: boolean,
+  cooldownScope?: string
+): Promise<{
+  dailyUsage: ApiUsageEntry[];
+  cooldowns: Record<string, number>;
+}> {
+  const work = Promise.all([
+    needsDailyUsage ? getApiUsage(date) : Promise.resolve([]),
+    cooldownScope ? getApiModelCooldowns(date, cooldownScope) : Promise.resolve({}),
+  ]).then(([dailyUsage, cooldowns]) => ({ dailyUsage, cooldowns }))
+    .catch(() => ({ dailyUsage: [], cooldowns: {} }));
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
       work,
-      new Promise<ApiUsageEntry[]>((resolve) => {
-        timer = setTimeout(() => resolve([]), USAGE_READ_TIMEOUT_MS);
+      new Promise<{ dailyUsage: ApiUsageEntry[]; cooldowns: Record<string, number> }>((resolve) => {
+        timer = setTimeout(
+          () => resolve({ dailyUsage: [], cooldowns: {} }),
+          USAGE_READ_TIMEOUT_MS
+        );
       }),
     ]);
   } finally {
@@ -353,6 +373,8 @@ const CHARACTER_PROFILE_SCHEMA = {
 async function generate(params: {
   systemInstruction: string;
   contents: Content[];
+  /** 앞 모델의 시간초과·혼잡 뒤 다음 모델에 보낼 축약 컨텍스트 */
+  fallbackContents?: Content[];
   json?: boolean;
   /** 기본 SINGLE_REPLY_SCHEMA 대신 쓸 커스텀 스키마 */
   responseSchema?: object;
@@ -378,6 +400,8 @@ async function generate(params: {
   advanceModelOnTimeout?: boolean;
   /** 500/503 혼잡은 같은 모델의 다른 키를 반복하지 않고 다음 모델로 넘긴다. */
   advanceModelOnOverloaded?: boolean;
+  /** 연속 시간초과·혼잡 시 모델을 잠시 건너뛸 용도 구분값 */
+  modelCooldownScope?: string;
   /**
    * 모델·키를 넘나드는 재시도 전체에 거는 총 시간 제한. 호스팅 플랫폼의
    * 실제 함수 실행 제한은 코드의 maxDuration 설정과 별개로 더 짧을 수
@@ -406,10 +430,14 @@ async function generate(params: {
   const startedAt = Date.now();
   const requestId = crypto.randomUUID();
   let attempt = 0;
+  let useFallbackContents = false;
+  let skippedForCooldown = false;
   const usageDate = todayPacific();
-  const dailyUsage = params.models.some((model) => DAILY_REQUEST_LIMITS[model])
-    ? await readDailyUsage(usageDate)
-    : [];
+  const { dailyUsage, cooldowns } = await readRoutingState(
+    usageDate,
+    params.models.some((model) => DAILY_REQUEST_LIMITS[model]),
+    params.modelCooldownScope
+  );
   const usageByModelKey = new Map(
     dailyUsage.map((entry) => [`${entry.model}:${entry.keyIndex}`, entry])
   );
@@ -418,6 +446,13 @@ async function generate(params: {
   };
 
   for (const model of params.models) {
+    if ((cooldowns[model] ?? 0) > Date.now()) {
+      skippedForCooldown = true;
+      console.log(
+        `[gemini] ${requestId} skip=cooldown model=${model} until=${cooldowns[model]}`
+      );
+      continue;
+    }
     for (let i = 0; i < clients.length; i++) {
       const dailyLimit = DAILY_REQUEST_LIMITS[model];
       const previousUsage = usageByModelKey.get(`${model}:${i + 1}`);
@@ -459,7 +494,10 @@ async function generate(params: {
       try {
         const response = await ai.models.generateContent({
           model,
-          contents: params.contents,
+          contents:
+            useFallbackContents && params.fallbackContents
+              ? params.fallbackContents
+              : params.contents,
           config: {
             abortSignal: signal,
             systemInstruction: params.systemInstruction,
@@ -502,7 +540,16 @@ async function generate(params: {
         // 서버리스 환경에서는 응답을 반환한 뒤 실행이 곧바로 얼어붙을 수
         // 있어서, fire-and-forget이 아니라 기록이 끝나길 기다린 뒤 반환한다
         // (recordApiUsage 자체는 내부에서 실패를 삼켜 절대 던지지 않는다).
-        await recordApiUsage(usageDate, i + 1, model, "success");
+        await Promise.all([
+          recordApiUsage(usageDate, i + 1, model, "success"),
+          ...(params.modelCooldownScope
+            ? [clearApiModelAvailabilityFailure(
+                usageDate,
+                params.modelCooldownScope,
+                model
+              )]
+            : []),
+        ]);
         return { text, model, keyIndex: i + 1 };
       } catch (err) {
         if (isModelUnavailable(err)) {
@@ -535,6 +582,22 @@ async function generate(params: {
             model,
             isDailyQuotaError(err) ? "dailyQuota" : "quota"
           );
+        } else if (timedOut || mapped.kind === "overloaded") {
+          await Promise.all([
+            recordApiUsage(
+              usageDate,
+              i + 1,
+              model,
+              timedOut ? "timeout" : "overloaded"
+            ),
+            ...(params.modelCooldownScope
+              ? [recordApiModelAvailabilityFailure(
+                  usageDate,
+                  params.modelCooldownScope,
+                  model
+                )]
+              : []),
+          ]);
         }
         const retryable =
           mapped.kind === "quota" ||
@@ -552,6 +615,7 @@ async function generate(params: {
           (timedOut && params.advanceModelOnTimeout) ||
           (mapped.kind === "overloaded" && params.advanceModelOnOverloaded)
         ) {
+          useFallbackContents = true;
           break;
         }
         // 위에서 모델을 넘기지 않은 재시도 오류는 현재 모델의 다음
@@ -566,10 +630,15 @@ async function generate(params: {
   console.warn(`[gemini] ${requestId} stop=exhausted elapsedMs=${Date.now() - startedAt} attempts=${attempt}`);
   throw (
     lastError ??
-    new GeminiRequestError(
-      "AI 요청 한도에 걸렸어요. 잠시 후 다시 시도해 주세요.",
-      "quota"
-    )
+    (skippedForCooldown
+      ? new GeminiRequestError(
+          "AI 모델들의 응답 지연이 반복돼 잠시 쉬는 중이에요. 조금 뒤 다시 시도해 주세요.",
+          "overloaded"
+        )
+      : new GeminiRequestError(
+          "AI 요청 한도에 걸렸어요. 잠시 후 다시 시도해 주세요.",
+          "quota"
+        ))
   );
 }
 
@@ -645,7 +714,7 @@ export async function generateSummaryText(params: {
  * 그에 맞춰 늘렸다.
  *
  * 예전에는 timeoutMs 전체가 남아야 재시도가 가능해 100초 예산에서도
- * 50초 시도를 두 번 못 하는 문제가 있었다. 170초 예산을 유지하면서,
+ * 50초 시도를 두 번 못 하는 문제가 있었다. 전체 예산 안에서,
  * 현재는 남은 예산으로 마지막 시도의 제한을 줄인다. 관찰 모드에서는
  * 3.8이 느리거나 혼잡할 때 다른 키로 3.8을 반복하지 않고 다음 Flash로
  * 이동한다. quota/모델 미지원처럼 프로젝트 키에 따라 결과가 달라질 수
@@ -654,18 +723,23 @@ export async function generateSummaryText(params: {
 export async function generateStoryEpisode(params: {
   systemInstruction: string;
   contents: Content[];
+  fallbackContents?: Content[];
   onProgress?: (progress: GenerationProgress) => void;
 }): Promise<{ text: string; model: string; keyIndex: number }> {
   return generate({
     ...params,
     json: false,
     models: DIALOGUE_MODELS,
-    timeoutMs: 50_000,
-    timeoutMsByModel: { "gemini-3.8-flash": 40_000 },
+    timeoutMs: 45_000,
+    timeoutMsByModel: {
+      "gemini-3.8-flash": 40_000,
+      "gemini-3.7-flash": 45_000,
+    },
     retryOnTimeout: true,
     advanceModelOnTimeout: true,
     advanceModelOnOverloaded: true,
-    overallDeadlineMs: 170_000,
+    modelCooldownScope: "observation",
+    overallDeadlineMs: 150_000,
     // 3.8 Flash는 기본 추론 수준(medium)에서 장문 창작 응답이 느려질 수
     // 있으므로 관찰 모드에서만 low로 낮춘다. 뒤의 폴백 모델들과 대화·
     // 프로필 등 다른 호출은 각 모델의 기본값을 그대로 유지한다.

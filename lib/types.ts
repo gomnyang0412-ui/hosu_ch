@@ -393,6 +393,10 @@ export interface ApiUsageEntry {
   quota: number;
   /** RequestsPerDay 한도가 소진됐다고 API가 명시한 횟수 */
   dailyQuota: number;
+  /** 응답 제한시간을 넘긴 횟수 */
+  timeout: number;
+  /** 500/503 모델 서버 혼잡 횟수 */
+  overloaded: number;
 }
 
 /** 생성 중에만 전송하는 임시 상태. Redis·백업에는 저장하지 않는다. */

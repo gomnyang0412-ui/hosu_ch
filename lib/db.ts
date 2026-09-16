@@ -567,7 +567,12 @@ function usageKey(date: string): string {
   return `${KEYS.usagePrefix}${date}`;
 }
 
-type ApiUsageOutcome = "success" | "quota" | "dailyQuota";
+type ApiUsageOutcome =
+  | "success"
+  | "quota"
+  | "dailyQuota"
+  | "timeout"
+  | "overloaded";
 
 function usageField(keyIndex: number, model: string, outcome: ApiUsageOutcome): string {
   return `${keyIndex}:${model}:${outcome}`;
@@ -610,6 +615,91 @@ export async function recordApiUsage(
   }
 }
 
+const MODEL_COOLDOWN_MS = 30 * 60 * 1000;
+const MODEL_FAILURE_THRESHOLD = 2;
+
+function modelHealthField(
+  scope: string,
+  model: string,
+  metric: "streak" | "cooldownUntil"
+): string {
+  return `health:${scope}:${model}:${metric}`;
+}
+
+/** 같은 용도의 모델이 연속으로 느리거나 혼잡하면 잠시 건너뛰게 한다.
+ * 통계는 보조 기능이므로 Redis 문제가 실제 AI 응답을 막지 않게 한다. */
+export async function recordApiModelAvailabilityFailure(
+  date: string,
+  scope: string,
+  model: string
+): Promise<void> {
+  const key = usageKey(date);
+  const work = (async () => {
+    const redis = getRedis();
+    const streak = await redis.hincrby(
+      key,
+      modelHealthField(scope, model, "streak"),
+      1
+    );
+    if (streak >= MODEL_FAILURE_THRESHOLD) {
+      await redis.hset(key, {
+        [modelHealthField(scope, model, "streak")]: 0,
+        [modelHealthField(scope, model, "cooldownUntil")]: Date.now() + MODEL_COOLDOWN_MS,
+      });
+    }
+    await redis.expire(key, USAGE_TTL_SECONDS);
+  })().catch(() => {});
+  try {
+    await Promise.race([
+      work,
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("model health record timeout")), USAGE_RECORD_TIMEOUT_MS)
+      ),
+    ]);
+  } catch {
+    // 보조 상태 기록 실패가 생성 흐름을 막으면 안 된다.
+  }
+}
+
+/** 성공했으면 같은 용도의 모델 실패 연속 기록과 냉각 상태를 해제한다. */
+export async function clearApiModelAvailabilityFailure(
+  date: string,
+  scope: string,
+  model: string
+): Promise<void> {
+  const work = getRedis().hset(usageKey(date), {
+    [modelHealthField(scope, model, "streak")]: 0,
+    [modelHealthField(scope, model, "cooldownUntil")]: 0,
+  }).catch(() => {});
+  try {
+    await Promise.race([
+      work,
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("model health clear timeout")), USAGE_RECORD_TIMEOUT_MS)
+      ),
+    ]);
+  } catch {
+    // 보조 상태 기록 실패가 생성 흐름을 막으면 안 된다.
+  }
+}
+
+export async function getApiModelCooldowns(
+  date: string,
+  scope: string
+): Promise<Record<string, number>> {
+  const raw = await getRedis().hgetall<Record<string, number>>(usageKey(date));
+  if (!raw) return {};
+  const prefix = `health:${scope}:`;
+  const suffix = ":cooldownUntil";
+  const result: Record<string, number> = {};
+  for (const [field, value] of Object.entries(raw)) {
+    if (!field.startsWith(prefix) || !field.endsWith(suffix)) continue;
+    const model = field.slice(prefix.length, -suffix.length);
+    if (model && Number(value) > Date.now()) result[model] = Number(value);
+  }
+  return result;
+}
+
 export async function getApiUsage(date: string): Promise<ApiUsageEntry[]> {
   const raw = await getRedis().hgetall<Record<string, number>>(usageKey(date));
   if (!raw) return [];
@@ -620,7 +710,11 @@ export async function getApiUsage(date: string): Promise<ApiUsageEntry[]> {
     const keyIndex = Number(keyIndexStr);
     if (
       !Number.isFinite(keyIndex) ||
-      (outcome !== "success" && outcome !== "quota" && outcome !== "dailyQuota")
+      (outcome !== "success" &&
+        outcome !== "quota" &&
+        outcome !== "dailyQuota" &&
+        outcome !== "timeout" &&
+        outcome !== "overloaded")
     ) {
       continue;
     }
@@ -631,6 +725,8 @@ export async function getApiUsage(date: string): Promise<ApiUsageEntry[]> {
       success: 0,
       quota: 0,
       dailyQuota: 0,
+      timeout: 0,
+      overloaded: 0,
     };
     entry[outcome] = count;
     entries.set(mapKey, entry);
