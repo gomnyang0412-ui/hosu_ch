@@ -28,6 +28,19 @@ describe("scene stream reader", () => {
     await expect(readSceneResponse(response([{ type: "error", error: "한도 도달", kind: "quota" }]), vi.fn()))
       .rejects.toMatchObject({ message: "한도 도달", kind: "quota" });
   });
+  it("explains daily-limit and cooldown skips", () => {
+    expect(generationProgressLabel({
+      phase: "skip",
+      model: "gemini-3.8-flash",
+      keyIndex: 1,
+      reason: "dailyQuota",
+    })).toBe("Gemini 3.8 Flash · 키1 · 오늘 한도 소진으로 건너뜀");
+    expect(generationProgressLabel({
+      phase: "skip",
+      model: "gemini-3.6-flash",
+      reason: "cooldown",
+    })).toBe("Gemini 3.6 Flash · 반복 지연 냉각 중이라 건너뜀");
+  });
   it("does not mistake an interrupted stream for a saved result", async () => {
     await expect(readSceneResponse(response([{ type: "ping" }]), vi.fn())).rejects.toThrow("without a saved result");
   });

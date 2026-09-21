@@ -10,12 +10,26 @@ export function generationProgressLabel(progress: GenerationProgress): string {
     case "retry": {
       const reasons = {
         quota: "요청 한도 도달",
+        dailyQuota: "오늘 한도 소진",
         timeout: "응답 시간 초과",
         overloaded: "서버 혼잡",
         network: "연결 오류",
         unavailable: "모델 사용 불가",
+        cooldown: "반복 지연으로 잠시 대기",
       };
       return `${source} · ${progress.reason ? reasons[progress.reason] : "다음 시도 준비 중"}`;
+    }
+    case "skip": {
+      const reasons = {
+        quota: "요청 한도로 건너뜀",
+        dailyQuota: "오늘 한도 소진으로 건너뜀",
+        timeout: "응답 시간 초과로 건너뜀",
+        overloaded: "서버 혼잡으로 건너뜀",
+        network: "연결 오류로 건너뜀",
+        unavailable: "모델 사용 불가로 건너뜀",
+        cooldown: "반복 지연 냉각 중이라 건너뜀",
+      };
+      return `${source} · ${progress.reason ? reasons[progress.reason] : "건너뜀"}`;
     }
   }
 }

@@ -481,8 +481,16 @@ function ObservePageInner() {
         const data = await readSceneResponse(res, (progress) => {
           if (signal?.aborted) return;
           const label = generationProgressLabel(progress);
-          if (progress.phase === "retry") setLastTransition(label);
-          setGenerationMessage(progress.phase === "retry" ? "다음 시도 준비 중…" : label);
+          if (progress.phase === "retry" || progress.phase === "skip") {
+            setLastTransition(label);
+          }
+          setGenerationMessage(
+            progress.phase === "retry"
+              ? "다음 시도 준비 중…"
+              : progress.phase === "skip"
+                ? "다음 모델 확인 중…"
+                : label
+          );
         });
         setLoading(false);
         return {

@@ -396,12 +396,16 @@ async function generate(params: {
    * overallDeadlineMs로 총 시간은 여전히 제한해야 한다).
    */
   retryOnTimeout?: boolean;
-  /** 타임아웃은 같은 모델의 다른 키를 반복하지 않고 다음 모델로 넘긴다. */
+  /** 타임아웃 뒤 모델별 허용 횟수만큼 실제 키를 확인하고 다음 모델로 넘긴다. */
   advanceModelOnTimeout?: boolean;
-  /** 500/503 혼잡은 같은 모델의 다른 키를 반복하지 않고 다음 모델로 넘긴다. */
+  /** 500/503 혼잡 뒤 모델별 허용 횟수만큼 실제 키를 확인하고 다음 모델로 넘긴다. */
   advanceModelOnOverloaded?: boolean;
+  /** 타임아웃·혼잡 때 다음 모델로 이동하기 전 실제 호출할 최대 키 수. 기본 1회. */
+  availabilityAttemptsByModel?: Partial<Record<string, number>>;
   /** 연속 시간초과·혼잡 시 모델을 잠시 건너뛸 용도 구분값 */
   modelCooldownScope?: string;
+  /** modelCooldownScope 안에서도 냉각을 적용할 모델. 생략하면 전체 모델. */
+  modelCooldownModels?: string[];
   /**
    * 모델·키를 넘나드는 재시도 전체에 거는 총 시간 제한. 호스팅 플랫폼의
    * 실제 함수 실행 제한은 코드의 maxDuration 설정과 별개로 더 짧을 수
@@ -446,13 +450,19 @@ async function generate(params: {
   };
 
   for (const model of params.models) {
-    if ((cooldowns[model] ?? 0) > Date.now()) {
+    const usesModelCooldown = Boolean(
+      params.modelCooldownScope &&
+      (!params.modelCooldownModels || params.modelCooldownModels.includes(model))
+    );
+    if (usesModelCooldown && (cooldowns[model] ?? 0) > Date.now()) {
       skippedForCooldown = true;
+      report({ phase: "skip", model, reason: "cooldown" });
       console.log(
         `[gemini] ${requestId} skip=cooldown model=${model} until=${cooldowns[model]}`
       );
       continue;
     }
+    let availabilityAttempts = 0;
     for (let i = 0; i < clients.length; i++) {
       const dailyLimit = DAILY_REQUEST_LIMITS[model];
       const previousUsage = usageByModelKey.get(`${model}:${i + 1}`);
@@ -461,6 +471,7 @@ async function generate(params: {
         previousUsage &&
         (previousUsage.success >= dailyLimit || previousUsage.dailyQuota > 0)
       ) {
+        report({ phase: "skip", model, keyIndex: i + 1, reason: "dailyQuota" });
         console.log(
           `[gemini] ${requestId} skip=daily-quota model=${model} key#${i + 1} success=${previousUsage.success}`
         );
@@ -542,10 +553,10 @@ async function generate(params: {
         // (recordApiUsage 자체는 내부에서 실패를 삼켜 절대 던지지 않는다).
         await Promise.all([
           recordApiUsage(usageDate, i + 1, model, "success"),
-          ...(params.modelCooldownScope
+          ...(usesModelCooldown
             ? [clearApiModelAvailabilityFailure(
                 usageDate,
-                params.modelCooldownScope,
+                params.modelCooldownScope!,
                 model
               )]
             : []),
@@ -590,10 +601,10 @@ async function generate(params: {
               model,
               timedOut ? "timeout" : "overloaded"
             ),
-            ...(params.modelCooldownScope
+            ...(usesModelCooldown
               ? [recordApiModelAvailabilityFailure(
                   usageDate,
-                  params.modelCooldownScope,
+                  params.modelCooldownScope!,
                   model
                 )]
               : []),
@@ -607,16 +618,20 @@ async function generate(params: {
         lastError = mapped;
         report({ phase: "retry", model, keyIndex: i + 1,
           reason: timedOut ? "timeout" : mapped.kind as "quota" | "overloaded" | "network" });
-        // 키를 바꿔 해결될 가능성이 높은 quota는 기존처럼 같은 모델의
-        // 다음 키를 쓴다. 반면 모델 서버 혼잡과 장시간 무응답은 관찰
-        // 모드에서 키만 바꿔 같은 모델을 반복하면 전체 예산을 소진하므로,
-        // 호출부가 요청한 경우 즉시 다음 모델로 내려간다.
-        if (
+        // quota는 기존처럼 현재 모델의 모든 키를 확인한다. 타임아웃·혼잡은
+        // 호출부가 정한 모델별 횟수까지만 실제 키를 바꿔 본 뒤 다음 모델로
+        // 이동한다. 별도 설정이 없으면 기존 동작과 같은 1회다.
+        const advancesAfterAvailabilityFailure =
           (timedOut && params.advanceModelOnTimeout) ||
-          (mapped.kind === "overloaded" && params.advanceModelOnOverloaded)
-        ) {
+          (mapped.kind === "overloaded" && params.advanceModelOnOverloaded);
+        if (advancesAfterAvailabilityFailure) {
           useFallbackContents = true;
-          break;
+          availabilityAttempts++;
+          const allowedAttempts = Math.max(
+            1,
+            params.availabilityAttemptsByModel?.[model] ?? 1
+          );
+          if (availabilityAttempts >= allowedAttempts) break;
         }
         // 위에서 모델을 넘기지 않은 재시도 오류는 현재 모델의 다음
         // 프로젝트 키를 먼저 쓴다. 모든 키가 실패한 뒤에 다음 모델로 간다.
@@ -716,9 +731,9 @@ export async function generateSummaryText(params: {
  * 예전에는 timeoutMs 전체가 남아야 재시도가 가능해 100초 예산에서도
  * 50초 시도를 두 번 못 하는 문제가 있었다. 전체 예산 안에서,
  * 현재는 남은 예산으로 마지막 시도의 제한을 줄인다. 관찰 모드에서는
- * 3.8이 느리거나 혼잡할 때 다른 키로 3.8을 반복하지 않고 다음 Flash로
- * 이동한다. quota/모델 미지원처럼 프로젝트 키에 따라 결과가 달라질 수
- * 있는 오류만 같은 모델의 다음 키를 확인한다.
+ * 최우선인 3.8·3.7이 느리거나 혼잡해도 서로 다른 키를 두 개까지 확인하고,
+ * 하위 Flash는 한 번 실패하면 다음 모델로 이동한다. quota/모델 미지원은
+ * 프로젝트 키에 따라 결과가 달라질 수 있어 기존처럼 모든 키를 확인한다.
  */
 export async function generateStoryEpisode(params: {
   systemInstruction: string;
@@ -738,7 +753,20 @@ export async function generateStoryEpisode(params: {
     retryOnTimeout: true,
     advanceModelOnTimeout: true,
     advanceModelOnOverloaded: true,
+    // 최우선인 3.8·3.7은 한 키의 일시적 지연만으로 포기하지 않는다.
+    // 다만 모든 키를 순회하면 장문 생성 예산이 소진되므로 실제 키 두 개까지만 본다.
+    availabilityAttemptsByModel: {
+      "gemini-3.8-flash": 2,
+      "gemini-3.7-flash": 2,
+    },
     modelCooldownScope: "observation",
+    // 3.8·3.7은 우선순위 보호 모델이다. 과거 지연 기록으로 통째로 건너뛰지
+    // 않고 매 요청에서 다시 확인하며, 하위 모델만 반복 장애 때 잠시 냉각한다.
+    modelCooldownModels: [
+      "gemini-3.6-flash",
+      "gemini-3.5-flash",
+      "gemini-3-flash-preview",
+    ],
     overallDeadlineMs: 150_000,
     // 3.8 Flash는 기본 추론 수준(medium)에서 장문 창작 응답이 느려질 수
     // 있으므로 관찰 모드에서만 low로 낮춘다. 뒤의 폴백 모델들과 대화·

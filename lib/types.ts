@@ -401,10 +401,17 @@ export interface ApiUsageEntry {
 
 /** 생성 중에만 전송하는 임시 상태. Redis·백업에는 저장하지 않는다. */
 export interface GenerationProgress {
-  phase: "attempt" | "retry" | "generated" | "saving";
+  phase: "attempt" | "retry" | "skip" | "generated" | "saving";
   model: string;
-  keyIndex: number;
-  reason?: "quota" | "timeout" | "network" | "overloaded" | "unavailable";
+  keyIndex?: number;
+  reason?:
+    | "quota"
+    | "dailyQuota"
+    | "timeout"
+    | "network"
+    | "overloaded"
+    | "unavailable"
+    | "cooldown";
 }
 
 export interface SceneResult {

@@ -68,7 +68,7 @@ describe("Gemini retry routing", () => {
     expect(calls()).toEqual([["test1", "gemini-3.8-flash"], ["test2", "gemini-3.8-flash"]]);
     expect(signalSpy.mock.calls.map(([ms]) => ms)).toEqual([15000, 12999]);
   });
-  it("observation timeouts advance models without repeating keys", async () => {
+  it("observation timeouts try two keys on 3.8 and 3.7 before lower fallbacks", async () => {
     mocks.call.mockRejectedValue(timeout());
     const signalSpy = vi.spyOn(AbortSignal, "timeout");
     const pending = generateStoryEpisode(input);
@@ -77,7 +77,9 @@ describe("Gemini retry routing", () => {
     await rejection;
     expect(calls()).toEqual([
       ["test1", "gemini-3.8-flash"],
+      ["test2", "gemini-3.8-flash"],
       ["test1", "gemini-3.7-flash"],
+      ["test2", "gemini-3.7-flash"],
       ["test1", "gemini-3.6-flash"],
       ["test1", "gemini-3.5-flash"],
       ["test1", "gemini-3-flash-preview"],
@@ -90,27 +92,41 @@ describe("Gemini retry routing", () => {
       "gemini-3.8-flash",
       "timeout"
     );
-    expect(mocks.availabilityFailure).toHaveBeenCalledWith(
+    expect(mocks.availabilityFailure).not.toHaveBeenCalledWith(
       "1969-12-31",
       "observation",
       "gemini-3.8-flash"
+    );
+    expect(mocks.availabilityFailure).toHaveBeenCalledWith(
+      "1969-12-31",
+      "observation",
+      "gemini-3.6-flash"
     );
   });
   it("uses compact contents after an observation timeout", async () => {
     const full = [{ role: "user" as const, parts: [{ text: "full" }] }];
     const compact = [{ role: "user" as const, parts: [{ text: "compact" }] }];
-    mocks.call.mockRejectedValueOnce(timeout()).mockResolvedValue(success);
-    expect(await generateStoryEpisode({
+    mocks.call
+      .mockRejectedValueOnce(timeout())
+      .mockRejectedValueOnce(timeout())
+      .mockResolvedValue(success);
+    const pending = generateStoryEpisode({
       systemInstruction: "test",
       contents: full,
       fallbackContents: compact,
-    })).toMatchObject({ model: "gemini-3.7-flash" });
+    });
+    await vi.runAllTimersAsync();
+    expect(await pending).toMatchObject({ model: "gemini-3.7-flash" });
     expect(mocks.call.mock.calls[0]?.[1].contents).toBe(full);
     expect(mocks.call.mock.calls[1]?.[1].contents).toBe(compact);
+    expect(mocks.call.mock.calls[2]?.[1].contents).toBe(compact);
     expect(mocks.call.mock.calls[0]?.[1].config.thinkingConfig).toEqual({
       thinkingLevel: ThinkingLevel.LOW,
     });
-    expect(mocks.call.mock.calls[1]?.[1].config.thinkingConfig).toBeUndefined();
+    expect(mocks.call.mock.calls[1]?.[1].config.thinkingConfig).toEqual({
+      thinkingLevel: ThinkingLevel.LOW,
+    });
+    expect(mocks.call.mock.calls[2]?.[1].config.thinkingConfig).toBeUndefined();
   });
   it("records RequestsPerDay separately and tries the next project key", async () => {
     mocks.call.mockRejectedValueOnce(dailyQuota()).mockResolvedValue(success);
@@ -131,11 +147,17 @@ describe("Gemini retry routing", () => {
       { keyIndex: 3, model: "gemini-3.8-flash", success: 5, quota: 0, dailyQuota: 0 },
     ]);
     mocks.call.mockResolvedValue(success);
-    expect(await generateStoryEpisode(input)).toMatchObject({
+    const progress = vi.fn();
+    expect(await generateStoryEpisode({ ...input, onProgress: progress })).toMatchObject({
       model: "gemini-3.8-flash",
       keyIndex: 4,
     });
     expect(calls()).toEqual([["test4", "gemini-3.8-flash"]]);
+    expect(progress.mock.calls.slice(0, 3).map(([p]) => [p.phase, p.keyIndex, p.reason])).toEqual([
+      ["skip", 1, "dailyQuota"],
+      ["skip", 2, "dailyQuota"],
+      ["skip", 3, "dailyQuota"],
+    ]);
   });
   it("starts at 3.7 after every 3.8 project is exhausted", async () => {
     mocks.usageRead.mockResolvedValue(
@@ -154,24 +176,42 @@ describe("Gemini retry routing", () => {
     });
     expect(calls()).toEqual([["test1", "gemini-3.7-flash"]]);
   });
-  it("skips an observation model during its persisted cooldown", async () => {
+  it("does not let a persisted cooldown skip protected 3.8", async () => {
     mocks.cooldownsRead.mockResolvedValue({ "gemini-3.8-flash": 60_000 });
     mocks.call.mockResolvedValue(success);
     expect(await generateStoryEpisode(input)).toMatchObject({
-      model: "gemini-3.7-flash",
+      model: "gemini-3.8-flash",
       keyIndex: 1,
     });
-    expect(calls()).toEqual([["test1", "gemini-3.7-flash"]]);
+    expect(calls()).toEqual([["test1", "gemini-3.8-flash"]]);
   });
-  it("observation overload advances to the next model immediately", async () => {
-    mocks.call.mockRejectedValueOnce(overloaded()).mockResolvedValue(success);
-    expect(await generateStoryEpisode(input)).toMatchObject({
-      model: "gemini-3.7-flash",
-      keyIndex: 1,
+  it("still skips a lower observation model during its persisted cooldown", async () => {
+    mocks.cooldownsRead.mockResolvedValue({ "gemini-3.6-flash": 60_000 });
+    mocks.call.mockImplementation((_key, { model }) => {
+      if (model === "gemini-3.8-flash" || model === "gemini-3.7-flash") {
+        throw unavailable();
+      }
+      return success;
     });
+    const progress = vi.fn();
+    const pending = generateStoryEpisode({ ...input, onProgress: progress });
+    await vi.runAllTimersAsync();
+    expect(await pending).toMatchObject({ model: "gemini-3.5-flash", keyIndex: 1 });
+    expect(calls().some(([, model]) => model === "gemini-3.6-flash")).toBe(false);
+    expect(progress).toHaveBeenCalledWith({
+      phase: "skip",
+      model: "gemini-3.6-flash",
+      reason: "cooldown",
+    });
+  });
+  it("observation overload tries a second key on protected 3.8", async () => {
+    mocks.call.mockRejectedValueOnce(overloaded()).mockResolvedValue(success);
+    const pending = generateStoryEpisode(input);
+    await vi.runAllTimersAsync();
+    expect(await pending).toMatchObject({ model: "gemini-3.8-flash", keyIndex: 2 });
     expect(calls()).toEqual([
       ["test1", "gemini-3.8-flash"],
-      ["test1", "gemini-3.7-flash"],
+      ["test2", "gemini-3.8-flash"],
     ]);
     expect(mocks.usage).toHaveBeenCalledWith(
       "1969-12-31",
