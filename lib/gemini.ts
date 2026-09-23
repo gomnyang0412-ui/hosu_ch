@@ -302,7 +302,7 @@ export function worldBlock(universe: Universe): string {
         `[세계관 종류]`,
         `이건 오리지널 설정이 아니라 "${universe.title}"라는 AU(다른 세계관)다.`,
         `아래 세계관 설정을 기준으로 하되, 인물의 이름과 근본적인 성격의 뿌리는 유지하면서`,
-        `이 세계관에 맞게 상황과 관계를 재해석해서 연기한다.`,
+        `이 세계관에 맞게 상황을 재해석해서 연기한다. 관계는 아래 [관계]에 명시된 내용만 재해석하며, [관계]가 없으면 기존 인연을 임의로 만들지 않는다.`,
       ].join("\n")
     );
   }
@@ -325,6 +325,21 @@ export function worldBlock(universe: Universe): string {
     parts.push(`[요약]\n${universe.summary.trim()}`);
   }
   return parts.join("\n\n");
+}
+
+/** 관찰 모드에서 비어 있는 관계 설정을 모델의 자유 창작 허가로 오해하지 않게 한다. */
+export function observationRelationshipRule(universe: Universe): string {
+  const hasUniverseRelations = (universe.relations ?? []).some((relation) =>
+    Boolean(relation?.trim())
+  );
+  return [
+    `[관계 기준]`,
+    hasUniverseRelations
+      ? `인물 간 시작 관계는 위 [관계]에 적힌 내용만 사실로 취급한다.`
+      : `위에 [관계] 블록이 없다는 것은 세계관 차원에서 미리 정해진 관계가 없다는 뜻이다. 다른 입력에 명시된 관계만 따르며, 빈칸을 자유롭게 보충하라는 뜻이 아니다.`,
+    `[등장 인물]의 "연관 인물"·"애정 관계", 주제·[다음 화 지시], 앞선 화·요약·[현재 상태]에 명시되지 않은 가족·친척·연인·배우자·친구·동료·상하·주종 관계나 공유된 과거를 임의로 만들어 이미 존재했던 사실처럼 서술하지 않는다.`,
+    `새로운 관계는 이번 이야기 본문에서 실제로 만남·사건·대화가 쌓인 결과로만 형성할 수 있다. 그 과정 없이 처음부터 서로를 잘 아는 듯한 호칭·회상·소유욕·친밀감·적대감 등을 부여하지 않는다.`,
+  ].join("\n");
 }
 
 // Gemini 호출 한 번이 이 시간을 넘기면 응답을 무한정 기다리지 않고

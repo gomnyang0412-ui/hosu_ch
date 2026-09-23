@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { characterLines, worldBlock } from "@/lib/gemini";
+import {
+  characterLines,
+  observationRelationshipRule,
+  worldBlock,
+} from "@/lib/gemini";
 import type { CharacterProfile, Universe } from "@/lib/types";
 
 const character: CharacterProfile = {
@@ -53,10 +57,27 @@ describe("Gemini 캐릭터 프롬프트 경계", () => {
     const text = worldBlock(au);
 
     expect(text).toContain('"느와르 AU"라는 AU');
+    expect(text).toContain("[관계]가 없으면 기존 인연을 임의로 만들지 않는다");
     expect(text).toContain("[세계관]\n비가 멈추지 않는 항구 도시");
     expect(text).toContain("[파벌]\n항만 조사국");
     expect(text).toContain("- 관계 1: 해원과 도윤은 불편한 동료다");
     expect(text).toContain("[용어 및 설정]\n백야: 도시의 정전 현상");
     expect(text).toContain("[요약]\n서로를 믿지 못하는 수사극");
+  });
+
+  it("관계가 비어 있으면 관찰 모드가 기존 인연을 임의로 만들지 못하게 한다", () => {
+    const emptyRelations = { ...au, relations: Array(10).fill("") };
+    const text = observationRelationshipRule(emptyRelations);
+
+    expect(text).toContain("세계관 차원에서 미리 정해진 관계가 없다는 뜻");
+    expect(text).toContain("빈칸을 자유롭게 보충하라는 뜻이 아니다");
+    expect(text).toContain("가족·친척·연인·배우자·친구·동료·상하·주종 관계");
+    expect(text).toContain("이야기 본문에서 실제로 만남·사건·대화가 쌓인 결과");
+  });
+
+  it("설정한 관계가 있으면 관찰 모드의 시작 관계로만 사용한다", () => {
+    expect(observationRelationshipRule(au)).toContain(
+      "인물 간 시작 관계는 위 [관계]에 적힌 내용만 사실로 취급한다"
+    );
   });
 });
