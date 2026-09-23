@@ -86,7 +86,7 @@ describe("Gemini retry routing", () => {
     expect(calls()).toEqual([["test1", "gemini-3.8-flash"], ["test2", "gemini-3.8-flash"]]);
     expect(signalSpy.mock.calls.map(([ms]) => ms)).toEqual([15000, 12999]);
   });
-  it("observation timeouts try two keys on 3.8 and 3.7 before lower fallbacks", async () => {
+  it("observation timeouts exhaust every key on 3.8 and 3.7 before lower fallbacks", async () => {
     mocks.call.mockRejectedValue(timeout());
     const signalSpy = vi.spyOn(AbortSignal, "timeout");
     const pending = generateStoryEpisode(input);
@@ -96,8 +96,12 @@ describe("Gemini retry routing", () => {
     expect(calls()).toEqual([
       ["test1", "gemini-3.8-flash"],
       ["test2", "gemini-3.8-flash"],
+      ["test3", "gemini-3.8-flash"],
+      ["test4", "gemini-3.8-flash"],
       ["test1", "gemini-3.7-flash"],
       ["test2", "gemini-3.7-flash"],
+      ["test3", "gemini-3.7-flash"],
+      ["test4", "gemini-3.7-flash"],
       ["test1", "gemini-3.6-flash"],
       ["test1", "gemini-3.5-flash"],
       ["test1", "gemini-3-flash-preview"],
@@ -121,7 +125,7 @@ describe("Gemini retry routing", () => {
       "gemini-3.6-flash"
     );
   });
-  it("uses compact contents after an observation timeout", async () => {
+  it("uses compact contents while continuing through protected 3.8 keys", async () => {
     const full = [{ role: "user" as const, parts: [{ text: "full" }] }];
     const compact = [{ role: "user" as const, parts: [{ text: "compact" }] }];
     mocks.call
@@ -134,7 +138,7 @@ describe("Gemini retry routing", () => {
       fallbackContents: compact,
     });
     await vi.runAllTimersAsync();
-    expect(await pending).toMatchObject({ model: "gemini-3.7-flash" });
+    expect(await pending).toMatchObject({ model: "gemini-3.8-flash", keyIndex: 3 });
     expect(mocks.call.mock.calls[0]?.[1].contents).toBe(full);
     expect(mocks.call.mock.calls[1]?.[1].contents).toBe(compact);
     expect(mocks.call.mock.calls[2]?.[1].contents).toBe(compact);
@@ -144,7 +148,9 @@ describe("Gemini retry routing", () => {
     expect(mocks.call.mock.calls[1]?.[1].config.thinkingConfig).toEqual({
       thinkingLevel: ThinkingLevel.LOW,
     });
-    expect(mocks.call.mock.calls[2]?.[1].config.thinkingConfig).toBeUndefined();
+    expect(mocks.call.mock.calls[2]?.[1].config.thinkingConfig).toEqual({
+      thinkingLevel: ThinkingLevel.LOW,
+    });
   });
   it("records RequestsPerDay separately and tries the next project key", async () => {
     mocks.call.mockRejectedValueOnce(dailyQuota()).mockResolvedValue(success);

@@ -416,7 +416,7 @@ async function generate(params: {
   /** 500/503 혼잡 뒤 모델별 허용 횟수만큼 실제 키를 확인하고 다음 모델로 넘긴다. */
   advanceModelOnOverloaded?: boolean;
   /** 타임아웃·혼잡 때 다음 모델로 이동하기 전 실제 호출할 최대 키 수. 기본 1회. */
-  availabilityAttemptsByModel?: Partial<Record<string, number>>;
+  availabilityAttemptsByModel?: Partial<Record<string, number | "all">>;
   /** 연속 시간초과·혼잡 시 모델을 잠시 건너뛸 용도 구분값 */
   modelCooldownScope?: string;
   /** modelCooldownScope 안에서도 냉각을 적용할 모델. 생략하면 전체 모델. */
@@ -660,10 +660,10 @@ async function generate(params: {
           if (advancesAfterAvailabilityFailure) {
             useFallbackContents = true;
             availabilityAttempts++;
-            const allowedAttempts = Math.max(
-              1,
-              params.availabilityAttemptsByModel?.[model] ?? 1
-            );
+            const configuredAttempts = params.availabilityAttemptsByModel?.[model];
+            const allowedAttempts = configuredAttempts === "all"
+              ? clients.length
+              : Math.max(1, configuredAttempts ?? 1);
             if (availabilityAttempts >= allowedAttempts) {
               advanceToNextModel = true;
               break;
@@ -781,9 +781,9 @@ export async function generateSummaryText(params: {
  * 예전에는 timeoutMs 전체가 남아야 재시도가 가능해 100초 예산에서도
  * 50초 시도를 두 번 못 하는 문제가 있었다. 전체 예산 안에서,
  * 현재는 남은 예산으로 마지막 시도의 제한을 줄인다. 관찰 모드에서는
- * 최우선인 3.8·3.7이 느리거나 혼잡해도 서로 다른 키를 두 개까지 확인하고,
- * 하위 Flash는 한 번 실패하면 다음 모델로 이동한다. quota/모델 미지원은
- * 프로젝트 키에 따라 결과가 달라질 수 있어 기존처럼 모든 키를 확인한다.
+ * 최우선인 3.8·3.7이 느리거나 혼잡하면 설정된 키를 전부 확인한 뒤에만
+ * 다음 모델로 이동한다. 하위 Flash는 한 번 실패하면 다음 모델로 이동한다.
+ * 전체 시간 예산이 먼저 소진되면 그 시점에서 안전하게 중단한다.
  */
 export async function generateStoryEpisode(params: {
   systemInstruction: string;
@@ -805,11 +805,11 @@ export async function generateStoryEpisode(params: {
     advanceModelOnOverloaded: true,
     transientQuotaBackoffRoundsByModel: PRIORITY_QUOTA_BACKOFF_ROUNDS,
     transientQuotaBackoffMs: PRIORITY_QUOTA_BACKOFF_MS,
-    // 최우선인 3.8·3.7은 한 키의 일시적 지연만으로 포기하지 않는다.
-    // 다만 모든 키를 순회하면 장문 생성 예산이 소진되므로 실제 키 두 개까지만 본다.
+    // 최우선인 3.8·3.7은 키1·키2만 보고 포기하지 않고 설정된 키를 모두 본다.
+    // 전체 지연은 overallDeadlineMs가 별도로 제한한다.
     availabilityAttemptsByModel: {
-      "gemini-3.8-flash": 2,
-      "gemini-3.7-flash": 2,
+      "gemini-3.8-flash": "all",
+      "gemini-3.7-flash": "all",
     },
     modelCooldownScope: "observation",
     // 3.8·3.7은 우선순위 보호 모델이다. 과거 지연 기록으로 통째로 건너뛰지
