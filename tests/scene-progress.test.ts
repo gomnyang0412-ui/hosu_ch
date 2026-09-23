@@ -40,6 +40,12 @@ describe("scene stream reader", () => {
       model: "gemini-3.6-flash",
       reason: "cooldown",
     })).toBe("Gemini 3.6 Flash · 반복 지연 냉각 중이라 건너뜀");
+    expect(generationProgressLabel({
+      phase: "retry",
+      model: "gemini-3.7-flash",
+      keyIndex: 2,
+      reason: "rateQuota",
+    })).toBe("Gemini 3.7 Flash · 키2 · 분당 요청·토큰 한도 도달");
   });
   it("does not mistake an interrupted stream for a saved result", async () => {
     await expect(readSceneResponse(response([{ type: "ping" }]), vi.fn())).rejects.toThrow("without a saved result");

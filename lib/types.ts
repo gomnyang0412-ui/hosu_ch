@@ -406,6 +406,7 @@ export interface GenerationProgress {
   keyIndex?: number;
   reason?:
     | "quota"
+    | "rateQuota"
     | "dailyQuota"
     | "timeout"
     | "network"

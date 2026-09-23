@@ -10,6 +10,7 @@ export function generationProgressLabel(progress: GenerationProgress): string {
     case "retry": {
       const reasons = {
         quota: "요청 한도 도달",
+        rateQuota: "분당 요청·토큰 한도 도달",
         dailyQuota: "오늘 한도 소진",
         timeout: "응답 시간 초과",
         overloaded: "서버 혼잡",
@@ -22,6 +23,7 @@ export function generationProgressLabel(progress: GenerationProgress): string {
     case "skip": {
       const reasons = {
         quota: "요청 한도로 건너뜀",
+        rateQuota: "분당 요청·토큰 한도로 건너뜀",
         dailyQuota: "오늘 한도 소진으로 건너뜀",
         timeout: "응답 시간 초과로 건너뜀",
         overloaded: "서버 혼잡으로 건너뜀",

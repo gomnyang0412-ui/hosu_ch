@@ -83,14 +83,15 @@ const DIALOGUE_LITE_MODELS = [
 ];
 const DIALOGUE_MODEL_CHAIN = [...DIALOGUE_MODELS, ...DIALOGUE_LITE_MODELS];
 
-// 무료 등급에서 3.8 Flash는 프로젝트당 하루 5회다. 키들이 서로 다른
-// 프로젝트에 속한다는 전제에서, 앱이 이미 관측한 성공 횟수나 명시적인
-// RequestsPerDay 소진 기록을 이용해 끝난 키를 다시 호출하지 않는다.
-// 다른 모델은 한도가 다르거나 바뀔 수 있으므로 확인된 3.8에만 적용한다.
-const DAILY_REQUEST_LIMITS: Partial<Record<string, number>> = {
-  "gemini-3.8-flash": 5,
-};
+// 공식 한도는 프로젝트·사용 등급에 따라 달라지고 변경될 수 있다. 따라서
+// 성공 횟수만 보고 "하루 5회"처럼 선제 차단하지 않고, API가 실제
+// RequestsPerDay 소진을 반환한 모델·키만 같은 태평양 기준일 동안 건너뛴다.
 const USAGE_READ_TIMEOUT_MS = 1_000;
+const PRIORITY_QUOTA_BACKOFF_ROUNDS: Partial<Record<string, number>> = {
+  "gemini-3.8-flash": 1,
+  "gemini-3.7-flash": 1,
+};
+const PRIORITY_QUOTA_BACKOFF_MS = 3_000;
 
 export type GeminiErrorKind = "quota" | "network" | "overloaded" | "unknown";
 
@@ -171,14 +172,13 @@ function isDailyQuotaError(err: unknown): boolean {
 
 async function readRoutingState(
   date: string,
-  needsDailyUsage: boolean,
   cooldownScope?: string
 ): Promise<{
   dailyUsage: ApiUsageEntry[];
   cooldowns: Record<string, number>;
 }> {
   const work = Promise.all([
-    needsDailyUsage ? getApiUsage(date) : Promise.resolve([]),
+    getApiUsage(date),
     cooldownScope ? getApiModelCooldowns(date, cooldownScope) : Promise.resolve({}),
   ]).then(([dailyUsage, cooldowns]) => ({ dailyUsage, cooldowns }))
     .catch(() => ({ dailyUsage: [], cooldowns: {} }));
@@ -406,6 +406,10 @@ async function generate(params: {
   modelCooldownScope?: string;
   /** modelCooldownScope 안에서도 냉각을 적용할 모델. 생략하면 전체 모델. */
   modelCooldownModels?: string[];
+  /** 일시적 RPM/TPM 429로 모든 키가 막혔을 때 같은 모델을 다시 도는 횟수. */
+  transientQuotaBackoffRoundsByModel?: Partial<Record<string, number>>;
+  /** 일시적 429 재확인 라운드의 첫 대기 시간. 라운드마다 두 배가 된다. */
+  transientQuotaBackoffMs?: number;
   /**
    * 모델·키를 넘나드는 재시도 전체에 거는 총 시간 제한. 호스팅 플랫폼의
    * 실제 함수 실행 제한은 코드의 maxDuration 설정과 별개로 더 짧을 수
@@ -439,7 +443,6 @@ async function generate(params: {
   const usageDate = todayPacific();
   const { dailyUsage, cooldowns } = await readRoutingState(
     usageDate,
-    params.models.some((model) => DAILY_REQUEST_LIMITS[model]),
     params.modelCooldownScope
   );
   const usageByModelKey = new Map(
@@ -463,182 +466,212 @@ async function generate(params: {
       continue;
     }
     let availabilityAttempts = 0;
-    for (let i = 0; i < clients.length; i++) {
-      const dailyLimit = DAILY_REQUEST_LIMITS[model];
-      const previousUsage = usageByModelKey.get(`${model}:${i + 1}`);
-      if (
-        dailyLimit !== undefined &&
-        previousUsage &&
-        (previousUsage.success >= dailyLimit || previousUsage.dailyQuota > 0)
-      ) {
-        report({ phase: "skip", model, keyIndex: i + 1, reason: "dailyQuota" });
-        console.log(
-          `[gemini] ${requestId} skip=daily-quota model=${model} key#${i + 1} success=${previousUsage.success}`
-        );
-        continue;
-      }
-      // 2026-09: 온전한 timeoutMs가 남아야만 시작하던 검사는 채팅에서
-      // 15초 실패 후 남은 13초와 Lite의 후속 키를 전부 버렸다.
-      // 남은 예산으로 시도 시간을 줄이되 1초도 없으면 새 호출을 시작하지 않는다.
-      const remainingMs = params.overallDeadlineMs === undefined
-        ? Infinity
-        : params.overallDeadlineMs - (Date.now() - startedAt);
-      const modelTimeoutMs =
-        params.timeoutMsByModel?.[model] ?? params.timeoutMs ?? CALL_TIMEOUT_MS;
-      const nextCallBudget = Math.min(modelTimeoutMs, remainingMs);
-      if (nextCallBudget < 1000) {
-        console.warn(`[gemini] ${requestId} stop=deadline elapsedMs=${Date.now() - startedAt} attempts=${attempt}`);
-        throw (
-          lastError ??
-          new GeminiRequestError(
-            "AI 응답이 너무 오래 걸려서 중단했어요. 다시 시도해 주세요.",
-            "network"
-          )
-        );
-      }
-      const ai = clients[i];
-      const attemptStartedAt = Date.now();
-      const signal = AbortSignal.timeout(nextCallBudget);
-      attempt++;
-      const logPrefix = `[gemini] ${requestId} attempt=${attempt} model=${model} key#${i + 1}`;
-      report({ phase: "attempt", model, keyIndex: i + 1 });
-      try {
-        const response = await ai.models.generateContent({
-          model,
-          contents:
-            useFallbackContents && params.fallbackContents
-              ? params.fallbackContents
-              : params.contents,
-          config: {
-            abortSignal: signal,
-            systemInstruction: params.systemInstruction,
-            safetySettings: SAFETY_SETTINGS,
-            ...(params.thinkingLevels?.[model]
-              ? {
-                  thinkingConfig: {
-                    thinkingLevel: params.thinkingLevels[model],
-                  },
-                }
-              : {}),
-            ...(params.json
-              ? {
-                  responseMimeType: "application/json",
-                  responseSchema: params.responseSchema ?? SINGLE_REPLY_SCHEMA,
-                }
-              : {}),
-          },
-        });
-        const finishReason = response.candidates?.[0]?.finishReason;
-        if (finishReason && BLOCKED_FINISH_REASONS.has(finishReason)) {
-          throw new GeminiRequestError(
-            "AI 안전 정책에 걸려 이 내용을 만들지 못했어요. 표현을 조금 바꿔서 다시 시도해 주세요.",
-            "unknown"
+    let quotaBackoffRound = 0;
+    let advanceToNextModel = false;
+    const dailyQuotaKeys = new Set(
+      clients.flatMap((_, i) =>
+        (usageByModelKey.get(`${model}:${i + 1}`)?.dailyQuota ?? 0) > 0
+          ? [i + 1]
+          : []
+      )
+    );
+    const unavailableKeys = new Set<number>();
+    while (!advanceToNextModel) {
+      let retryModelAfterTransientQuota = false;
+      for (let i = 0; i < clients.length; i++) {
+        if (dailyQuotaKeys.has(i + 1)) {
+          report({ phase: "skip", model, keyIndex: i + 1, reason: "dailyQuota" });
+          console.log(
+            `[gemini] ${requestId} skip=daily-quota model=${model} key#${i + 1}`
           );
-        }
-        const text = response.text;
-        if (!text) {
-          throw new GeminiRequestError(
-            "AI가 빈 응답을 보냈어요. 다시 시도해 주세요.",
-            "unknown"
-          );
-        }
-        // 타임아웃 값을 다음에 데이터 기반으로 조정할 수 있게, 실제 걸린
-        // 시간을 서버 콘솔에 남긴다(Redis 스키마 변경 없이 로그로만).
-        console.log(
-          `${logPrefix} success elapsedMs=${Date.now() - attemptStartedAt}`
-        );
-        report({ phase: "generated", model, keyIndex: i + 1 });
-        // 서버리스 환경에서는 응답을 반환한 뒤 실행이 곧바로 얼어붙을 수
-        // 있어서, fire-and-forget이 아니라 기록이 끝나길 기다린 뒤 반환한다
-        // (recordApiUsage 자체는 내부에서 실패를 삼켜 절대 던지지 않는다).
-        await Promise.all([
-          recordApiUsage(usageDate, i + 1, model, "success"),
-          ...(usesModelCooldown
-            ? [clearApiModelAvailabilityFailure(
-                usageDate,
-                params.modelCooldownScope!,
-                model
-              )]
-            : []),
-        ]);
-        return { text, model, keyIndex: i + 1 };
-      } catch (err) {
-        if (isModelUnavailable(err)) {
-          report({ phase: "retry", model, keyIndex: i + 1, reason: "unavailable" });
-          console.warn(`${logPrefix} unavailable status=404 elapsedMs=${Date.now() - attemptStartedAt}`);
-          lastError = new GeminiRequestError("사용 가능한 AI 모델을 찾지 못했어요.", "overloaded");
-          if (params.retryDelayMs) {
-            await new Promise((resolve) => setTimeout(resolve, params.retryDelayMs));
-          }
           continue;
         }
-        const timedOut = signal.aborted || (err instanceof Error &&
-          (err.name === "TimeoutError" || err.name === "AbortError"));
-        const mapped = timedOut
-          ? new GeminiRequestError("AI 응답이 너무 오래 걸려서 중단했어요. 다시 시도해 주세요.", "network")
-          : toGeminiError(err);
-        console.warn(
-          `${logPrefix} failure=${timedOut ? "timeout" : mapped.kind} status=${err instanceof ApiError ? err.status : "none"} quota=${quotaDimensions(err)} elapsedMs=${Date.now() - attemptStartedAt}`
-        );
-        // 사용량 초과(quota)나 서버 혼잡(overloaded)이 아닌 오류는 다른
-        // 키/모델로 시도해도 똑같이 실패할 가능성이 높으니 바로 실패
-        // 처리한다. 이 둘일 때만, 그리고 retryOnTimeout이 켜져 있으면
-        // network(타임아웃 포함 — toGeminiError는 타임아웃과 순수
-        // 연결 오류를 똑같이 "network"로 분류한다)일 때도 재시도한다.
-        // 그것도 다 떨어지면 다음 모델로 넘어간다.
-        if (mapped.kind === "quota") {
-          await recordApiUsage(
-            usageDate,
-            i + 1,
-            model,
-            isDailyQuotaError(err) ? "dailyQuota" : "quota"
+        if (unavailableKeys.has(i + 1)) continue;
+        // 2026-09: 온전한 timeoutMs가 남아야만 시작하던 검사는 채팅에서
+        // 15초 실패 후 남은 13초와 Lite의 후속 키를 전부 버렸다.
+        // 남은 예산으로 시도 시간을 줄이되 1초도 없으면 새 호출을 시작하지 않는다.
+        const remainingMs = params.overallDeadlineMs === undefined
+          ? Infinity
+          : params.overallDeadlineMs - (Date.now() - startedAt);
+        const modelTimeoutMs =
+          params.timeoutMsByModel?.[model] ?? params.timeoutMs ?? CALL_TIMEOUT_MS;
+        const nextCallBudget = Math.min(modelTimeoutMs, remainingMs);
+        if (nextCallBudget < 1000) {
+          console.warn(`[gemini] ${requestId} stop=deadline elapsedMs=${Date.now() - startedAt} attempts=${attempt}`);
+          throw (
+            lastError ??
+            new GeminiRequestError(
+              "AI 응답이 너무 오래 걸려서 중단했어요. 다시 시도해 주세요.",
+              "network"
+            )
           );
-        } else if (timedOut || mapped.kind === "overloaded") {
+        }
+        const ai = clients[i];
+        const attemptStartedAt = Date.now();
+        const signal = AbortSignal.timeout(nextCallBudget);
+        attempt++;
+        const logPrefix = `[gemini] ${requestId} attempt=${attempt} model=${model} key#${i + 1}`;
+        report({ phase: "attempt", model, keyIndex: i + 1 });
+        try {
+          const response = await ai.models.generateContent({
+            model,
+            contents:
+              useFallbackContents && params.fallbackContents
+                ? params.fallbackContents
+                : params.contents,
+            config: {
+              abortSignal: signal,
+              systemInstruction: params.systemInstruction,
+              safetySettings: SAFETY_SETTINGS,
+              ...(params.thinkingLevels?.[model]
+                ? {
+                    thinkingConfig: {
+                      thinkingLevel: params.thinkingLevels[model],
+                    },
+                  }
+                : {}),
+              ...(params.json
+                ? {
+                    responseMimeType: "application/json",
+                    responseSchema: params.responseSchema ?? SINGLE_REPLY_SCHEMA,
+                  }
+                : {}),
+            },
+          });
+          const finishReason = response.candidates?.[0]?.finishReason;
+          if (finishReason && BLOCKED_FINISH_REASONS.has(finishReason)) {
+            throw new GeminiRequestError(
+              "AI 안전 정책에 걸려 이 내용을 만들지 못했어요. 표현을 조금 바꿔서 다시 시도해 주세요.",
+              "unknown"
+            );
+          }
+          const text = response.text;
+          if (!text) {
+            throw new GeminiRequestError(
+              "AI가 빈 응답을 보냈어요. 다시 시도해 주세요.",
+              "unknown"
+            );
+          }
+          // 타임아웃 값을 다음에 데이터 기반으로 조정할 수 있게, 실제 걸린
+          // 시간을 서버 콘솔에 남긴다(Redis 스키마 변경 없이 로그로만).
+          console.log(
+            `${logPrefix} success elapsedMs=${Date.now() - attemptStartedAt}`
+          );
+          report({ phase: "generated", model, keyIndex: i + 1 });
+          // 서버리스 환경에서는 응답을 반환한 뒤 실행이 곧바로 얼어붙을 수
+          // 있어서, fire-and-forget이 아니라 기록이 끝나길 기다린 뒤 반환한다
+          // (recordApiUsage 자체는 내부에서 실패를 삼켜 절대 던지지 않는다).
           await Promise.all([
-            recordApiUsage(
-              usageDate,
-              i + 1,
-              model,
-              timedOut ? "timeout" : "overloaded"
-            ),
+            recordApiUsage(usageDate, i + 1, model, "success"),
             ...(usesModelCooldown
-              ? [recordApiModelAvailabilityFailure(
+              ? [clearApiModelAvailabilityFailure(
                   usageDate,
                   params.modelCooldownScope!,
                   model
                 )]
               : []),
           ]);
-        }
-        const retryable =
-          mapped.kind === "quota" ||
-          mapped.kind === "overloaded" ||
-          (mapped.kind === "network" && params.retryOnTimeout);
-        if (!retryable) throw mapped;
-        lastError = mapped;
-        report({ phase: "retry", model, keyIndex: i + 1,
-          reason: timedOut ? "timeout" : mapped.kind as "quota" | "overloaded" | "network" });
-        // quota는 기존처럼 현재 모델의 모든 키를 확인한다. 타임아웃·혼잡은
-        // 호출부가 정한 모델별 횟수까지만 실제 키를 바꿔 본 뒤 다음 모델로
-        // 이동한다. 별도 설정이 없으면 기존 동작과 같은 1회다.
-        const advancesAfterAvailabilityFailure =
-          (timedOut && params.advanceModelOnTimeout) ||
-          (mapped.kind === "overloaded" && params.advanceModelOnOverloaded);
-        if (advancesAfterAvailabilityFailure) {
-          useFallbackContents = true;
-          availabilityAttempts++;
-          const allowedAttempts = Math.max(
-            1,
-            params.availabilityAttemptsByModel?.[model] ?? 1
+          return { text, model, keyIndex: i + 1 };
+        } catch (err) {
+          if (isModelUnavailable(err)) {
+            unavailableKeys.add(i + 1);
+            report({ phase: "retry", model, keyIndex: i + 1, reason: "unavailable" });
+            console.warn(`${logPrefix} unavailable status=404 elapsedMs=${Date.now() - attemptStartedAt}`);
+            lastError = new GeminiRequestError("사용 가능한 AI 모델을 찾지 못했어요.", "overloaded");
+            if (params.retryDelayMs) {
+              await new Promise((resolve) => setTimeout(resolve, params.retryDelayMs));
+            }
+            continue;
+          }
+          const timedOut = signal.aborted || (err instanceof Error &&
+            (err.name === "TimeoutError" || err.name === "AbortError"));
+          const mapped = timedOut
+            ? new GeminiRequestError("AI 응답이 너무 오래 걸려서 중단했어요. 다시 시도해 주세요.", "network")
+            : toGeminiError(err);
+          console.warn(
+            `${logPrefix} failure=${timedOut ? "timeout" : mapped.kind} status=${err instanceof ApiError ? err.status : "none"} quota=${quotaDimensions(err)} elapsedMs=${Date.now() - attemptStartedAt}`
           );
-          if (availabilityAttempts >= allowedAttempts) break;
-        }
-        // 위에서 모델을 넘기지 않은 재시도 오류는 현재 모델의 다음
-        // 프로젝트 키를 먼저 쓴다. 모든 키가 실패한 뒤에 다음 모델로 간다.
-        if (params.retryDelayMs) {
-          await new Promise((resolve) => setTimeout(resolve, params.retryDelayMs));
+          // 사용량 초과(quota)나 서버 혼잡(overloaded)이 아닌 오류는 다른
+          // 키/모델로 시도해도 똑같이 실패할 가능성이 높으니 바로 실패
+          // 처리한다. 이 둘일 때만, 그리고 retryOnTimeout이 켜져 있으면
+          // network(타임아웃 포함 — toGeminiError는 타임아웃과 순수
+          // 연결 오류를 똑같이 "network"로 분류한다)일 때도 재시도한다.
+          // 그것도 다 떨어지면 다음 모델로 넘어간다.
+          const dailyQuotaExhausted = isDailyQuotaError(err);
+          if (mapped.kind === "quota") {
+            if (dailyQuotaExhausted) dailyQuotaKeys.add(i + 1);
+            else retryModelAfterTransientQuota = true;
+            await recordApiUsage(
+              usageDate,
+              i + 1,
+              model,
+              dailyQuotaExhausted ? "dailyQuota" : "quota"
+            );
+          } else if (timedOut || mapped.kind === "overloaded") {
+            await Promise.all([
+              recordApiUsage(
+                usageDate,
+                i + 1,
+                model,
+                timedOut ? "timeout" : "overloaded"
+              ),
+              ...(usesModelCooldown
+                ? [recordApiModelAvailabilityFailure(
+                    usageDate,
+                    params.modelCooldownScope!,
+                    model
+                  )]
+                : []),
+            ]);
+          }
+          const retryable =
+            mapped.kind === "quota" ||
+            mapped.kind === "overloaded" ||
+            (mapped.kind === "network" && params.retryOnTimeout);
+          if (!retryable) throw mapped;
+          lastError = mapped;
+          report({ phase: "retry", model, keyIndex: i + 1,
+            reason: timedOut
+              ? "timeout"
+              : mapped.kind === "quota"
+                ? dailyQuotaExhausted ? "dailyQuota" : "rateQuota"
+                : mapped.kind as "overloaded" | "network" });
+          // quota는 기존처럼 현재 모델의 모든 키를 확인한다. 타임아웃·혼잡은
+          // 호출부가 정한 모델별 횟수까지만 실제 키를 바꿔 본 뒤 다음 모델로
+          // 이동한다. 별도 설정이 없으면 기존 동작과 같은 1회다.
+          const advancesAfterAvailabilityFailure =
+            (timedOut && params.advanceModelOnTimeout) ||
+            (mapped.kind === "overloaded" && params.advanceModelOnOverloaded);
+          if (advancesAfterAvailabilityFailure) {
+            useFallbackContents = true;
+            availabilityAttempts++;
+            const allowedAttempts = Math.max(
+              1,
+              params.availabilityAttemptsByModel?.[model] ?? 1
+            );
+            if (availabilityAttempts >= allowedAttempts) {
+              advanceToNextModel = true;
+              break;
+            }
+          }
+          // 위에서 모델을 넘기지 않은 재시도 오류는 현재 모델의 다음
+          // 프로젝트 키를 먼저 쓴다. 모든 키가 실패한 뒤에 다음 모델로 간다.
+          if (params.retryDelayMs) {
+            await new Promise((resolve) => setTimeout(resolve, params.retryDelayMs));
+          }
         }
       }
+      if (advanceToNextModel || !retryModelAfterTransientQuota) break;
+      const allowedBackoffRounds =
+        params.transientQuotaBackoffRoundsByModel?.[model] ?? 0;
+      if (quotaBackoffRound >= allowedBackoffRounds) break;
+      const backoffMs =
+        (params.transientQuotaBackoffMs ?? 1_000) * 2 ** quotaBackoffRound;
+      quotaBackoffRound++;
+      console.log(
+        `[gemini] ${requestId} retry=transient-quota model=${model} round=${quotaBackoffRound} delayMs=${backoffMs}`
+      );
+      await new Promise((resolve) => setTimeout(resolve, backoffMs));
     }
   }
 
@@ -678,6 +711,8 @@ export async function generateChatReply(params: {
       models: DIALOGUE_MODELS,
       timeoutMs: CHAT_REPLY_TIMEOUT_MS,
       retryOnTimeout: true,
+      transientQuotaBackoffRoundsByModel: PRIORITY_QUOTA_BACKOFF_ROUNDS,
+      transientQuotaBackoffMs: PRIORITY_QUOTA_BACKOFF_MS,
       overallDeadlineMs: CHAT_REPLY_FLASH_DEADLINE_MS,
     });
   } catch (err) {
@@ -753,6 +788,8 @@ export async function generateStoryEpisode(params: {
     retryOnTimeout: true,
     advanceModelOnTimeout: true,
     advanceModelOnOverloaded: true,
+    transientQuotaBackoffRoundsByModel: PRIORITY_QUOTA_BACKOFF_ROUNDS,
+    transientQuotaBackoffMs: PRIORITY_QUOTA_BACKOFF_MS,
     // 최우선인 3.8·3.7은 한 키의 일시적 지연만으로 포기하지 않는다.
     // 다만 모든 키를 순회하면 장문 생성 예산이 소진되므로 실제 키 두 개까지만 본다.
     availabilityAttemptsByModel: {
@@ -803,6 +840,8 @@ export async function generateCharacterProfile(params: {
     models: DIALOGUE_MODEL_CHAIN,
     timeoutMs: CHARACTER_PROFILE_TIMEOUT_MS,
     retryOnTimeout: true,
+    transientQuotaBackoffRoundsByModel: PRIORITY_QUOTA_BACKOFF_ROUNDS,
+    transientQuotaBackoffMs: PRIORITY_QUOTA_BACKOFF_MS,
     overallDeadlineMs: CHARACTER_PROFILE_DEADLINE_MS,
   });
 }
@@ -832,6 +871,8 @@ export async function generateObservationRecap(params: {
       models: DIALOGUE_MODELS,
       timeoutMs: OBSERVATION_RECAP_TIMEOUT_MS,
       retryOnTimeout: true,
+      transientQuotaBackoffRoundsByModel: PRIORITY_QUOTA_BACKOFF_ROUNDS,
+      transientQuotaBackoffMs: PRIORITY_QUOTA_BACKOFF_MS,
       overallDeadlineMs: OBSERVATION_RECAP_FLASH_DEADLINE_MS,
     });
     return text;

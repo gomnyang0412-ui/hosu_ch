@@ -58,7 +58,25 @@ describe("Gemini retry routing", () => {
     expect((await pending).keyIndex).toBe(2);
     expect(calls()).toEqual([["test1", "gemini-3.8-flash"], ["test2", "gemini-3.8-flash"]]);
     expect(progress.mock.calls.map(([p]) => [p.phase, p.keyIndex, p.reason])).toEqual([
-      ["attempt", 1, undefined], ["retry", 1, "quota"], ["attempt", 2, undefined], ["generated", 2, undefined],
+      ["attempt", 1, undefined], ["retry", 1, "rateQuota"], ["attempt", 2, undefined], ["generated", 2, undefined],
+    ]);
+  });
+  it("rechecks protected 3.8 after every key hits a transient quota", async () => {
+    mocks.call
+      .mockRejectedValueOnce(quota())
+      .mockRejectedValueOnce(quota())
+      .mockRejectedValueOnce(quota())
+      .mockRejectedValueOnce(quota())
+      .mockResolvedValue(success);
+    const pending = generateStoryEpisode(input);
+    await vi.runAllTimersAsync();
+    expect(await pending).toMatchObject({ model: "gemini-3.8-flash", keyIndex: 1 });
+    expect(calls()).toEqual([
+      ["test1", "gemini-3.8-flash"],
+      ["test2", "gemini-3.8-flash"],
+      ["test3", "gemini-3.8-flash"],
+      ["test4", "gemini-3.8-flash"],
+      ["test1", "gemini-3.8-flash"],
     ]);
   });
   it("a full chat timeout tries the next key on the same Flash", async () => {
@@ -140,11 +158,22 @@ describe("Gemini retry routing", () => {
       "dailyQuota"
     );
   });
-  it("skips 3.8 keys whose observed daily allowance is exhausted", async () => {
+  it("does not skip 3.8 from a stale hard-coded success count", async () => {
     mocks.usageRead.mockResolvedValue([
       { keyIndex: 1, model: "gemini-3.8-flash", success: 5, quota: 0, dailyQuota: 0 },
+    ]);
+    mocks.call.mockResolvedValue(success);
+    expect(await generateStoryEpisode(input)).toMatchObject({
+      model: "gemini-3.8-flash",
+      keyIndex: 1,
+    });
+    expect(calls()).toEqual([["test1", "gemini-3.8-flash"]]);
+  });
+  it("skips keys only after the API reported an actual daily quota", async () => {
+    mocks.usageRead.mockResolvedValue([
+      { keyIndex: 1, model: "gemini-3.8-flash", success: 5, quota: 0, dailyQuota: 1 },
       { keyIndex: 2, model: "gemini-3.8-flash", success: 4, quota: 0, dailyQuota: 1 },
-      { keyIndex: 3, model: "gemini-3.8-flash", success: 5, quota: 0, dailyQuota: 0 },
+      { keyIndex: 3, model: "gemini-3.8-flash", success: 5, quota: 0, dailyQuota: 1 },
     ]);
     mocks.call.mockResolvedValue(success);
     const progress = vi.fn();
@@ -159,14 +188,14 @@ describe("Gemini retry routing", () => {
       ["skip", 3, "dailyQuota"],
     ]);
   });
-  it("starts at 3.7 after every 3.8 project is exhausted", async () => {
+  it("starts at 3.7 after every 3.8 project reports daily exhaustion", async () => {
     mocks.usageRead.mockResolvedValue(
       [1, 2, 3, 4].map((keyIndex) => ({
         keyIndex,
         model: "gemini-3.8-flash",
         success: 5,
         quota: 0,
-        dailyQuota: 0,
+        dailyQuota: 1,
       }))
     );
     mocks.call.mockResolvedValue(success);
